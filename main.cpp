@@ -111,18 +111,11 @@ HRESULT ProcessConnections()
             printf("read %d chars. got char: %01LX\n", cch, c);
             vbData.push_back(c);
 
-            HRESULT hr = message.ParseFrom(&vbData.front(), vbData.size());
-
-            if (hr != MT_E_INCOMPLETE_MESSAGE)
+            HRESULT hr = ParseMessage(&vbData.front(), vbData.size());
+            if (hr == S_OK)
             {
-                if (hr == S_OK)
-                {
-                    printf("successfully parsed message. CT=%d\n", message.ContentType()->Type());
-                }
-                else
-                {
-                    printf("failed to parse message: %08LX\n", hr);
-                }
+                printf("finished parsing message\n");
+                vbData.clear();
             }
 
             cch = recv(sockAccept, &c, 1, 0);

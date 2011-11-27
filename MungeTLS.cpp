@@ -18,7 +18,17 @@ ParseMessage(
 {
     HRESULT hr = S_OK;
 
-    hr = message.ParseFrom(&vbData.front(), vbData.size());
+    MT_TLSPlaintext message;
+    hr = message.ParseFrom(pv, cb);
+
+    if (hr == S_OK)
+    {
+        printf("successfully parsed message. CT=%d\n", message.ContentType()->Type());
+    }
+    else
+    {
+        printf("failed to parse message: %08LX\n", hr);
+    }
 
     return hr;
 } // end function ParseMessage

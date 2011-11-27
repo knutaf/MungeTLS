@@ -95,4 +95,10 @@ class MT_TLSPlaintext
     std::vector<BYTE> m_vbFragment;
 };
 
+HRESULT
+ParseMessage(
+    const BYTE* pv,
+    DWORD cb
+);
+
 }
