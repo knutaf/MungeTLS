@@ -23,7 +23,22 @@ ParseMessage(
 
     if (hr == S_OK)
     {
-        printf("successfully parsed message. CT=%d\n", message.ContentType()->Type());
+        printf("successfully parsed TLSPlaintext. CT=%d\n", message.ContentType()->Type());
+
+        if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+        {
+            MT_Handshake handshakeMessage;
+            hr = handshakeMessage.ParseFrom(&(message.Fragment()->front()), message.Fragment()->size());
+
+            if (hr == S_OK)
+            {
+                printf("successfully parsed Handshake. type=%d\n", handshakeMessage.HandshakeType());
+            }
+            else
+            {
+                printf("failed to parse handshake: %08LX\n", hr);
+            }
+        }
     }
     else
     {
@@ -32,6 +47,8 @@ ParseMessage(
 
     return hr;
 } // end function ParseMessage
+
+/*********** MT_TLSPlaintext *****************/
 
 MT_TLSPlaintext::MT_TLSPlaintext()
     : m_contentType(),
@@ -49,7 +66,7 @@ MT_TLSPlaintext::ParseFrom(
 {
     HRESULT hr = S_OK;
     DWORD cbAdvance = 0;
-    UINT16 cbFragmentLength = 0;
+    ULONG cbFragmentLength = 0;
 
     SetLength(0);
 
@@ -94,12 +111,18 @@ MT_TLSPlaintext::ParseFrom(
         goto error;
     }
 
-    Fragment()->assign(pv, pv + cb);
-    assert(Fragment()->size() == cbFragmentLength);
+    Fragment()->assign(pv, pv + cbFragmentLength);
+
+    pv += cbAdvance;
+    cb -= cbAdvance;
+    SetLength(Length() + cbAdvance);
 
 error:
     return hr;
 } // end function ParseFrom
+
+
+/*********** MT_ContentType *****************/
 
 MT_ContentType::MT_ContentType()
     : m_eType(MTCT_Type_Unknown)
@@ -107,7 +130,7 @@ MT_ContentType::MT_ContentType()
 }
 
 
-const MT_ContentType::MTCT_Type MT_ContentType::s_rgeValidTypes[] =
+const MT_ContentType::MTCT_Type MT_ContentType::c_rgeValidTypes[] =
 {
     MTCT_Type_ChangeCipherSpec,
     MTCT_Type_Alert,
@@ -116,7 +139,7 @@ const MT_ContentType::MTCT_Type MT_ContentType::s_rgeValidTypes[] =
     MTCT_Type_Unknown,
 };
 
-const DWORD MT_ContentType::s_cValidTypes = ARRAYSIZE(s_rgeValidTypes);
+const DWORD MT_ContentType::c_cValidTypes = ARRAYSIZE(c_rgeValidTypes);
 
 
 HRESULT
@@ -152,19 +175,7 @@ MT_ContentType::IsValidContentType(
     MTCT_Type eType
 )
 {
-    return (find(s_rgeValidTypes, s_rgeValidTypes+s_cValidTypes, eType) != s_rgeValidTypes+s_cValidTypes);
-
-    /* TODO: remove
-    for (DWORD i = 0; i < s_cValidTypes; i++)
-    {
-        if (s_rgeValidTypes[i] == eType)
-        {
-            return true;
-        }
-    }
-
-    return false;
-    */
+    return (find(c_rgeValidTypes, c_rgeValidTypes+c_cValidTypes, eType) != c_rgeValidTypes+c_cValidTypes);
 } // end function IsValidContentType
 
 const
@@ -173,12 +184,15 @@ MT_ContentType::Type() const
 {
     assert(IsValidContentType(m_eType));
     return m_eType;
-}
+} // end function Type
+
+
+/*********** MT_ProtocolVersion *****************/
 
 MT_ProtocolVersion::MT_ProtocolVersion()
     : m_version(0)
 {
-}
+} // end ctor MT_ProtocolVersion
 
 HRESULT
 MT_ProtocolVersion::ParseFrom(
@@ -214,7 +228,7 @@ MT_ProtocolVersion::IsKnownVersion(
 )
 {
     return (version == MTPV_TLS10);
-}
+} // end function IsKnownVersion
 
 const
 UINT16
@@ -222,6 +236,136 @@ MT_ProtocolVersion::Version() const
 {
     assert(IsKnownVersion(m_version));
     return m_version;
-}
+} // end function Version
+
+
+/*********** MT_Handshake *****************/
+
+const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeKnownTypes[] =
+{
+    MTH_HelloRequest,
+    MTH_ClientHello,
+    MTH_ServerHello,
+    MTH_Certificate,
+    MTH_ServerKeyExchange,
+    MTH_CertificateRequest,
+    MTH_ServerHelloDone,
+    MTH_CertificateVerify,
+    MTH_ClientKeyExchange,
+    MTH_Finished,
+    MTH_Unknown,
+};
+
+const DWORD MT_Handshake::c_cKnownTypes = ARRAYSIZE(c_rgeKnownTypes);
+
+const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeSupportedTypes[] =
+{
+    MTH_ClientHello,
+    MTH_ServerHello,
+    MTH_Certificate,
+    MTH_ServerKeyExchange,
+    MTH_ServerHelloDone,
+    MTH_CertificateVerify,
+    MTH_ClientKeyExchange,
+    MTH_Finished,
+};
+
+const DWORD MT_Handshake::c_cSupportedTypes = ARRAYSIZE(c_rgeSupportedTypes);
+
+MT_Handshake::MT_Handshake()
+    : m_cbLength(0),
+      m_eType(MTH_Unknown),
+      m_vbBody()
+{
+} // end ctor MT_Handshake
+
+HRESULT
+MT_Handshake::ParseFrom(
+    const BYTE* pv,
+    DWORD cb)
+{
+    HRESULT hr = S_OK;
+    DWORD cbField = 1;
+    MTH_HandshakeType eType = MTH_Unknown;
+    DWORD cbPayloadLength = 0;
+
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    eType = static_cast<MTH_HandshakeType>(*pv);
+
+    if (!IsKnownType(eType))
+    {
+        hr = MT_E_UNKNOWN_HANDSHAKE_TYPE;
+        goto error;
+    }
+
+    if (!IsSupportedType(eType))
+    {
+        hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
+        goto error;
+    }
+
+    m_eType = eType;
+
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
+
+    cbField = 3;
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    cbPayloadLength = (pv[0] << 16) | (pv[1] << 8) | pv[2];
+
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
+
+    cbField = cbPayloadLength;
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    Body()->assign(pv, pv + cbPayloadLength);
+
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
+
+error:
+    return hr;
+} // end function ParseFrom
+
+MT_Handshake::MTH_HandshakeType
+MT_Handshake::HandshakeType() const
+{
+    assert(IsKnownType(m_eType));
+    return m_eType;
+} // end function HandshakeType
+
+bool
+MT_Handshake::IsKnownType(
+    MTH_HandshakeType eType
+)
+{
+    return (find(c_rgeKnownTypes, c_rgeKnownTypes+c_cKnownTypes, eType) != c_rgeKnownTypes+c_cKnownTypes);
+} // end function IsKnownType
+
+bool
+MT_Handshake::IsSupportedType(
+    MTH_HandshakeType eType
+)
+{
+    return (find(c_rgeSupportedTypes, c_rgeSupportedTypes+c_cSupportedTypes, eType) != c_rgeSupportedTypes+c_cSupportedTypes);
+} // end function IsSupportedType
 
 }
