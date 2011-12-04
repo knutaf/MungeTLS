@@ -28,7 +28,7 @@ ParseMessage(
         if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
         {
             MT_Handshake handshakeMessage;
-            hr = handshakeMessage.ParseFrom(&(message.Fragment()->front()), message.Fragment()->size());
+            hr = handshakeMessage.ParseFromVect(message.Fragment());
 
             if (hr == S_OK)
             {
@@ -47,6 +47,16 @@ ParseMessage(
 
     return hr;
 } // end function ParseMessage
+
+/*********** MT_TLSPlaintext *****************/
+
+HRESULT
+MT_Structure::ParseFromVect(
+    const vector<BYTE>* pvb
+)
+{
+    return ParseFrom(&(pvb->front()), pvb->size());
+} // end function ParseFromVect
 
 /*********** MT_TLSPlaintext *****************/
 
@@ -230,7 +240,6 @@ MT_ProtocolVersion::IsKnownVersion(
     return (version == MTPV_TLS10);
 } // end function IsKnownVersion
 
-const
 UINT16
 MT_ProtocolVersion::Version() const
 {

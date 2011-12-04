@@ -13,7 +13,18 @@ const HRESULT MT_E_UNKNOWN_PROTOCOL_VERSION                 = 0x80230003;
 const HRESULT MT_E_UNKNOWN_HANDSHAKE_TYPE                   = 0x80230004;
 const HRESULT MT_E_UNSUPPORTED_HANDSHAKE_TYPE               = 0x80230005;
 
-class MT_ContentType
+class MT_Structure
+{
+    public:
+    MT_Structure() { }
+    virtual ~MT_Structure() { }
+
+    virtual HRESULT ParseFrom(const BYTE* pv, DWORD cb) = 0;
+    HRESULT ParseFromVect(const std::vector<BYTE>* pvb);
+    virtual ULONG Length() const = 0;
+};
+
+class MT_ContentType : public MT_Structure
 {
     public:
     enum MTCT_Type
@@ -33,7 +44,7 @@ class MT_ContentType
     const MTCT_Type Type() const;
     void SetType(MTCT_Type eType) { m_eType = eType; }
 
-    UINT16 Length() const { return 1; }
+    ULONG Length() const { return 1; }
 
     static bool IsValidContentType(MTCT_Type eType);
 
@@ -44,7 +55,7 @@ class MT_ContentType
     static const DWORD c_cValidTypes;
 };
 
-class MT_ProtocolVersion
+class MT_ProtocolVersion : public MT_Structure
 {
     public:
     enum MTPV_Version
@@ -57,10 +68,10 @@ class MT_ProtocolVersion
 
     HRESULT ParseFrom(const BYTE* pv, DWORD cb);
 
-    const UINT16 Version() const;
+    UINT16 Version() const;
     void SetVersion(UINT16 ver) { m_version = ver; }
 
-    UINT16 Length() const { return 2; } // sizeof(UINT16)
+    ULONG Length() const { return 2; } // sizeof(UINT16)
 
     static bool IsKnownVersion(UINT16 version);
 
@@ -68,7 +79,7 @@ class MT_ProtocolVersion
     UINT16 m_version;
 };
 
-class MT_TLSPlaintext
+class MT_TLSPlaintext : public MT_Structure
 {
     public:
     MT_TLSPlaintext();
@@ -97,7 +108,7 @@ class MT_TLSPlaintext
     std::vector<BYTE> m_vbFragment;
 };
 
-class MT_Handshake
+class MT_Handshake : public MT_Structure
 {
     public:
     enum MTH_HandshakeType
