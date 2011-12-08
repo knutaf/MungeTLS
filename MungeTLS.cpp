@@ -153,6 +153,7 @@ MT_VariableLengthField::MT_VariableLengthField
       m_vbData()
 {
     assert(m_cbLengthFieldSize < sizeof(ULONG));
+    assert((1UL << (m_cbLengthFieldSize * 8)) - 1 >= m_cbMaxSize);
 }
 
 HRESULT
