@@ -12,6 +12,7 @@ const HRESULT MT_E_UNKNOWN_CONTENT_TYPE                     = 0x80230002;
 const HRESULT MT_E_UNKNOWN_PROTOCOL_VERSION                 = 0x80230003;
 const HRESULT MT_E_UNKNOWN_HANDSHAKE_TYPE                   = 0x80230004;
 const HRESULT MT_E_UNSUPPORTED_HANDSHAKE_TYPE               = 0x80230005;
+const HRESULT MT_E_DATA_SIZE_OUT_OF_RANGE                   = 0x80230006;
 
 class MT_Structure
 {
@@ -19,9 +20,37 @@ class MT_Structure
     MT_Structure() { }
     virtual ~MT_Structure() { }
 
-    virtual HRESULT ParseFrom(const BYTE* pv, DWORD cb) = 0;
+    HRESULT ParseFrom(const BYTE* pv, LONGLONG cb);
     HRESULT ParseFromVect(const std::vector<BYTE>* pvb);
     virtual ULONG Length() const = 0;
+
+    private:
+    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) = 0;
+};
+
+class MT_VariableLengthField : public MT_Structure
+{
+    public:
+    MT_VariableLengthField::MT_VariableLengthField
+    (
+        ULONG cbLengthFieldSize,
+        ULONG cbMinSize,
+        ULONG cbMaxSize
+    );
+
+    virtual ~MT_VariableLengthField() { }
+
+    ULONG Length() const;
+    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+
+    const std::vector<BYTE>* Data() const { return &m_vbData; }
+    std::vector<BYTE>* Data() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_VariableLengthField*>(this)->Data()); }
+
+    private:
+    ULONG m_cbLengthFieldSize;
+    ULONG m_cbMinSize;
+    ULONG m_cbMaxSize;
+    std::vector<BYTE> m_vbData;
 };
 
 class MT_ContentType : public MT_Structure
@@ -39,7 +68,7 @@ class MT_ContentType : public MT_Structure
     MT_ContentType();
     ~MT_ContentType() {};
 
-    HRESULT ParseFrom(const BYTE* pv, DWORD cb);
+    HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
 
     const MTCT_Type Type() const;
     void SetType(MTCT_Type eType) { m_eType = eType; }
@@ -66,7 +95,7 @@ class MT_ProtocolVersion : public MT_Structure
     MT_ProtocolVersion();
     ~MT_ProtocolVersion() {};
 
-    HRESULT ParseFrom(const BYTE* pv, DWORD cb);
+    HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
 
     UINT16 Version() const;
     void SetVersion(UINT16 ver) { m_version = ver; }
@@ -79,13 +108,42 @@ class MT_ProtocolVersion : public MT_Structure
     UINT16 m_version;
 };
 
+class MT_Random : public MT_Structure
+{
+    public:
+    MT_Random();
+    ~MT_Random() { }
+
+    ULONG Length() const { return 4 + RandomBytes()->size(); }
+    HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+
+    UINT32 GMTUnixTime() const { return m_timestamp; }
+
+    const std::vector<BYTE>* RandomBytes() const { return &m_vbRandomBytes; }
+    std::vector<BYTE>* RandomBytes() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_Random*>(this)->RandomBytes()); }
+
+    private:
+    static const ULONG c_cbRandomBytes;
+
+    UINT32 m_timestamp;
+    std::vector<BYTE> m_vbRandomBytes;
+};
+
+class MT_SessionID : public MT_VariableLengthField
+{
+    public:
+    MT_SessionID::MT_SessionID()
+        : MT_VariableLengthField(1, 0, 32)
+    { }
+};
+
 class MT_TLSPlaintext : public MT_Structure
 {
     public:
     MT_TLSPlaintext();
     ~MT_TLSPlaintext() {};
 
-    HRESULT ParseFrom(const BYTE* pv, DWORD cb);
+    HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
 
     const MT_ContentType* ContentType() const { return &m_contentType; }
     MT_ContentType* ContentType() { return const_cast<MT_ContentType*>(static_cast<const MT_TLSPlaintext*>(this)->ContentType()); }
@@ -129,7 +187,7 @@ class MT_Handshake : public MT_Structure
     MT_Handshake();
     ~MT_Handshake() {}
 
-    HRESULT ParseFrom(const BYTE* pv, DWORD cb);
+    HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     MTH_HandshakeType HandshakeType() const;
     ULONG PayloadLength() const { return Body()->size(); }
     ULONG Length() const { return m_cbLength; }
@@ -152,10 +210,61 @@ class MT_Handshake : public MT_Structure
     std::vector<BYTE> m_vbBody;
 };
 
+class MT_ClientHello : public MT_Structure
+{
+    public:
+    MT_ClientHello();
+    ~MT_ClientHello() { }
+
+    const MT_ProtocolVersion* ProtocolVersion() const { return &m_protocolVersion; }
+    MT_ProtocolVersion* ProtocolVersion() { return const_cast<MT_ProtocolVersion*>(static_cast<const MT_ClientHello*>(this)->ProtocolVersion()); }
+
+    const MT_Random* Random() const { return &m_random; }
+    MT_Random* Random() { return const_cast<MT_Random*>(static_cast<const MT_ClientHello*>(this)->Random()); }
+
+    const MT_SessionID* SessionID() const { return &m_sessionID; }
+    MT_SessionID* SessionID() { return const_cast<MT_SessionID*>(static_cast<const MT_ClientHello*>(this)->SessionID()); }
+
+    HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+
+    ULONG Length() const { return m_cbLength; }
+    void SetLength(ULONG cb) { m_cbLength += cb; }
+
+    private:
+    MT_ProtocolVersion m_protocolVersion;
+    MT_Random m_random;
+    MT_SessionID m_sessionID;
+    ULONG m_cbLength;
+};
+
+
+/*
+class MT_Thingy : public MT_Structure
+{
+    public:
+    MT_Thingy();
+    ~MT_Thingy() { }
+
+    ULONG Length() const { return m_thingy.size(); }
+    HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+
+    private:
+    std::vector<BYTE> m_thingy;
+};
+*/
+
 HRESULT
 ParseMessage(
     const BYTE* pv,
-    DWORD cb
+    LONGLONG cb
+);
+
+HRESULT
+ReadNetworkLong(
+    const BYTE* pv,
+    LONGLONG cb,
+    ULONG cbToRead,
+    ULONG* pResult
 );
 
 }

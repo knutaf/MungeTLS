@@ -13,10 +13,15 @@ using namespace std;
 HRESULT
 ParseMessage(
     const BYTE* pv,
-    DWORD cb
+    LONGLONG cb
 )
 {
     HRESULT hr = S_OK;
+
+    if (cb < 0)
+    {
+        return E_UNEXPECTED;
+    }
 
     MT_TLSPlaintext message;
     hr = message.ParseFrom(pv, cb);
@@ -33,6 +38,25 @@ ParseMessage(
             if (hr == S_OK)
             {
                 printf("successfully parsed Handshake. type=%d\n", handshakeMessage.HandshakeType());
+
+                if (handshakeMessage.HandshakeType() == MT_Handshake::MTH_ClientHello)
+                {
+                    MT_ClientHello clientHello;
+                    hr = clientHello.ParseFromVect(handshakeMessage.Body());
+
+                    if (hr == S_OK)
+                    {
+                        printf("parsed client hello message with version %02LX, session ID %d\n", clientHello.ProtocolVersion()->Version(), clientHello.SessionID()->Data()[0]);
+                    }
+                    else
+                    {
+                        printf("failed to parse client hello: %08LX\n", hr);
+                    }
+                }
+                else
+                {
+                    printf("not yet supporting handshake type %d\n", handshakeMessage.HandshakeType());
+                }
             }
             else
             {
@@ -48,7 +72,63 @@ ParseMessage(
     return hr;
 } // end function ParseMessage
 
-/*********** MT_TLSPlaintext *****************/
+HRESULT
+ReadNetworkLong(
+    const BYTE* pv,
+    LONGLONG cb,
+    ULONG cbToRead,
+    ULONG* pResult
+)
+{
+    assert(pResult != nullptr);
+    assert(cbToRead < sizeof(ULONG));
+
+    HRESULT hr = S_OK;
+
+    *pResult = 0;
+
+    while (cbToRead > 0)
+    {
+        if (cb <= 0)
+        {
+            hr = MT_E_INCOMPLETE_MESSAGE;
+            goto error;
+        }
+
+        (*pResult) <<= 8;
+        *pResult |= *pv;
+
+        pv++;
+        cb--;
+        cbToRead--;
+    }
+
+error:
+    return hr;
+} // end function ReadNetworkInt
+
+/*********** MT_Structure *****************/
+
+HRESULT
+MT_Structure::ParseFrom(
+    const BYTE* pv,
+    LONGLONG cb
+)
+{
+    HRESULT hr = S_OK;
+
+    // if there are no 0-byte fields, this can be <=
+    if (cb < 0)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    hr = ParseFromPriv(pv, cb);
+
+error:
+    return hr;
+} // end function ParseFrom
 
 HRESULT
 MT_Structure::ParseFromVect(
@@ -57,6 +137,73 @@ MT_Structure::ParseFromVect(
 {
     return ParseFrom(&(pvb->front()), pvb->size());
 } // end function ParseFromVect
+
+
+/*********** MT_Thingy *****************/
+
+MT_VariableLengthField::MT_VariableLengthField
+(
+    ULONG cbLengthFieldSize,
+    ULONG cbMinSize,
+    ULONG cbMaxSize
+)
+    : m_cbLengthFieldSize(cbLengthFieldSize),
+      m_cbMinSize(cbMinSize),
+      m_cbMaxSize(cbMaxSize),
+      m_vbData()
+{
+    assert(m_cbLengthFieldSize < sizeof(ULONG));
+}
+
+HRESULT
+MT_VariableLengthField::ParseFromPriv(
+    const BYTE* pv,
+    LONGLONG cb
+)
+{
+    HRESULT hr = S_OK;
+    DWORD cbField = m_cbLengthFieldSize;
+    ULONG cbDataLength = 0;
+
+    hr = ReadNetworkLong(pv, cb, cbField, &cbDataLength);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    if (cbDataLength < m_cbMinSize)
+    {
+        hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
+        goto error;
+    }
+
+    if (cbDataLength > m_cbMaxSize)
+    {
+        hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
+        goto error;
+    }
+
+    cbField = cbDataLength;
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    Data()->assign(pv, pv + cbField);
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
+ULONG
+MT_VariableLengthField::Length() const
+{
+    return m_cbLengthFieldSize + Data()->size();
+} // end function Length
 
 /*********** MT_TLSPlaintext *****************/
 
@@ -69,13 +216,13 @@ MT_TLSPlaintext::MT_TLSPlaintext()
 } // end ctor MT_TLSPlaintext
 
 HRESULT
-MT_TLSPlaintext::ParseFrom(
+MT_TLSPlaintext::ParseFromPriv(
     const BYTE* pv,
-    DWORD cb
+    LONGLONG cb
 )
 {
     HRESULT hr = S_OK;
-    DWORD cbAdvance = 0;
+    DWORD cbField = 0;
     ULONG cbFragmentLength = 0;
 
     SetLength(0);
@@ -86,10 +233,10 @@ MT_TLSPlaintext::ParseFrom(
         goto error;
     }
 
-    cbAdvance = ContentType()->Length();
-    pv += cbAdvance;
-    cb -= cbAdvance;
-    SetLength(Length() + cbAdvance);
+    cbField = ContentType()->Length();
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
 
     hr = ProtocolVersion()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -97,39 +244,40 @@ MT_TLSPlaintext::ParseFrom(
         goto error;
     }
 
-    cbAdvance = ProtocolVersion()->Length();
-    pv += cbAdvance;
-    cb -= cbAdvance;
-    SetLength(Length() + cbAdvance);
+    cbField = ProtocolVersion()->Length();
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
 
 
-    cbAdvance = 2;
-    if (cbAdvance > cb)
+    cbField = 2;
+    if (cbField > cb)
     {
         hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
 
     cbFragmentLength = pv[0] << 8 | pv[1];
-    pv += cbAdvance;
-    cb -= cbAdvance;
-    SetLength(Length() + cbAdvance);
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
 
-    if (cbFragmentLength > cb)
+    cbField = cbFragmentLength;
+    if (cbField > cb)
     {
         hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
 
-    Fragment()->assign(pv, pv + cbFragmentLength);
+    Fragment()->assign(pv, pv + cbField);
 
-    pv += cbAdvance;
-    cb -= cbAdvance;
-    SetLength(Length() + cbAdvance);
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
 
 error:
     return hr;
-} // end function ParseFrom
+} // end function ParseFromPriv
 
 
 /*********** MT_ContentType *****************/
@@ -153,9 +301,9 @@ const DWORD MT_ContentType::c_cValidTypes = ARRAYSIZE(c_rgeValidTypes);
 
 
 HRESULT
-MT_ContentType::ParseFrom(
+MT_ContentType::ParseFromPriv(
     const BYTE* pv,
-    DWORD cb
+    LONGLONG cb
 )
 {
     HRESULT hr = S_OK;
@@ -166,7 +314,7 @@ MT_ContentType::ParseFrom(
         goto error;
     }
 
-    MTCT_Type eType = static_cast<MTCT_Type>(*pv);
+    MTCT_Type eType = static_cast<MTCT_Type>(pv[0]);
 
     if (!IsValidContentType(eType))
     {
@@ -178,7 +326,7 @@ MT_ContentType::ParseFrom(
 
 error:
     return hr;
-} // end function ParseFrom
+} // end function ParseFromPriv
 
 bool
 MT_ContentType::IsValidContentType(
@@ -205,9 +353,9 @@ MT_ProtocolVersion::MT_ProtocolVersion()
 } // end ctor MT_ProtocolVersion
 
 HRESULT
-MT_ProtocolVersion::ParseFrom(
+MT_ProtocolVersion::ParseFromPriv(
     const BYTE* pv,
-    DWORD cb
+    LONGLONG cb
 )
 {
     HRESULT hr = S_OK;
@@ -230,7 +378,7 @@ MT_ProtocolVersion::ParseFrom(
 
 error:
     return hr;
-} // end function ParseFrom
+} // end function ParseFromPriv
 
 bool
 MT_ProtocolVersion::IsKnownVersion(
@@ -289,9 +437,10 @@ MT_Handshake::MT_Handshake()
 } // end ctor MT_Handshake
 
 HRESULT
-MT_Handshake::ParseFrom(
+MT_Handshake::ParseFromPriv(
     const BYTE* pv,
-    DWORD cb)
+    LONGLONG cb
+)
 {
     HRESULT hr = S_OK;
     DWORD cbField = 1;
@@ -344,7 +493,7 @@ MT_Handshake::ParseFrom(
         goto error;
     }
 
-    Body()->assign(pv, pv + cbPayloadLength);
+    Body()->assign(pv, pv + cbField);
 
     pv += cbField;
     cb -= cbField;
@@ -352,7 +501,7 @@ MT_Handshake::ParseFrom(
 
 error:
     return hr;
-} // end function ParseFrom
+} // end function ParseFromPriv
 
 MT_Handshake::MTH_HandshakeType
 MT_Handshake::HandshakeType() const
@@ -376,5 +525,154 @@ MT_Handshake::IsSupportedType(
 {
     return (find(c_rgeSupportedTypes, c_rgeSupportedTypes+c_cSupportedTypes, eType) != c_rgeSupportedTypes+c_cSupportedTypes);
 } // end function IsSupportedType
+
+/*********** MT_Random *****************/
+
+const ULONG MT_Random::c_cbRandomBytes = 28;
+
+MT_Random::MT_Random()
+    : m_timestamp(0),
+      m_vbRandomBytes()
+{
+} // end ctor MT_Random
+
+HRESULT
+MT_Random::ParseFromPriv(
+    const BYTE* pv,
+    LONGLONG cb
+)
+{
+    HRESULT hr = S_OK;
+
+    // Random.(uint32 gmt_unix_time)
+    DWORD cbField = 4;
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    m_timestamp = (pv[0] << 24) |
+                  (pv[1] << 16) |
+                  (pv[2] << 8) |
+                   pv[3];
+
+    pv += cbField;
+    cb -= cbField;
+
+    // Random.(opaque random_bytes[28])
+    cbField = c_cbRandomBytes;
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    RandomBytes()->assign(pv, pv + cbField);
+
+    pv += cbField;
+    cb -= cbField;
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
+
+/*********** MT_ClientHello *****************/
+
+MT_ClientHello::MT_ClientHello()
+    : m_protocolVersion(),
+      m_random(),
+      m_cbLength(0),
+      m_sessionID()
+{
+}
+
+HRESULT
+MT_ClientHello::ParseFromPriv(
+    const BYTE* pv,
+    LONGLONG cb
+)
+{
+    HRESULT hr = S_OK;
+    DWORD cbField = 0;
+
+    hr = ProtocolVersion()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = ProtocolVersion()->Length();
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
+
+    hr = Random()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = Random()->Length();
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
+
+    hr = SessionID()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = SessionID()->Length();
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
+
+error:
+    return hr;
+}
+
+
+
+/*********** MT_Thingy *****************/
+
+/*
+MT_Thingy::MT_Thingy()
+    : m_thingy()
+{
+}
+
+HRESULT
+MT_Thingy::ParseFromPriv(
+    const BYTE* pv,
+    LONGLONG cb
+)
+{
+    HRESULT hr = S_OK;
+    DWORD cbField = 0;
+
+    hr = Something()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = Something()->Length();
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
+
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+error:
+    return hr;
+} // end function ParseFromPriv
+*/
 
 }
