@@ -5,7 +5,7 @@
 namespace MungeTLS
 {
 
-typedef unsigned long UINT16;
+typedef unsigned long MT_UINT16;
 
 const HRESULT MT_E_INCOMPLETE_MESSAGE                       = 0x80230001;
 const HRESULT MT_E_UNKNOWN_CONTENT_TYPE                     = 0x80230002;
@@ -13,6 +13,9 @@ const HRESULT MT_E_UNKNOWN_PROTOCOL_VERSION                 = 0x80230003;
 const HRESULT MT_E_UNKNOWN_HANDSHAKE_TYPE                   = 0x80230004;
 const HRESULT MT_E_UNSUPPORTED_HANDSHAKE_TYPE               = 0x80230005;
 const HRESULT MT_E_DATA_SIZE_OUT_OF_RANGE                   = 0x80230006;
+
+typedef ULONG MT_UINT32;
+typedef ULONG MT_UINT16;
 
 class MT_Structure
 {
@@ -97,15 +100,15 @@ class MT_ProtocolVersion : public MT_Structure
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
 
-    UINT16 Version() const;
-    void SetVersion(UINT16 ver) { m_version = ver; }
+    MT_UINT16 Version() const;
+    void SetVersion(MT_UINT16 ver) { m_version = ver; }
 
-    ULONG Length() const { return 2; } // sizeof(UINT16)
+    ULONG Length() const { return 2; } // sizeof(MT_UINT16)
 
-    static bool IsKnownVersion(UINT16 version);
+    static bool IsKnownVersion(MT_UINT16 version);
 
     private:
-    UINT16 m_version;
+    MT_UINT16 m_version;
 };
 
 class MT_Random : public MT_Structure
@@ -117,7 +120,7 @@ class MT_Random : public MT_Structure
     ULONG Length() const { return 4 + RandomBytes()->size(); }
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
 
-    UINT32 GMTUnixTime() const { return m_timestamp; }
+    MT_UINT32 GMTUnixTime() const { return m_timestamp; }
 
     const std::vector<BYTE>* RandomBytes() const { return &m_vbRandomBytes; }
     std::vector<BYTE>* RandomBytes() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_Random*>(this)->RandomBytes()); }
@@ -125,7 +128,7 @@ class MT_Random : public MT_Structure
     private:
     static const ULONG c_cbRandomBytes;
 
-    UINT32 m_timestamp;
+    MT_UINT32 m_timestamp;
     std::vector<BYTE> m_vbRandomBytes;
 };
 
@@ -151,7 +154,7 @@ class MT_TLSPlaintext : public MT_Structure
     const MT_ProtocolVersion* ProtocolVersion() const { return &m_protocolVersion; }
     MT_ProtocolVersion* ProtocolVersion() { return const_cast<MT_ProtocolVersion*>(static_cast<const MT_TLSPlaintext*>(this)->ProtocolVersion()); }
 
-    UINT16 PayloadLength() const { return Fragment()->size(); }
+    MT_UINT16 PayloadLength() const { return Fragment()->size(); }
 
     ULONG Length() const { return m_cbLength; }
     void SetLength(ULONG len) { m_cbLength = len; }

@@ -46,7 +46,7 @@ ParseMessage(
 
                     if (hr == S_OK)
                     {
-                        printf("parsed client hello message with version %02LX, session ID %d\n", clientHello.ProtocolVersion()->Version(), clientHello.SessionID()->Data()[0]);
+                        printf("parsed client hello message with version %04LX, session ID %d\n", clientHello.ProtocolVersion()->Version(), clientHello.SessionID()->Data()[0]);
                     }
                     else
                     {
@@ -81,7 +81,7 @@ ReadNetworkLong(
 )
 {
     assert(pResult != nullptr);
-    assert(cbToRead < sizeof(ULONG));
+    assert(cbToRead <= sizeof(ULONG));
 
     HRESULT hr = S_OK;
 
@@ -251,13 +251,12 @@ MT_TLSPlaintext::ParseFromPriv(
 
 
     cbField = 2;
-    if (cbField > cb)
+    hr = ReadNetworkLong(pv, cb, cbField, &cbFragmentLength);
+    if (hr != S_OK)
     {
-        hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
 
-    cbFragmentLength = pv[0] << 8 | pv[1];
     pv += cbField;
     cb -= cbField;
     SetLength(Length() + cbField);
@@ -359,14 +358,13 @@ MT_ProtocolVersion::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
+    MT_UINT16 version = 0;
 
-    if (Length() > cb)
+    hr = ReadNetworkLong(pv, cb, Length(), &version);
+    if (hr != S_OK)
     {
-        hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
-
-    UINT16 version = (pv[0] << 8) | pv[1];
 
     if (!IsKnownVersion(version))
     {
@@ -382,13 +380,13 @@ error:
 
 bool
 MT_ProtocolVersion::IsKnownVersion(
-    UINT16 version
+    MT_UINT16 version
 )
 {
     return (version == MTPV_TLS10);
 } // end function IsKnownVersion
 
-UINT16
+MT_UINT16
 MT_ProtocolVersion::Version() const
 {
     assert(IsKnownVersion(m_version));
@@ -474,13 +472,11 @@ MT_Handshake::ParseFromPriv(
     SetLength(Length() + cbField);
 
     cbField = 3;
-    if (cbField > cb)
+    hr = ReadNetworkLong(pv, cb, cbField, &cbPayloadLength);
+    if (hr != S_OK)
     {
-        hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
-
-    cbPayloadLength = (pv[0] << 16) | (pv[1] << 8) | pv[2];
 
     pv += cbField;
     cb -= cbField;
@@ -546,16 +542,11 @@ MT_Random::ParseFromPriv(
 
     // Random.(uint32 gmt_unix_time)
     DWORD cbField = 4;
-    if (cbField > cb)
+    hr = ReadNetworkLong(pv, cb, cbField, &m_timestamp);
+    if (hr != S_OK)
     {
-        hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
-
-    m_timestamp = (pv[0] << 24) |
-                  (pv[1] << 16) |
-                  (pv[2] << 8) |
-                   pv[3];
 
     pv += cbField;
     cb -= cbField;
