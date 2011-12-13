@@ -14,8 +14,9 @@ const HRESULT MT_E_UNKNOWN_HANDSHAKE_TYPE                   = 0x80230004;
 const HRESULT MT_E_UNSUPPORTED_HANDSHAKE_TYPE               = 0x80230005;
 const HRESULT MT_E_DATA_SIZE_OUT_OF_RANGE                   = 0x80230006;
 
-typedef ULONG MT_UINT32;
+typedef ULONG MT_UINT8;
 typedef ULONG MT_UINT16;
+typedef ULONG MT_UINT32;
 
 class MT_Structure
 {
@@ -31,14 +32,15 @@ class MT_Structure
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) = 0;
 };
 
+template <typename F>
 class MT_VariableLengthField : public MT_Structure
 {
     public:
-    MT_VariableLengthField::MT_VariableLengthField
+    MT_VariableLengthField
     (
         ULONG cbLengthFieldSize,
-        ULONG cbMinSize,
-        ULONG cbMaxSize
+        ULONG cMinElements,
+        ULONG cMaxElements
     );
 
     virtual ~MT_VariableLengthField() { }
@@ -46,13 +48,35 @@ class MT_VariableLengthField : public MT_Structure
     ULONG Length() const;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
 
-    const std::vector<BYTE>* Data() const { return &m_vbData; }
-    std::vector<BYTE>* Data() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_VariableLengthField*>(this)->Data()); }
+    const std::vector<F>* Data() const { return &m_vData; }
+    std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_VariableLengthField*>(this)->Data()); }
+    ULONG Count() const { return Data()->size(); }
+
+    const F& operator[](typename std::vector<F>::size_type pos) const { return Data()->at(pos); }
+    F& operator[](typename std::vector<F>::size_type pos) { return const_cast<F&>(static_cast<const MT_VariableLengthField&>(*this)[pos]); }
 
     private:
     ULONG m_cbLengthFieldSize;
-    ULONG m_cbMinSize;
-    ULONG m_cbMaxSize;
+    ULONG m_cMinElements;
+    ULONG m_cMaxElements;
+    std::vector<F> m_vData;
+};
+
+class MT_FixedLengthStructure : public MT_Structure
+{
+    public:
+    MT_FixedLengthStructure::MT_FixedLengthStructure(ULONG cbLength);
+    virtual ~MT_FixedLengthStructure() { }
+
+    ULONG Length() const { return m_cbLength; }
+    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+
+    const std::vector<BYTE>* Data() const { return &m_vbData; }
+    std::vector<BYTE>* Data() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_FixedLengthStructure*>(this)->Data()); }
+    ULONG Count() const { return Data()->size(); }
+
+    private:
+    ULONG m_cbLength;
     std::vector<BYTE> m_vbData;
 };
 
@@ -132,10 +156,22 @@ class MT_Random : public MT_Structure
     std::vector<BYTE> m_vbRandomBytes;
 };
 
-class MT_SessionID : public MT_VariableLengthField
+class MT_CipherSuite : public MT_FixedLengthStructure
 {
     public:
-    MT_SessionID::MT_SessionID()
+    MT_CipherSuite()
+
+          // uint8 CipherSuite[2];    /* Cryptographic suite selector */
+        : MT_FixedLengthStructure(2)
+    { }
+};
+
+typedef MT_VariableLengthField<MT_CipherSuite> MT_CipherSuites;
+
+class MT_SessionID : public MT_VariableLengthField<BYTE>
+{
+    public:
+    MT_SessionID()
         : MT_VariableLengthField(1, 0, 32)
     { }
 };
@@ -228,6 +264,9 @@ class MT_ClientHello : public MT_Structure
     const MT_SessionID* SessionID() const { return &m_sessionID; }
     MT_SessionID* SessionID() { return const_cast<MT_SessionID*>(static_cast<const MT_ClientHello*>(this)->SessionID()); }
 
+    const MT_CipherSuites* CipherSuites() const { return &m_cipherSuites; }
+    MT_CipherSuites* CipherSuites() { return const_cast<MT_CipherSuites*>(static_cast<const MT_ClientHello*>(this)->CipherSuites()); }
+
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
 
     ULONG Length() const { return m_cbLength; }
@@ -237,6 +276,7 @@ class MT_ClientHello : public MT_Structure
     MT_ProtocolVersion m_protocolVersion;
     MT_Random m_random;
     MT_SessionID m_sessionID;
+    MT_CipherSuites m_cipherSuites;
     ULONG m_cbLength;
 };
 

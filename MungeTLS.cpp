@@ -2,6 +2,7 @@
 #include <vector>
 #include <assert.h>
 #include <algorithm>
+#include <numeric>
 
 #include "MungeTLS.h"
 
@@ -46,7 +47,14 @@ ParseMessage(
 
                     if (hr == S_OK)
                     {
-                        printf("parsed client hello message with version %04LX, session ID %d\n", clientHello.ProtocolVersion()->Version(), clientHello.SessionID()->Data()[0]);
+                        printf("parsed client hello message:\n");
+                        printf("version %04LX\n", clientHello.ProtocolVersion()->Version());
+                        printf("session ID %d\n", clientHello.SessionID()->Data()[0]);
+                        printf("%d crypto suites\n", clientHello.CipherSuites()->Count());
+
+                        printf("crypto suite 0: %02X %02X\n",
+                               (*clientHello.CipherSuites())[0].Data()->at(0),
+                               (*clientHello.CipherSuites())[0].Data()->at(1));
                     }
                     else
                     {
@@ -139,25 +147,26 @@ MT_Structure::ParseFromVect(
 } // end function ParseFromVect
 
 
-/*********** MT_Thingy *****************/
+/*********** MT_VariableLengthField *****************/
 
-MT_VariableLengthField::MT_VariableLengthField
+template <typename F>
+MT_VariableLengthField<F>::MT_VariableLengthField
 (
     ULONG cbLengthFieldSize,
-    ULONG cbMinSize,
-    ULONG cbMaxSize
+    ULONG cMinElements,
+    ULONG cMaxElements
 )
     : m_cbLengthFieldSize(cbLengthFieldSize),
-      m_cbMinSize(cbMinSize),
-      m_cbMaxSize(cbMaxSize),
-      m_vbData()
+      m_cMinElements(cMinElements),
+      m_cMaxElements(cMaxElements),
+      m_vData()
 {
     assert(m_cbLengthFieldSize < sizeof(ULONG));
-    assert((1UL << (m_cbLengthFieldSize * 8)) - 1 >= m_cbMaxSize);
 }
 
+template <>
 HRESULT
-MT_VariableLengthField::ParseFromPriv(
+MT_VariableLengthField<BYTE>::ParseFromPriv(
     const BYTE* pv,
     LONGLONG cb
 )
@@ -175,13 +184,13 @@ MT_VariableLengthField::ParseFromPriv(
     pv += cbField;
     cb -= cbField;
 
-    if (cbDataLength < m_cbMinSize)
+    if (cbDataLength < m_cMinElements)
     {
         hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
         goto error;
     }
 
-    if (cbDataLength > m_cbMaxSize)
+    if (cbDataLength > m_cMaxElements)
     {
         hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
         goto error;
@@ -200,11 +209,114 @@ error:
     return hr;
 } // end function ParseFromPriv
 
-ULONG
-MT_VariableLengthField::Length() const
+template <typename F>
+HRESULT
+MT_VariableLengthField<F>::ParseFromPriv(
+    const BYTE* pv,
+    LONGLONG cb
+)
 {
+    HRESULT hr = S_OK;
+    DWORD cbField = m_cbLengthFieldSize;
+    ULONG cElements = 0;
+
+    hr = ReadNetworkLong(pv, cb, cbField, &cElements);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    if (cElements < m_cMinElements)
+    {
+        hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
+        goto error;
+    }
+
+    if (cElements > m_cMaxElements)
+    {
+        hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
+        goto error;
+    }
+
+    for (ULONG i = 0; i < cElements; i++)
+    {
+        F elem;
+        hr = elem.ParseFrom(pv, cb);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        Data()->push_back(elem);
+
+        cbField = elem.Length();
+        pv += cbField;
+        cb -= cbField;
+    }
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
+template <>
+ULONG
+MT_VariableLengthField<BYTE>::Length() const
+{
+    assert((1UL << (m_cbLengthFieldSize * 8)) - 1 >= m_cMaxElements);
     return m_cbLengthFieldSize + Data()->size();
 } // end function Length
+
+template <typename F>
+ULONG
+MT_VariableLengthField<F>::Length() const
+{
+    ULONG cbTotalDataLength = accumulate(
+        Data()->begin(),
+        Data()->end(),
+        0,
+        [](ULONG sofar, const F& next)
+        {
+            return sofar + next.Length();
+        });
+
+    return cbTotalDataLength;
+} // end function Length
+
+
+/*********** MT_FixedLengthStructure *****************/
+
+MT_FixedLengthStructure::MT_FixedLengthStructure(
+    ULONG cbLength
+)
+    : m_cbLength(cbLength),
+      m_vbData()
+{
+    assert(m_cbLength > 0);
+}
+
+HRESULT
+MT_FixedLengthStructure::ParseFromPriv(
+    const BYTE* pv,
+    LONGLONG cb
+)
+{
+    HRESULT hr = S_OK;
+    DWORD cbField = Length();
+
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    Data()->assign(pv, pv + cbField);
+
+error:
+    return hr;
+} // end function ParseFromPriv
 
 /*********** MT_TLSPlaintext *****************/
 
@@ -576,7 +688,10 @@ MT_ClientHello::MT_ClientHello()
     : m_protocolVersion(),
       m_random(),
       m_cbLength(0),
-      m_sessionID()
+      m_sessionID(),
+
+      // CipherSuite cipher_suites<2..2^16-1>;
+      m_cipherSuites(2, 2, (1<<16) - 1)
 {
 }
 
@@ -622,9 +737,21 @@ MT_ClientHello::ParseFromPriv(
     cb -= cbField;
     SetLength(Length() + cbField);
 
+    hr = CipherSuites()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = CipherSuites()->Length();
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
+
 error:
     return hr;
 }
+
 
 
 
@@ -645,6 +772,12 @@ MT_Thingy::ParseFromPriv(
     HRESULT hr = S_OK;
     DWORD cbField = 0;
 
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
     hr = Something()->ParseFrom(pv, cb);
     if (hr != S_OK)
     {
@@ -655,12 +788,6 @@ MT_Thingy::ParseFromPriv(
     pv += cbField;
     cb -= cbField;
     SetLength(Length() + cbField);
-
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
 
 error:
     return hr;
