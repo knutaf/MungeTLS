@@ -62,22 +62,23 @@ class MT_VariableLengthField : public MT_Structure
     std::vector<F> m_vData;
 };
 
+template <typename F>
 class MT_FixedLengthStructure : public MT_Structure
 {
     public:
-    MT_FixedLengthStructure::MT_FixedLengthStructure(ULONG cbLength);
+    MT_FixedLengthStructure(ULONG cElements);
     virtual ~MT_FixedLengthStructure() { }
 
-    ULONG Length() const { return m_cbLength; }
+    ULONG Length() const;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
 
-    const std::vector<BYTE>* Data() const { return &m_vbData; }
-    std::vector<BYTE>* Data() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_FixedLengthStructure*>(this)->Data()); }
+    const std::vector<F>* Data() const { return &m_vData; }
+    std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_FixedLengthStructure*>(this)->Data()); }
     ULONG Count() const { return Data()->size(); }
 
     private:
-    ULONG m_cbLength;
-    std::vector<BYTE> m_vbData;
+    ULONG m_cElements;
+    std::vector<BYTE> m_vData;
 };
 
 class MT_ContentType : public MT_Structure
@@ -156,7 +157,7 @@ class MT_Random : public MT_Structure
     std::vector<BYTE> m_vbRandomBytes;
 };
 
-class MT_CipherSuite : public MT_FixedLengthStructure
+class MT_CipherSuite : public MT_FixedLengthStructure<BYTE>
 {
     public:
     MT_CipherSuite()

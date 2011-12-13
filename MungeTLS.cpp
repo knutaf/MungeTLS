@@ -288,17 +288,19 @@ MT_VariableLengthField<F>::Length() const
 
 /*********** MT_FixedLengthStructure *****************/
 
-MT_FixedLengthStructure::MT_FixedLengthStructure(
-    ULONG cbLength
+template <typename F>
+MT_FixedLengthStructure<F>::MT_FixedLengthStructure(
+    ULONG cElements
 )
-    : m_cbLength(cbLength),
-      m_vbData()
+    : m_cElements(cElements),
+      m_vData()
 {
-    assert(m_cbLength > 0);
+    assert(m_cElements > 0);
 }
 
+template <>
 HRESULT
-MT_FixedLengthStructure::ParseFromPriv(
+MT_FixedLengthStructure<BYTE>::ParseFromPriv(
     const BYTE* pv,
     LONGLONG cb
 )
@@ -317,6 +319,61 @@ MT_FixedLengthStructure::ParseFromPriv(
 error:
     return hr;
 } // end function ParseFromPriv
+
+template <typename F>
+HRESULT
+MT_FixedLengthStructure<F>::ParseFromPriv(
+    const BYTE* pv,
+    LONGLONG cb
+)
+{
+    HRESULT hr = S_OK;
+
+    for (ULONG i = 0; i < m_cElements; i++)
+    {
+        F elem;
+        hr = elem.ParseFrom(pv, cb);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        Data()->push_back(elem);
+
+        cbField = elem.Length();
+        pv += cbField;
+        cb -= cbField;
+    }
+
+    assert(Data()->size() == m_cElements);
+    assert(Count() == m_cElements);
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
+template <>
+ULONG
+MT_FixedLengthStructure<BYTE>::Length() const
+{
+    return m_cElements;
+} // end function Length
+
+template <typename F>
+ULONG
+MT_FixedLengthStructure<F>::Length() const
+{
+    ULONG cbTotalDataLength = accumulate(
+        Data()->begin(),
+        Data()->end(),
+        0,
+        [](ULONG sofar, const F& next)
+        {
+            return sofar + next.Length();
+        });
+
+    return cbTotalDataLength;
+} // end function Length
 
 /*********** MT_TLSPlaintext *****************/
 
