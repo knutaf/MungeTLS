@@ -53,8 +53,8 @@ ParseMessage(
                         printf("%d crypto suites\n", clientHello.CipherSuites()->Count());
 
                         printf("crypto suite 0: %02X %02X\n",
-                               (*clientHello.CipherSuites())[0].Data()->at(0),
-                               (*clientHello.CipherSuites())[0].Data()->at(1));
+                               clientHello.CipherSuites()->at(0)->Data()->at(0),
+                               clientHello.CipherSuites()->at(0)->Data()->at(1));
                     }
                     else
                     {

@@ -52,8 +52,8 @@ class MT_VariableLengthField : public MT_Structure
     std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_VariableLengthField*>(this)->Data()); }
     ULONG Count() const { return Data()->size(); }
 
-    const F& operator[](typename std::vector<F>::size_type pos) const { return Data()->at(pos); }
-    F& operator[](typename std::vector<F>::size_type pos) { return const_cast<F&>(static_cast<const MT_VariableLengthField&>(*this)[pos]); }
+    const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
+    F* at(typename std::vector<F>::size_type pos) { return const_cast<F*>(static_cast<const MT_VariableLengthField*>(this)->at(pos)); }
 
     private:
     ULONG m_cbLengthFieldSize;
