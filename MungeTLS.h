@@ -13,6 +13,7 @@ const HRESULT MT_E_UNKNOWN_PROTOCOL_VERSION                 = 0x80230003;
 const HRESULT MT_E_UNKNOWN_HANDSHAKE_TYPE                   = 0x80230004;
 const HRESULT MT_E_UNSUPPORTED_HANDSHAKE_TYPE               = 0x80230005;
 const HRESULT MT_E_DATA_SIZE_OUT_OF_RANGE                   = 0x80230006;
+const HRESULT MT_E_UNKNOWN_COMPRESSION_METHOD               = 0x80230007;
 
 typedef ULONG MT_UINT8;
 typedef ULONG MT_UINT16;
@@ -39,8 +40,8 @@ class MT_VariableLengthField : public MT_Structure
     MT_VariableLengthField
     (
         ULONG cbLengthFieldSize,
-        ULONG cMinElements,
-        ULONG cMaxElements
+        ULONG cbMinSize,
+        ULONG cbMaxSize
     );
 
     virtual ~MT_VariableLengthField() { }
@@ -57,8 +58,8 @@ class MT_VariableLengthField : public MT_Structure
 
     private:
     ULONG m_cbLengthFieldSize;
-    ULONG m_cMinElements;
-    ULONG m_cMaxElements;
+    ULONG m_cbMinSize;
+    ULONG m_cbMaxSize;
     std::vector<F> m_vData;
 };
 
@@ -66,7 +67,7 @@ template <typename F>
 class MT_FixedLengthStructure : public MT_Structure
 {
     public:
-    MT_FixedLengthStructure(ULONG cElements);
+    MT_FixedLengthStructure(ULONG cbSize);
     virtual ~MT_FixedLengthStructure() { }
 
     ULONG Length() const;
@@ -80,7 +81,7 @@ class MT_FixedLengthStructure : public MT_Structure
     F* at(typename std::vector<F>::size_type pos) { return const_cast<F*>(static_cast<const MT_FixedLengthStructure*>(this)->at(pos)); }
 
     private:
-    ULONG m_cElements;
+    ULONG m_cbSize;
     std::vector<BYTE> m_vData;
 };
 
@@ -180,6 +181,34 @@ class MT_SessionID : public MT_VariableLengthField<BYTE>
     { }
 };
 
+class MT_CompressionMethod : public MT_Structure
+{
+    enum MTCM_Method
+    {
+        MTCM_Null = 0,
+        MTCM_Unknown = 255,
+    };
+
+    public:
+    MT_CompressionMethod();
+    ~MT_CompressionMethod() { }
+
+    ULONG Length() const { return 1; }
+    HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+
+    MT_UINT8 Method() const;
+
+    private:
+    MT_UINT8 m_compressionMethod;
+};
+
+typedef MT_VariableLengthField<MT_CompressionMethod> MT_CompressionMethods;
+
+
+
+
+
+
 class MT_TLSPlaintext : public MT_Structure
 {
     public:
@@ -271,6 +300,9 @@ class MT_ClientHello : public MT_Structure
     const MT_CipherSuites* CipherSuites() const { return &m_cipherSuites; }
     MT_CipherSuites* CipherSuites() { return const_cast<MT_CipherSuites*>(static_cast<const MT_ClientHello*>(this)->CipherSuites()); }
 
+    const MT_CompressionMethods* CompressionMethods() const { return &m_compressionMethods; }
+    MT_CompressionMethods* CompressionMethods() { return const_cast<MT_CompressionMethods*>(static_cast<const MT_ClientHello*>(this)->CompressionMethods()); }
+
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
 
     ULONG Length() const { return m_cbLength; }
@@ -281,6 +313,7 @@ class MT_ClientHello : public MT_Structure
     MT_Random m_random;
     MT_SessionID m_sessionID;
     MT_CipherSuites m_cipherSuites;
+    MT_CompressionMethods m_compressionMethods;
     ULONG m_cbLength;
 };
 
@@ -306,12 +339,13 @@ ParseMessage(
     LONGLONG cb
 );
 
+template <typename N>
 HRESULT
 ReadNetworkLong(
     const BYTE* pv,
     LONGLONG cb,
     ULONG cbToRead,
-    ULONG* pResult
+    N* pResult
 );
 
 }
