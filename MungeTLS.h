@@ -204,6 +204,8 @@ class MT_CompressionMethod : public MT_Structure
 
 typedef MT_VariableLengthField<MT_CompressionMethod> MT_CompressionMethods;
 
+typedef MT_VariableLengthField<BYTE> MT_ClientHelloExtensions;
+
 
 
 
@@ -303,6 +305,9 @@ class MT_ClientHello : public MT_Structure
     const MT_CompressionMethods* CompressionMethods() const { return &m_compressionMethods; }
     MT_CompressionMethods* CompressionMethods() { return const_cast<MT_CompressionMethods*>(static_cast<const MT_ClientHello*>(this)->CompressionMethods()); }
 
+    const MT_ClientHelloExtensions* Extensions() const { return &m_extensions; }
+    MT_ClientHelloExtensions* Extensions() { return const_cast<MT_ClientHelloExtensions*>(static_cast<const MT_ClientHello*>(this)->Extensions()); }
+
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
 
     ULONG Length() const { return m_cbLength; }
@@ -314,6 +319,7 @@ class MT_ClientHello : public MT_Structure
     MT_SessionID m_sessionID;
     MT_CipherSuites m_cipherSuites;
     MT_CompressionMethods m_compressionMethods;
+    MT_ClientHelloExtensions m_extensions;
     ULONG m_cbLength;
 };
 

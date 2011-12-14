@@ -59,6 +59,8 @@ ParseMessage(
                         printf("%d compression methods: %d\n",
                                clientHello.CompressionMethods()->Count(),
                                clientHello.CompressionMethods()->at(0)->Method());
+
+                        printf("%d bytes of extensions\n", clientHello.Extensions()->Length());
                     }
                     else
                     {
@@ -774,10 +776,12 @@ MT_ClientHello::MT_ClientHello()
       m_sessionID(),
 
       // CipherSuite cipher_suites<2..2^16-1>;
-      m_cipherSuites(2, 2, (1<<16) - 1),
+      m_cipherSuites(2, 2, (1<<(2*8)) - 1),
 
       // CompressionMethod compression_methods<1..2^8-1>;
-      m_compressionMethods(1, 1, (1<<8) - 1)
+      m_compressionMethods(1, 1, (1<<(1*8)) - 1),
+
+      m_extensions(2, 0, (1<<(2*8)) - 1)
 {
 }
 
@@ -841,6 +845,17 @@ MT_ClientHello::ParseFromPriv(
     }
 
     cbField = CompressionMethods()->Length();
+    pv += cbField;
+    cb -= cbField;
+    SetLength(Length() + cbField);
+
+    hr = Extensions()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = Extensions()->Length();
     pv += cbField;
     cb -= cbField;
     SetLength(Length() + cbField);
