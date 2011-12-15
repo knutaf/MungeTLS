@@ -102,8 +102,8 @@ HRESULT ProcessConnections()
     */
 
     {
+        TLSConnection con;
         char c = 0;
-        MT_TLSPlaintext message;
         vector<BYTE> vbData;
         int cch = recv(sockAccept, &c, 1, 0);
         while (cch > 0)
@@ -111,7 +111,7 @@ HRESULT ProcessConnections()
             printf("read %d chars. got char: %01LX\n", cch, c);
             vbData.push_back(c);
 
-            HRESULT hr = ParseMessage(&vbData.front(), vbData.size());
+            HRESULT hr = con.ParseMessage(&vbData.front(), vbData.size());
             if (hr == S_OK)
             {
                 printf("finished parsing message\n");

@@ -11,8 +11,16 @@ namespace MungeTLS
 
 using namespace std;
 
+
+
+/*********** TLSConnection *****************/
+
+TLSConnection::TLSConnection()
+{
+} // end ctor TLSConnection
+
 HRESULT
-ParseMessage(
+TLSConnection::ParseMessage(
     const BYTE* pv,
     LONGLONG cb
 )
@@ -61,6 +69,14 @@ ParseMessage(
                                clientHello.CompressionMethods()->at(0)->Method());
 
                         printf("%d bytes of extensions\n", clientHello.Extensions()->Length());
+
+                        MT_ServerHello serverHello;
+                        hr = RespondTo(&clientHello, &serverHello);
+
+                        vector<BYTE> vbServerHello;
+                        hr = serverHello.Serialize(&vbServerHello);
+
+                        // TODO: actually send
                     }
                     else
                     {
@@ -85,6 +101,32 @@ ParseMessage(
 
     return hr;
 } // end function ParseMessage
+
+HRESULT
+TLSConnection::RespondTo(
+    const MT_ClientHello* pClientHello,
+    MT_ServerHello* pServerHello
+)
+{
+    /*
+    MT_ContentType contentType;
+    contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
+
+    MT_ProtocolVersion protocolVersion;
+    protocolVersion.SetType(MT_ProtocolVersion::MTPV_TLS10);
+
+    MT_TLSPlaintext plaintext;
+
+    *(plaintext.ContentType()) = contentType;
+    *(plaintext.ProtocolVersion()) = protocolVersion;
+    */
+
+    return S_OK;
+} // end function RespondTo
+
+
+
+
 
 template <typename N>
 HRESULT
@@ -120,7 +162,7 @@ ReadNetworkLong(
 
 error:
     return hr;
-} // end function ReadNetworkInt
+} // end function ReadNetworkLong
 
 /*********** MT_Structure *****************/
 
@@ -152,6 +194,15 @@ MT_Structure::ParseFromVect(
 {
     return ParseFrom(&(pvb->front()), pvb->size());
 } // end function ParseFromVect
+
+HRESULT
+MT_Structure::Serialize(
+    vector<BYTE>* pvb
+) const
+{
+    // TODO: impl
+    return S_OK;
+} // end function Serialize
 
 
 /*********** MT_VariableLengthField *****************/
@@ -408,7 +459,6 @@ MT_FixedLengthStructure<F>::Length() const
 MT_TLSPlaintext::MT_TLSPlaintext()
     : m_contentType(),
       m_protocolVersion(),
-      m_cbLength(0),
       m_vbFragment()
 {
 } // end ctor MT_TLSPlaintext
@@ -423,8 +473,6 @@ MT_TLSPlaintext::ParseFromPriv(
     DWORD cbField = 0;
     ULONG cbFragmentLength = 0;
 
-    SetLength(0);
-
     hr = ContentType()->ParseFrom(pv, cb);
     if (hr != S_OK)
     {
@@ -434,7 +482,6 @@ MT_TLSPlaintext::ParseFromPriv(
     cbField = ContentType()->Length();
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
     hr = ProtocolVersion()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -445,7 +492,6 @@ MT_TLSPlaintext::ParseFromPriv(
     cbField = ProtocolVersion()->Length();
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
 
     cbField = 2;
@@ -457,7 +503,6 @@ MT_TLSPlaintext::ParseFromPriv(
 
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
     cbField = cbFragmentLength;
     if (cbField > cb)
@@ -470,12 +515,20 @@ MT_TLSPlaintext::ParseFromPriv(
 
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
 error:
     return hr;
 } // end function ParseFromPriv
 
+ULONG
+MT_TLSPlaintext::Length() const
+{
+    ULONG cbLength = ContentType()->Length() +
+                     ProtocolVersion()->Length() +
+                     PayloadLength();
+
+    return cbLength;
+} // end function Length
 
 /*********** MT_ContentType *****************/
 
@@ -626,8 +679,7 @@ const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeSupportedTypes[] =
 const DWORD MT_Handshake::c_cSupportedTypes = ARRAYSIZE(c_rgeSupportedTypes);
 
 MT_Handshake::MT_Handshake()
-    : m_cbLength(0),
-      m_eType(MTH_Unknown),
+    : m_eType(MTH_Unknown),
       m_vbBody()
 {
 } // end ctor MT_Handshake
@@ -649,7 +701,7 @@ MT_Handshake::ParseFromPriv(
         goto error;
     }
 
-    eType = static_cast<MTH_HandshakeType>(*pv);
+    eType = static_cast<MTH_HandshakeType>(pv[0]);
 
     if (!IsKnownType(eType))
     {
@@ -667,7 +719,6 @@ MT_Handshake::ParseFromPriv(
 
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
     cbField = 3;
     hr = ReadNetworkLong(pv, cb, cbField, &cbPayloadLength);
@@ -678,7 +729,6 @@ MT_Handshake::ParseFromPriv(
 
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
     cbField = cbPayloadLength;
     if (cbField > cb)
@@ -691,11 +741,17 @@ MT_Handshake::ParseFromPriv(
 
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
 error:
     return hr;
 } // end function ParseFromPriv
+
+ULONG
+MT_Handshake::Length() const
+{
+    return 1 + // handshake type
+           PayloadLength();
+} // end function Length
 
 MT_Handshake::MTH_HandshakeType
 MT_Handshake::HandshakeType() const
@@ -772,7 +828,6 @@ error:
 MT_ClientHello::MT_ClientHello()
     : m_protocolVersion(),
       m_random(),
-      m_cbLength(0),
       m_sessionID(),
 
       // CipherSuite cipher_suites<2..2^16-1>;
@@ -803,7 +858,6 @@ MT_ClientHello::ParseFromPriv(
     cbField = ProtocolVersion()->Length();
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
     hr = Random()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -814,7 +868,6 @@ MT_ClientHello::ParseFromPriv(
     cbField = Random()->Length();
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
     hr = SessionID()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -825,7 +878,6 @@ MT_ClientHello::ParseFromPriv(
     cbField = SessionID()->Length();
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
     hr = CipherSuites()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -836,7 +888,6 @@ MT_ClientHello::ParseFromPriv(
     cbField = CipherSuites()->Length();
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
     hr = CompressionMethods()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -847,7 +898,6 @@ MT_ClientHello::ParseFromPriv(
     cbField = CompressionMethods()->Length();
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
     hr = Extensions()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -858,11 +908,23 @@ MT_ClientHello::ParseFromPriv(
     cbField = Extensions()->Length();
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
 error:
     return hr;
 }
+
+ULONG
+MT_ClientHello::Length() const
+{
+    ULONG cbLength = ProtocolVersion()->Length() +
+                     Random()->Length() +
+                     SessionID()->Length() +
+                     CipherSuites()->Length() +
+                     CompressionMethods()->Length() +
+                     Extensions()->Length();
+
+    return cbLength;
+} // end function Length
 
 /*********** MT_CompressionMethod *****************/
 
@@ -939,11 +1001,17 @@ MT_Thingy::ParseFromPriv(
     cbField = Something()->Length();
     pv += cbField;
     cb -= cbField;
-    SetLength(Length() + cbField);
 
 error:
     return hr;
 } // end function ParseFromPriv
+
+ULONG
+MT_Thingy::Length() const
+{
+    ULONG cbLength = Something()->Length;
+    return cbLength;
+} // end function Length
 */
 
 }

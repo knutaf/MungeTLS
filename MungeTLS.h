@@ -27,10 +27,12 @@ class MT_Structure
 
     HRESULT ParseFrom(const BYTE* pv, LONGLONG cb);
     HRESULT ParseFromVect(const std::vector<BYTE>* pvb);
+    HRESULT Serialize(std::vector<BYTE>* pvb) const;
     virtual ULONG Length() const = 0;
 
     private:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) = 0;
+    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) { return E_NOTIMPL; }
+    virtual HRESULT SerializePriv(std::vector<BYTE>* pvb) const { return E_NOTIMPL; }
 };
 
 template <typename F>
@@ -227,8 +229,7 @@ class MT_TLSPlaintext : public MT_Structure
 
     MT_UINT16 PayloadLength() const { return Fragment()->size(); }
 
-    ULONG Length() const { return m_cbLength; }
-    void SetLength(ULONG len) { m_cbLength = len; }
+    ULONG Length() const;
 
     const std::vector<BYTE>* Fragment() const { return &m_vbFragment; }
     std::vector<BYTE>* Fragment() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_TLSPlaintext*>(this)->Fragment()); }
@@ -236,7 +237,6 @@ class MT_TLSPlaintext : public MT_Structure
     private:
     MT_ContentType m_contentType;
     MT_ProtocolVersion m_protocolVersion;
-    ULONG m_cbLength;
     std::vector<BYTE> m_vbFragment;
 };
 
@@ -264,8 +264,7 @@ class MT_Handshake : public MT_Structure
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     MTH_HandshakeType HandshakeType() const;
     ULONG PayloadLength() const { return Body()->size(); }
-    ULONG Length() const { return m_cbLength; }
-    void SetLength(ULONG cb) { m_cbLength += cb; }
+    ULONG Length() const;
 
     const std::vector<BYTE>* Body() const { return &m_vbBody; }
     std::vector<BYTE>* Body() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_Handshake*>(this)->Body()); }
@@ -280,7 +279,6 @@ class MT_Handshake : public MT_Structure
     static const DWORD c_cSupportedTypes;
 
     MTH_HandshakeType m_eType;
-    ULONG m_cbLength;
     std::vector<BYTE> m_vbBody;
 };
 
@@ -309,9 +307,7 @@ class MT_ClientHello : public MT_Structure
     MT_ClientHelloExtensions* Extensions() { return const_cast<MT_ClientHelloExtensions*>(static_cast<const MT_ClientHello*>(this)->Extensions()); }
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
-
-    ULONG Length() const { return m_cbLength; }
-    void SetLength(ULONG cb) { m_cbLength += cb; }
+    ULONG Length() const;
 
     private:
     MT_ProtocolVersion m_protocolVersion;
@@ -320,7 +316,30 @@ class MT_ClientHello : public MT_Structure
     MT_CipherSuites m_cipherSuites;
     MT_CompressionMethods m_compressionMethods;
     MT_ClientHelloExtensions m_extensions;
-    ULONG m_cbLength;
+};
+
+class MT_ServerHello : public MT_Structure
+{
+    public:
+    MT_ServerHello() { }
+    ~MT_ServerHello() { }
+
+    ULONG Length() const { return 1; }
+    HRESULT Serialize(std::vector<BYTE>* pvb) const { pvb->front() = 0x23; return S_OK; };
+
+    private:
+};
+
+class TLSConnection
+{
+    public:
+    TLSConnection();
+    ~TLSConnection() { }
+
+    HRESULT ParseMessage(const BYTE* pv, LONGLONG cb);
+
+    private:
+    HRESULT RespondTo(const MT_ClientHello* pClientHello, MT_ServerHello* pServerHello);
 };
 
 
