@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <algorithm>
 #include <numeric>
+#include <intsafe.h>
 
 #include "MungeTLS.h"
 
@@ -70,11 +71,11 @@ TLSConnection::ParseMessage(
 
                         printf("%d bytes of extensions\n", clientHello.Extensions()->Length());
 
-                        MT_ServerHello serverHello;
-                        hr = RespondTo(&clientHello, &serverHello);
+                        MT_TLSPlaintext response;
+                        hr = RespondTo(&clientHello, &response);
 
-                        vector<BYTE> vbServerHello;
-                        hr = serverHello.Serialize(&vbServerHello);
+                        vector<BYTE> vbResponse;
+                        hr = response.SerializeToVect(&vbResponse);
 
                         // TODO: actually send
                     }
@@ -105,21 +106,49 @@ TLSConnection::ParseMessage(
 HRESULT
 TLSConnection::RespondTo(
     const MT_ClientHello* pClientHello,
-    MT_ServerHello* pServerHello
+    MT_Structure* pMessage
 )
 {
-    /*
-    MT_ContentType contentType;
-    contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
+    HRESULT hr = S_OK;
 
     MT_ProtocolVersion protocolVersion;
-    protocolVersion.SetType(MT_ProtocolVersion::MTPV_TLS10);
+    protocolVersion.SetVersion(MT_ProtocolVersion::MTPV_TLS10);
+
+    MT_Random random;
+    hr = random.PopulateNow();
+
+    MT_SessionID sessionID;
+
+    const MT_CipherSuite* cipherSuite;
+    assert(pClientHello->CipherSuites()->Count() > 0);
+    cipherSuite = pClientHello->CipherSuites()->at(0);
+
+    MT_CompressionMethod compressionMethod;
+    compressionMethod.SetMethod(MT_CompressionMethod::MTCM_Null);
+
+    MT_ServerHello serverHello;
+
+    *(serverHello.ProtocolVersion()) = protocolVersion;
+    *(serverHello.Random()) = random;
+    *(serverHello.SessionID()) = sessionID;
+    *(serverHello.CipherSuite()) = *cipherSuite;
+    *(serverHello.CompressionMethod()) = compressionMethod;
+    // not setting server extensions
+
+    MT_Handshake handshake;
+    handshake.SetType(MT_Handshake::MTH_ServerHello);
+    hr = serverHello.SerializeToVect(handshake.Body());
+
+    MT_ContentType contentType;
+    contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
 
     MT_TLSPlaintext plaintext;
 
     *(plaintext.ContentType()) = contentType;
     *(plaintext.ProtocolVersion()) = protocolVersion;
-    */
+    hr = handshake.SerializeToVect(plaintext.Fragment());
+
+    *pMessage = plaintext;
 
     return S_OK;
 } // end function RespondTo
@@ -164,6 +193,127 @@ error:
     return hr;
 } // end function ReadNetworkLong
 
+HRESULT
+WriteNetworkLong(
+    ULONG toWrite,
+    ULONG cbToWrite,
+    BYTE* pv,
+    LONGLONG cb
+)
+{
+    assert(pv != nullptr);
+    assert(cbToWrite <= sizeof(ULONG));
+
+    HRESULT hr = S_OK;
+
+    if (cbToWrite > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    while (cbToWrite > 0)
+    {
+        pv[cbToWrite - 1] = (toWrite & 0xFF);
+
+        toWrite >>= 8;
+        cbToWrite--;
+    }
+
+error:
+    return hr;
+} // end function WriteNetworkLong
+
+HRESULT
+WriteRandomBytes(
+    BYTE* pv,
+    LONGLONG cb
+)
+{
+    HRESULT hr = S_FALSE;
+    int r = 0;
+    ULONG cbR = 0;
+
+    while (cb > 0)
+    {
+        hr = S_OK;
+
+        if (cbR == 0)
+        {
+            r = rand();
+            cbR = sizeof(r);
+        }
+
+        pv[0] = r & 0xFF;
+
+        pv++;
+        cb--;
+        cbR--;
+        r >>= 8;
+    }
+
+    return hr;
+} // end function WriteRandomBytes
+
+HRESULT
+EpochTimeFromSystemTime(
+    const SYSTEMTIME* pST,
+    ULARGE_INTEGER* pLI
+)
+{
+    assert(pLI != nullptr);
+    assert(pST != nullptr);
+
+    HRESULT hr = S_OK;
+
+    const SYSTEMTIME st1Jan1970 =
+    {
+        1970, // year
+        1,    // month
+        0,    // day of week
+        1,    // day
+        0,    // hour
+        0,    // min
+        0,    // sec
+        0     // ms
+    };
+
+    FILETIME ft = {0};
+    FILETIME ft1Jan1970 = {0};
+    ULARGE_INTEGER li1Jan1970 = {0};
+
+    if (!SystemTimeToFileTime(pST, &ft))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    pLI->LowPart = ft.dwLowDateTime;
+    pLI->HighPart = ft.dwHighDateTime;
+
+    if (!SystemTimeToFileTime(&st1Jan1970, &ft1Jan1970))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    li1Jan1970.LowPart = ft1Jan1970.dwLowDateTime;
+    li1Jan1970.HighPart = ft1Jan1970.dwHighDateTime;
+
+    hr = ULongLongSub(pLI->QuadPart, li1Jan1970.QuadPart, &pLI->QuadPart);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    // convert from 100 ns to ms
+    pLI->QuadPart /= 10000;
+
+error:
+    return hr;
+} // end function EpochTimeFromSystemTime
+
 /*********** MT_Structure *****************/
 
 HRESULT
@@ -197,12 +347,21 @@ MT_Structure::ParseFromVect(
 
 HRESULT
 MT_Structure::Serialize(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    return SerializePriv(pv, cb);
+} // end function Serialize
+
+HRESULT
+MT_Structure::SerializeToVect(
     vector<BYTE>* pvb
 ) const
 {
-    // TODO: impl
-    return S_OK;
-} // end function Serialize
+    pvb->resize(Length());
+    return Serialize(&(pvb->front()), pvb->size());
+} // end function SerializeToVect
 
 
 /*********** MT_VariableLengthField *****************/
@@ -354,6 +513,78 @@ MT_VariableLengthField<F>::Length() const
     return m_cbLengthFieldSize + cbTotalDataLength;
 } // end function Length
 
+template <typename F>
+HRESULT
+MT_VariableLengthField<F>::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+
+    if (Length() > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    ULONG cbField = m_cbLengthFieldSize;
+
+    hr = WriteNetworkLong(Data()->size(), cbField, pv, cb);
+    assert(hr == S_OK);
+
+    pv += cbField;
+    cb -= cbField;
+
+    for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
+    {
+        cbField = iter->Length();
+
+        hr = iter->Serialize(pv, cb);
+        assert(hr == S_OK);
+
+        pv += cbField;
+        cb -= cbField;
+    }
+
+error:
+    return hr;
+} // end function SerializePriv
+
+template <>
+HRESULT
+MT_VariableLengthField<BYTE>::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+
+    if (Length() > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    ULONG cbField = m_cbLengthFieldSize;
+
+    hr = WriteNetworkLong(Data()->size(), cbField, pv, cb);
+    assert(hr == S_OK);
+
+    pv += cbField;
+    cb -= cbField;
+
+    cbField = Data()->size();
+
+    assert(cbField <= cb);
+    std::copy(Data()->begin(), Data()->end(), pv);
+
+    pv += cbField;
+    cb -= cbField;
+
+error:
+    return hr;
+} // end function SerializePriv
 
 /*********** MT_FixedLengthStructure *****************/
 
@@ -427,6 +658,63 @@ MT_FixedLengthStructure<F>::ParseFromPriv(
 error:
     return hr;
 } // end function ParseFromPriv
+
+template <typename F>
+HRESULT
+MT_FixedLengthStructure<F>::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+
+    if (Length() > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
+    {
+        ULONG cbField = iter->Length();
+
+        hr = iter->Serialize(pv, cb);
+        assert(hr == S_OK);
+
+        pv += cbField;
+        cb -= cbField;
+    }
+
+error:
+    return hr;
+} // end function SerializePriv
+
+template <>
+HRESULT
+MT_FixedLengthStructure<BYTE>::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+
+    if (Length() > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    ULONG cbField = Data()->size();
+
+    assert(cbField <= cb);
+    std::copy(Data()->begin(), Data()->end(), pv);
+
+    pv += cbField;
+    cb -= cbField;
+
+error:
+    return hr;
+} // end function SerializePriv
 
 template <>
 ULONG
@@ -629,6 +917,28 @@ error:
     return hr;
 } // end function ParseFromPriv
 
+HRESULT
+MT_ProtocolVersion::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+    ULONG cbField = Length();
+
+    hr = WriteNetworkLong(Version(), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+error:
+    return hr;
+} // end function SerializePriv
+
 bool
 MT_ProtocolVersion::IsKnownVersion(
     MT_UINT16 version
@@ -691,9 +1001,9 @@ MT_Handshake::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    DWORD cbField = 1;
+    ULONG cbField = 1;
     MTH_HandshakeType eType = MTH_Unknown;
-    DWORD cbPayloadLength = 0;
+    ULONG cbPayloadLength = 0;
 
     if (cbField > cb)
     {
@@ -750,6 +1060,7 @@ ULONG
 MT_Handshake::Length() const
 {
     return 1 + // handshake type
+           3 + // uint24 length
            PayloadLength();
 } // end function Length
 
@@ -776,6 +1087,40 @@ MT_Handshake::IsSupportedType(
     return (find(c_rgeSupportedTypes, c_rgeSupportedTypes+c_cSupportedTypes, eType) != c_rgeSupportedTypes+c_cSupportedTypes);
 } // end function IsSupportedType
 
+HRESULT
+MT_Handshake::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+    ULONG cbField = 1;
+
+    hr = WriteNetworkLong(HandshakeType(), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    cbField = 3;
+    hr = WriteNetworkLong(PayloadLength(), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    std::copy(Body()->begin(), Body()->end(), pv);
+
+error:
+    return hr;
+} // end function SerializePriv
+
 /*********** MT_Random *****************/
 
 const ULONG MT_Random::c_cbRandomBytes = 28;
@@ -795,7 +1140,7 @@ MT_Random::ParseFromPriv(
     HRESULT hr = S_OK;
 
     // Random.(uint32 gmt_unix_time)
-    DWORD cbField = 4;
+    ULONG cbField = 4;
     hr = ReadNetworkLong(pv, cb, cbField, &m_timestamp);
     if (hr != S_OK)
     {
@@ -822,6 +1167,78 @@ error:
     return hr;
 } // end function ParseFromPriv
 
+HRESULT
+MT_Random::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+    ULONG cbField = 4;
+
+    hr = WriteNetworkLong(GMTUnixTime(), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    cbField = RandomBytes()->size();
+    if (cbField > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    std::copy(RandomBytes()->begin(), RandomBytes()->end(), pv);
+
+    pv += cbField;
+    cb -= cbField;
+
+error:
+    return hr;
+} // end function SerializePriv
+
+HRESULT
+MT_Random::PopulateNow()
+{
+    HRESULT hr = S_OK;
+
+    SYSTEMTIME st = {0};
+    GetSystemTime(&st);
+
+    ULARGE_INTEGER li = {0};
+    hr = EpochTimeFromSystemTime(&st, &li);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    MT_UINT32 t = 0;
+    hr = ULongLongToULong(li.QuadPart, &t);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    SetGMTUnixTime(t);
+
+    RandomBytes()->resize(c_cbRandomBytes);
+    hr = WriteRandomBytes(&RandomBytes()->front(), RandomBytes()->size());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+error:
+    return hr;
+} // end function PopulateNow
+
 
 /*********** MT_ClientHello *****************/
 
@@ -847,7 +1264,7 @@ MT_ClientHello::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    DWORD cbField = 0;
+    ULONG cbField = 0;
 
     hr = ProtocolVersion()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -940,7 +1357,7 @@ MT_CompressionMethod::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    DWORD cbField = 1;
+    ULONG cbField = 1;
 
     if (cbField > cb)
     {
@@ -960,6 +1377,29 @@ error:
     return hr;
 } // end function ParseFromPriv
 
+HRESULT
+MT_CompressionMethod::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+    ULONG cbField = 1;
+
+    hr = WriteNetworkLong(Method(), cbField, pv, cb);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+error:
+    return hr;
+} // end function SerializePriv
+
 MT_UINT8
 MT_CompressionMethod::Method() const
 {
@@ -968,6 +1408,102 @@ MT_CompressionMethod::Method() const
 } // end function Method
 
 
+/*********** MT_ServerHello *****************/
+
+MT_ServerHello::MT_ServerHello()
+    : m_protocolVersion(),
+      m_random(),
+      m_sessionID(),
+      m_cipherSuite(),
+      m_compressionMethod(),
+      m_extensions(2, 0, (1<<(2*8)) - 1)
+{
+} // end ctor MT_ServerHello
+
+ULONG
+MT_ServerHello::Length() const
+{
+    ULONG cbLength = ProtocolVersion()->Length() +
+                     Random()->Length() +
+                     SessionID()->Length() +
+                     CipherSuite()->Length() +
+                     CompressionMethod()->Length() +
+                     Extensions()->Length();
+
+    return cbLength;
+} // end function Length
+
+HRESULT
+MT_ServerHello::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+    ULONG cbField = ProtocolVersion()->Length();
+
+    hr = ProtocolVersion()->Serialize(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    cbField = Random()->Length();
+    hr = Random()->Serialize(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    cbField = SessionID()->Length();
+    hr = SessionID()->Serialize(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    cbField = CipherSuite()->Length();
+    hr = CipherSuite()->Serialize(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    cbField = CompressionMethod()->Length();
+    hr = CompressionMethod()->Serialize(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    cbField = Extensions()->Length();
+    hr = Extensions()->Serialize(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+error:
+    return hr;
+} // end function SerializePriv
 
 /*********** MT_Thingy *****************/
 
@@ -975,7 +1511,7 @@ MT_CompressionMethod::Method() const
 MT_Thingy::MT_Thingy()
     : m_thingy()
 {
-}
+} // end ctor MT_Thingy
 
 HRESULT
 MT_Thingy::ParseFromPriv(
@@ -984,7 +1520,7 @@ MT_Thingy::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    DWORD cbField = 0;
+    ULONG cbField = 0;
 
     if (cbField > cb)
     {
@@ -1012,6 +1548,15 @@ MT_Thingy::Length() const
     ULONG cbLength = Something()->Length;
     return cbLength;
 } // end function Length
+
+HRESULT
+MT_Thingy::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    return E_NOTIMPL;
+} // end function SerializePriv
 */
 
 }

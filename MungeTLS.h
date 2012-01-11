@@ -14,6 +14,7 @@ const HRESULT MT_E_UNKNOWN_HANDSHAKE_TYPE                   = 0x80230004;
 const HRESULT MT_E_UNSUPPORTED_HANDSHAKE_TYPE               = 0x80230005;
 const HRESULT MT_E_DATA_SIZE_OUT_OF_RANGE                   = 0x80230006;
 const HRESULT MT_E_UNKNOWN_COMPRESSION_METHOD               = 0x80230007;
+const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
 typedef ULONG MT_UINT8;
 typedef ULONG MT_UINT16;
@@ -27,12 +28,13 @@ class MT_Structure
 
     HRESULT ParseFrom(const BYTE* pv, LONGLONG cb);
     HRESULT ParseFromVect(const std::vector<BYTE>* pvb);
-    HRESULT Serialize(std::vector<BYTE>* pvb) const;
+    HRESULT Serialize(BYTE* pv, LONGLONG cb) const;
+    HRESULT SerializeToVect(std::vector<BYTE>* pvb) const;
     virtual ULONG Length() const = 0;
 
     private:
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) { return E_NOTIMPL; }
-    virtual HRESULT SerializePriv(std::vector<BYTE>* pvb) const { return E_NOTIMPL; }
+    virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const { return E_NOTIMPL; }
 };
 
 template <typename F>
@@ -50,6 +52,7 @@ class MT_VariableLengthField : public MT_Structure
 
     ULONG Length() const;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 
     const std::vector<F>* Data() const { return &m_vData; }
     std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_VariableLengthField*>(this)->Data()); }
@@ -74,6 +77,7 @@ class MT_FixedLengthStructure : public MT_Structure
 
     ULONG Length() const;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 
     const std::vector<F>* Data() const { return &m_vData; }
     std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_FixedLengthStructure*>(this)->Data()); }
@@ -84,7 +88,7 @@ class MT_FixedLengthStructure : public MT_Structure
 
     private:
     ULONG m_cbSize;
-    std::vector<BYTE> m_vData;
+    std::vector<F> m_vData;
 };
 
 class MT_ContentType : public MT_Structure
@@ -130,6 +134,7 @@ class MT_ProtocolVersion : public MT_Structure
     ~MT_ProtocolVersion() {};
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 
     MT_UINT16 Version() const;
     void SetVersion(MT_UINT16 ver) { m_version = ver; }
@@ -150,11 +155,15 @@ class MT_Random : public MT_Structure
 
     ULONG Length() const { return 4 + RandomBytes()->size(); }
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 
     MT_UINT32 GMTUnixTime() const { return m_timestamp; }
+    void SetGMTUnixTime(MT_UINT32 timestamp) { m_timestamp = timestamp; }
 
     const std::vector<BYTE>* RandomBytes() const { return &m_vbRandomBytes; }
     std::vector<BYTE>* RandomBytes() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_Random*>(this)->RandomBytes()); }
+
+    HRESULT PopulateNow();
 
     private:
     static const ULONG c_cbRandomBytes;
@@ -167,7 +176,6 @@ class MT_CipherSuite : public MT_FixedLengthStructure<BYTE>
 {
     public:
     MT_CipherSuite()
-
           // uint8 CipherSuite[2];    /* Cryptographic suite selector */
         : MT_FixedLengthStructure(2)
     { }
@@ -179,26 +187,29 @@ class MT_SessionID : public MT_VariableLengthField<BYTE>
 {
     public:
     MT_SessionID()
+          // opaque SessionID<0..32>;
         : MT_VariableLengthField(1, 0, 32)
     { }
 };
 
 class MT_CompressionMethod : public MT_Structure
 {
+    public:
     enum MTCM_Method
     {
         MTCM_Null = 0,
         MTCM_Unknown = 255,
     };
 
-    public:
     MT_CompressionMethod();
     ~MT_CompressionMethod() { }
 
     ULONG Length() const { return 1; }
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 
     MT_UINT8 Method() const;
+    void SetMethod(MTCM_Method eMethod) { m_compressionMethod = eMethod; }
 
     private:
     MT_UINT8 m_compressionMethod;
@@ -206,7 +217,7 @@ class MT_CompressionMethod : public MT_Structure
 
 typedef MT_VariableLengthField<MT_CompressionMethod> MT_CompressionMethods;
 
-typedef MT_VariableLengthField<BYTE> MT_ClientHelloExtensions;
+typedef MT_VariableLengthField<BYTE> MT_HelloExtensions;
 
 
 
@@ -262,9 +273,12 @@ class MT_Handshake : public MT_Structure
     ~MT_Handshake() {}
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
-    MTH_HandshakeType HandshakeType() const;
+    HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
     ULONG PayloadLength() const { return Body()->size(); }
     ULONG Length() const;
+
+    MTH_HandshakeType HandshakeType() const;
+    void SetType(MTH_HandshakeType eType) { m_eType = eType; }
 
     const std::vector<BYTE>* Body() const { return &m_vbBody; }
     std::vector<BYTE>* Body() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_Handshake*>(this)->Body()); }
@@ -303,8 +317,8 @@ class MT_ClientHello : public MT_Structure
     const MT_CompressionMethods* CompressionMethods() const { return &m_compressionMethods; }
     MT_CompressionMethods* CompressionMethods() { return const_cast<MT_CompressionMethods*>(static_cast<const MT_ClientHello*>(this)->CompressionMethods()); }
 
-    const MT_ClientHelloExtensions* Extensions() const { return &m_extensions; }
-    MT_ClientHelloExtensions* Extensions() { return const_cast<MT_ClientHelloExtensions*>(static_cast<const MT_ClientHello*>(this)->Extensions()); }
+    const MT_HelloExtensions* Extensions() const { return &m_extensions; }
+    MT_HelloExtensions* Extensions() { return const_cast<MT_HelloExtensions*>(static_cast<const MT_ClientHello*>(this)->Extensions()); }
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     ULONG Length() const;
@@ -315,19 +329,43 @@ class MT_ClientHello : public MT_Structure
     MT_SessionID m_sessionID;
     MT_CipherSuites m_cipherSuites;
     MT_CompressionMethods m_compressionMethods;
-    MT_ClientHelloExtensions m_extensions;
+    MT_HelloExtensions m_extensions;
 };
 
 class MT_ServerHello : public MT_Structure
 {
     public:
-    MT_ServerHello() { }
+    MT_ServerHello();
     ~MT_ServerHello() { }
 
-    ULONG Length() const { return 1; }
-    HRESULT Serialize(std::vector<BYTE>* pvb) const { pvb->front() = 0x23; return S_OK; };
+    ULONG Length() const;
+    HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
+
+    const MT_ProtocolVersion* ProtocolVersion() const { return &m_protocolVersion; }
+    MT_ProtocolVersion* ProtocolVersion() { return const_cast<MT_ProtocolVersion*>(static_cast<const MT_ServerHello*>(this)->ProtocolVersion()); }
+
+    const MT_Random* Random() const { return &m_random; }
+    MT_Random* Random() { return const_cast<MT_Random*>(static_cast<const MT_ServerHello*>(this)->Random()); }
+
+    const MT_SessionID* SessionID() const { return &m_sessionID; }
+    MT_SessionID* SessionID() { return const_cast<MT_SessionID*>(static_cast<const MT_ServerHello*>(this)->SessionID()); }
+
+    const MT_CipherSuite* CipherSuite() const { return &m_cipherSuite; }
+    MT_CipherSuite* CipherSuite() { return const_cast<MT_CipherSuite*>(static_cast<const MT_ServerHello*>(this)->CipherSuite()); }
+
+    const MT_CompressionMethod* CompressionMethod() const { return &m_compressionMethod; }
+    MT_CompressionMethod* CompressionMethod() { return const_cast<MT_CompressionMethod*>(static_cast<const MT_ServerHello*>(this)->CompressionMethod()); }
+
+    const MT_HelloExtensions* Extensions() const { return &m_extensions; }
+    MT_HelloExtensions* Extensions() { return const_cast<MT_HelloExtensions*>(static_cast<const MT_ServerHello*>(this)->Extensions()); }
 
     private:
+    MT_ProtocolVersion m_protocolVersion;
+    MT_Random m_random;
+    MT_SessionID m_sessionID;
+    MT_CipherSuite m_cipherSuite;
+    MT_CompressionMethod m_compressionMethod;
+    MT_HelloExtensions m_extensions;
 };
 
 class TLSConnection
@@ -339,7 +377,7 @@ class TLSConnection
     HRESULT ParseMessage(const BYTE* pv, LONGLONG cb);
 
     private:
-    HRESULT RespondTo(const MT_ClientHello* pClientHello, MT_ServerHello* pServerHello);
+    HRESULT RespondTo(const MT_ClientHello* pClientHello, MT_Structure* pMessage);
 };
 
 
@@ -371,6 +409,26 @@ ReadNetworkLong(
     LONGLONG cb,
     ULONG cbToRead,
     N* pResult
+);
+
+HRESULT
+WriteNetworkLong(
+    ULONG toWrite,
+    ULONG cbToWrite,
+    BYTE* pv,
+    LONGLONG cb
+);
+
+HRESULT
+WriteRandomBytes(
+    BYTE* pv,
+    LONGLONG cb
+);
+
+HRESULT
+EpochTimeFromSystemTime(
+    const SYSTEMTIME* pST,
+    ULARGE_INTEGER* pLI
 );
 
 }
