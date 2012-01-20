@@ -364,77 +364,35 @@ MT_Structure::SerializeToVect(
 } // end function SerializeToVect
 
 
-/*********** MT_VariableLengthField *****************/
+/*********** MT_VariableLengthFieldBase *****************/
 
-template <typename F>
-MT_VariableLengthField<F>::MT_VariableLengthField
-(
-    ULONG cbLengthFieldSize,
-    ULONG cbMinSize,
-    ULONG cbMaxSize
-)
-    : m_cbLengthFieldSize(cbLengthFieldSize),
-      m_cbMinSize(cbMinSize),
-      m_cbMaxSize(cbMaxSize),
-      m_vData()
+template <typename F,
+          ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
+MT_VariableLengthFieldBase
+<F, LengthFieldSize, MinSize, MaxSize>
+::MT_VariableLengthFieldBase()
 {
-    assert(m_cbLengthFieldSize <= sizeof(ULONG));
+    assert(LengthFieldSize <= sizeof(ULONG));
 }
 
-template <>
+/*********** MT_VariableLengthField *****************/
+
+template <typename F,
+          ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
 HRESULT
-MT_VariableLengthField<BYTE>::ParseFromPriv(
+MT_VariableLengthField
+<F, LengthFieldSize, MinSize, MaxSize>
+::ParseFromPriv(
     const BYTE* pv,
     LONGLONG cb
 )
 {
     HRESULT hr = S_OK;
-    DWORD cbField = m_cbLengthFieldSize;
-    ULONG cbDataLength = 0;
-
-    hr = ReadNetworkLong(pv, cb, cbField, &cbDataLength);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    pv += cbField;
-    cb -= cbField;
-
-    if (cbDataLength < m_cbMinSize)
-    {
-        hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
-        goto error;
-    }
-
-    if (cbDataLength > m_cbMaxSize)
-    {
-        hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
-        goto error;
-    }
-
-    cbField = cbDataLength;
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    Data()->assign(pv, pv + cbField);
-
-error:
-    return hr;
-} // end function ParseFromPriv
-
-template <typename F>
-HRESULT
-MT_VariableLengthField<F>::ParseFromPriv(
-    const BYTE* pv,
-    LONGLONG cb
-)
-{
-    HRESULT hr = S_OK;
-    DWORD cbField = m_cbLengthFieldSize;
+    DWORD cbField = LengthFieldSize;
     LONGLONG cbTotalElementsSize = 0;
 
     hr = ReadNetworkLong(pv, cb, cbField, &cbTotalElementsSize);
@@ -446,13 +404,13 @@ MT_VariableLengthField<F>::ParseFromPriv(
     pv += cbField;
     cb -= cbField;
 
-    if (cbTotalElementsSize < m_cbMinSize)
+    if (cbTotalElementsSize < MinSize)
     {
         hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
         goto error;
     }
 
-    if (cbTotalElementsSize > m_cbMaxSize)
+    if (cbTotalElementsSize > MaxSize)
     {
         hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
         goto error;
@@ -487,19 +445,17 @@ error:
     return hr;
 } // end function ParseFromPriv
 
-template <>
-ULONG
-MT_VariableLengthField<BYTE>::Length() const
-{
-    assert((1UL << (m_cbLengthFieldSize * 8)) - 1 >= m_cbMaxSize);
-    return m_cbLengthFieldSize + Count();
-} // end function Length
 
-template <typename F>
+template <typename F,
+          ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
 ULONG
-MT_VariableLengthField<F>::Length() const
+MT_VariableLengthField
+<F, LengthFieldSize, MinSize, MaxSize>
+::Length() const
 {
-    assert((1UL << (m_cbLengthFieldSize * 8)) - 1 >= m_cbMaxSize);
+    assert((1UL << (LengthFieldSize * 8)) - 1 >= MaxSize);
 
     ULONG cbTotalDataLength = accumulate(
         Data()->begin(),
@@ -510,12 +466,17 @@ MT_VariableLengthField<F>::Length() const
             return sofar + next.Length();
         });
 
-    return m_cbLengthFieldSize + cbTotalDataLength;
+    return LengthFieldSize + cbTotalDataLength;
 } // end function Length
 
-template <typename F>
+template <typename F,
+          ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
 HRESULT
-MT_VariableLengthField<F>::SerializePriv(
+MT_VariableLengthField
+<F, LengthFieldSize, MinSize, MaxSize>
+::SerializePriv(
     BYTE* pv,
     LONGLONG cb
 ) const
@@ -528,7 +489,7 @@ MT_VariableLengthField<F>::SerializePriv(
         goto error;
     }
 
-    ULONG cbField = m_cbLengthFieldSize;
+    ULONG cbField = LengthFieldSize;
 
     hr = WriteNetworkLong(Data()->size(), cbField, pv, cb);
     assert(hr == S_OK);
@@ -551,9 +512,78 @@ error:
     return hr;
 } // end function SerializePriv
 
-template <>
+
+
+/*********** MT_VariableLengthByteField *****************/
+
+template <ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
 HRESULT
-MT_VariableLengthField<BYTE>::SerializePriv(
+MT_VariableLengthByteField
+<LengthFieldSize, MinSize, MaxSize>
+::ParseFromPriv(
+    const BYTE* pv,
+    LONGLONG cb
+)
+{
+    HRESULT hr = S_OK;
+    DWORD cbField = LengthFieldSize;
+    ULONG cbDataLength = 0;
+
+    hr = ReadNetworkLong(pv, cb, cbField, &cbDataLength);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    if (cbDataLength < MinSize)
+    {
+        hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
+        goto error;
+    }
+
+    if (cbDataLength > MaxSize)
+    {
+        hr = MT_E_DATA_SIZE_OUT_OF_RANGE;
+        goto error;
+    }
+
+    cbField = cbDataLength;
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    Data()->assign(pv, pv + cbField);
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
+template <ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
+ULONG
+MT_VariableLengthByteField
+<LengthFieldSize, MinSize, MaxSize>
+::Length() const
+{
+    assert((1UL << (LengthFieldSize * 8)) - 1 >= MaxSize);
+    return LengthFieldSize + Count();
+} // end function Length
+
+template <ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
+HRESULT
+MT_VariableLengthByteField
+<LengthFieldSize, MinSize, MaxSize>
+::SerializePriv(
     BYTE* pv,
     LONGLONG cb
 ) const
@@ -566,7 +596,7 @@ MT_VariableLengthField<BYTE>::SerializePriv(
         goto error;
     }
 
-    ULONG cbField = m_cbLengthFieldSize;
+    ULONG cbField = LengthFieldSize;
 
     hr = WriteNetworkLong(Data()->size(), cbField, pv, cb);
     assert(hr == S_OK);
@@ -1246,14 +1276,9 @@ MT_ClientHello::MT_ClientHello()
     : m_protocolVersion(),
       m_random(),
       m_sessionID(),
-
-      // CipherSuite cipher_suites<2..2^16-1>;
-      m_cipherSuites(2, 2, (1<<(2*8)) - 1),
-
-      // CompressionMethod compression_methods<1..2^8-1>;
-      m_compressionMethods(1, 1, (1<<(1*8)) - 1),
-
-      m_extensions(2, 0, (1<<(2*8)) - 1)
+      m_cipherSuites(),
+      m_compressionMethods(),
+      m_extensions()
 {
 }
 
@@ -1416,7 +1441,7 @@ MT_ServerHello::MT_ServerHello()
       m_sessionID(),
       m_cipherSuite(),
       m_compressionMethod(),
-      m_extensions(2, 0, (1<<(2*8)) - 1)
+      m_extensions()
 {
 } // end ctor MT_ServerHello
 

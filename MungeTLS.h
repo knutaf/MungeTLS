@@ -20,6 +20,8 @@ typedef ULONG MT_UINT8;
 typedef ULONG MT_UINT16;
 typedef ULONG MT_UINT32;
 
+#define MAXFORBYTES(b) ((1 << ((b) * 8)) - 1)
+
 class MT_Structure
 {
     public:
@@ -37,35 +39,60 @@ class MT_Structure
     virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const { return E_NOTIMPL; }
 };
 
-template <typename F>
-class MT_VariableLengthField : public MT_Structure
+template <typename F,
+          ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
+class MT_VariableLengthFieldBase : public MT_Structure
 {
     public:
-    MT_VariableLengthField
-    (
-        ULONG cbLengthFieldSize,
-        ULONG cbMinSize,
-        ULONG cbMaxSize
-    );
+    MT_VariableLengthFieldBase();
+    virtual ~MT_VariableLengthFieldBase() { }
 
-    virtual ~MT_VariableLengthField() { }
-
-    ULONG Length() const;
-    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
-    virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
+    virtual ULONG Length() const = 0;
+    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) = 0;
+    virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const = 0;
 
     const std::vector<F>* Data() const { return &m_vData; }
-    std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_VariableLengthField*>(this)->Data()); }
+    std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_VariableLengthFieldBase*>(this)->Data()); }
     ULONG Count() const { return Data()->size(); }
 
     const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
-    F* at(typename std::vector<F>::size_type pos) { return const_cast<F*>(static_cast<const MT_VariableLengthField*>(this)->at(pos)); }
+    F* at(typename std::vector<F>::size_type pos) { return const_cast<F*>(static_cast<const MT_VariableLengthFieldBase*>(this)->at(pos)); }
 
     private:
-    ULONG m_cbLengthFieldSize;
-    ULONG m_cbMinSize;
-    ULONG m_cbMaxSize;
     std::vector<F> m_vData;
+};
+
+template <typename F,
+          ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
+class MT_VariableLengthField : public MT_VariableLengthFieldBase
+                                          <F,
+                                           LengthFieldSize,
+                                           MinSize,
+                                           MaxSize>
+{
+    public:
+    virtual ULONG Length() const;
+    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
+};
+
+template <ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
+class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
+                                              <BYTE,
+                                               LengthFieldSize,
+                                               MinSize,
+                                               MaxSize>
+{
+    public:
+    ULONG Length() const;
+    HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 };
 
 template <typename F>
@@ -181,14 +208,16 @@ class MT_CipherSuite : public MT_FixedLengthStructure<BYTE>
     { }
 };
 
-typedef MT_VariableLengthField<MT_CipherSuite> MT_CipherSuites;
+// CipherSuite cipher_suites<2..2^16-1>;
+typedef MT_VariableLengthField<MT_CipherSuite, 2, 2, MAXFORBYTES(2)>
+        MT_CipherSuites;
 
-class MT_SessionID : public MT_VariableLengthField<BYTE>
+// opaque SessionID<0..32>;
+class MT_SessionID : public MT_VariableLengthByteField<1, 0, 32>
 {
     public:
     MT_SessionID()
-          // opaque SessionID<0..32>;
-        : MT_VariableLengthField(1, 0, 32)
+        : MT_VariableLengthByteField()
     { }
 };
 
@@ -215,9 +244,11 @@ class MT_CompressionMethod : public MT_Structure
     MT_UINT8 m_compressionMethod;
 };
 
-typedef MT_VariableLengthField<MT_CompressionMethod> MT_CompressionMethods;
+// CompressionMethod compression_methods<1..2^8-1>;
+typedef MT_VariableLengthField<MT_CompressionMethod, 1, 1, MAXFORBYTES(1)>
+        MT_CompressionMethods;
 
-typedef MT_VariableLengthField<BYTE> MT_HelloExtensions;
+typedef MT_VariableLengthByteField<2, 0, MAXFORBYTES(2)> MT_HelloExtensions;
 
 
 
