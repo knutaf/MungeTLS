@@ -95,27 +95,46 @@ class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
     HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 };
 
-template <typename F>
-class MT_FixedLengthStructure : public MT_Structure
+template <typename F, ULONG Size>
+class MT_FixedLengthStructureBase : public MT_Structure
 {
     public:
-    MT_FixedLengthStructure(ULONG cbSize);
-    virtual ~MT_FixedLengthStructure() { }
+    MT_FixedLengthStructureBase();
+    virtual ~MT_FixedLengthStructureBase() { }
 
-    ULONG Length() const;
-    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
-    virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
+    virtual ULONG Length() const = 0;
+    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) = 0;
+    virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const = 0;
 
     const std::vector<F>* Data() const { return &m_vData; }
-    std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_FixedLengthStructure*>(this)->Data()); }
+    std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_FixedLengthStructureBase*>(this)->Data()); }
     ULONG Count() const { return Data()->size(); }
 
     const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
-    F* at(typename std::vector<F>::size_type pos) { return const_cast<F*>(static_cast<const MT_FixedLengthStructure*>(this)->at(pos)); }
+    F* at(typename std::vector<F>::size_type pos) { return const_cast<F*>(static_cast<const MT_FixedLengthStructureBase*>(this)->at(pos)); }
 
     private:
-    ULONG m_cbSize;
     std::vector<F> m_vData;
+};
+
+template <typename F, ULONG Size>
+class MT_FixedLengthStructure : public MT_FixedLengthStructureBase<F, Size>
+{
+    public:
+    virtual ULONG Length() const;
+    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
+};
+
+template <ULONG Size>
+class MT_FixedLengthByteStructure : public MT_FixedLengthStructureBase
+                                               <BYTE,
+                                               Size>
+{
+    public:
+    virtual ULONG Length() const;
+    virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 };
 
 class MT_ContentType : public MT_Structure
@@ -199,14 +218,8 @@ class MT_Random : public MT_Structure
     std::vector<BYTE> m_vbRandomBytes;
 };
 
-class MT_CipherSuite : public MT_FixedLengthStructure<BYTE>
-{
-    public:
-    MT_CipherSuite()
-          // uint8 CipherSuite[2];    /* Cryptographic suite selector */
-        : MT_FixedLengthStructure(2)
-    { }
-};
+// uint8 CipherSuite[2];    /* Cryptographic suite selector */
+typedef MT_FixedLengthByteStructure<2> MT_CipherSuite;
 
 // CipherSuite cipher_suites<2..2^16-1>;
 typedef MT_VariableLengthField<MT_CipherSuite, 2, 2, MAXFORBYTES(2)>

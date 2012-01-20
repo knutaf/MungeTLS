@@ -616,49 +616,26 @@ error:
     return hr;
 } // end function SerializePriv
 
-/*********** MT_FixedLengthStructure *****************/
+/*********** MT_FixedLengthStructureBase *****************/
 
-template <typename F>
-MT_FixedLengthStructure<F>::MT_FixedLengthStructure(
-    ULONG cbSize
-)
-    : m_cbSize(cbSize),
-      m_vData()
+template <typename F, ULONG Size>
+MT_FixedLengthStructureBase<F, Size>::MT_FixedLengthStructureBase()
+    : m_vData()
 {
-    assert(m_cbSize > 0);
+    assert(Size > 0);
 }
 
-template <>
+/*********** MT_FixedLengthStructure *****************/
+
+template <typename F, ULONG Size>
 HRESULT
-MT_FixedLengthStructure<BYTE>::ParseFromPriv(
+MT_FixedLengthStructure<F, Size>::ParseFromPriv(
     const BYTE* pv,
     LONGLONG cb
 )
 {
     HRESULT hr = S_OK;
-    DWORD cbField = m_cbSize;
-
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    Data()->assign(pv, pv + cbField);
-
-error:
-    return hr;
-} // end function ParseFromPriv
-
-template <typename F>
-HRESULT
-MT_FixedLengthStructure<F>::ParseFromPriv(
-    const BYTE* pv,
-    LONGLONG cb
-)
-{
-    HRESULT hr = S_OK;
-    LONGLONG cbTotalElementsSize = m_cbSize;
+    LONGLONG cbTotalElementsSize = Size;
 
     if (cbTotalElementsSize > cb)
     {
@@ -683,15 +660,15 @@ MT_FixedLengthStructure<F>::ParseFromPriv(
         cbTotalElementsSize -= cbField;
     }
 
-    assert(Length() == m_cbSize);
+    assert(Length() == Size);
 
 error:
     return hr;
 } // end function ParseFromPriv
 
-template <typename F>
+template <typename F, ULONG Size>
 HRESULT
-MT_FixedLengthStructure<F>::SerializePriv(
+MT_FixedLengthStructure<F, Size>::SerializePriv(
     BYTE* pv,
     LONGLONG cb
 ) const
@@ -719,9 +696,51 @@ error:
     return hr;
 } // end function SerializePriv
 
-template <>
+template <typename F, ULONG Size>
+ULONG
+MT_FixedLengthStructure<F, Size>::Length() const
+{
+    ULONG cbTotalDataLength = accumulate(
+        Data()->begin(),
+        Data()->end(),
+        0,
+        [](ULONG sofar, const F& next)
+        {
+            return sofar + next.Length();
+        });
+
+    assert(Size == cbTotalDataLength);
+
+    return cbTotalDataLength;
+} // end function Length
+
+/*********** MT_FixedLengthByteStructure *****************/
+
+template <ULONG Size>
 HRESULT
-MT_FixedLengthStructure<BYTE>::SerializePriv(
+MT_FixedLengthByteStructure<Size>::ParseFromPriv(
+    const BYTE* pv,
+    LONGLONG cb
+)
+{
+    HRESULT hr = S_OK;
+    DWORD cbField = Size;
+
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    Data()->assign(pv, pv + cbField);
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
+template <ULONG Size>
+HRESULT
+MT_FixedLengthByteStructure<Size>::SerializePriv(
     BYTE* pv,
     LONGLONG cb
 ) const
@@ -746,30 +765,12 @@ error:
     return hr;
 } // end function SerializePriv
 
-template <>
+template <ULONG Size>
 ULONG
-MT_FixedLengthStructure<BYTE>::Length() const
+MT_FixedLengthByteStructure<Size>::Length() const
 {
-    assert(m_cbSize == Data()->size());
-    return m_cbSize;
-} // end function Length
-
-template <typename F>
-ULONG
-MT_FixedLengthStructure<F>::Length() const
-{
-    ULONG cbTotalDataLength = accumulate(
-        Data()->begin(),
-        Data()->end(),
-        0,
-        [](ULONG sofar, const F& next)
-        {
-            return sofar + next.Length();
-        });
-
-    assert(m_cbSize == cbTotalDataLength);
-
-    return cbTotalDataLength;
+    assert(Size == Data()->size());
+    return Size;
 } // end function Length
 
 /*********** MT_TLSPlaintext *****************/
