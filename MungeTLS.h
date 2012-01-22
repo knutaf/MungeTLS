@@ -153,11 +153,11 @@ class MT_ContentType : public MT_Structure
     ~MT_ContentType() {};
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
+    ULONG Length() const { return 1; }
 
     const MTCT_Type Type() const;
     void SetType(MTCT_Type eType) { m_eType = eType; }
-
-    ULONG Length() const { return 1; }
 
     static bool IsValidContentType(MTCT_Type eType);
 
@@ -275,6 +275,8 @@ class MT_TLSPlaintext : public MT_Structure
     ~MT_TLSPlaintext() {};
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
+    ULONG Length() const;
 
     const MT_ContentType* ContentType() const { return &m_contentType; }
     MT_ContentType* ContentType() { return const_cast<MT_ContentType*>(static_cast<const MT_TLSPlaintext*>(this)->ContentType()); }
@@ -283,8 +285,6 @@ class MT_TLSPlaintext : public MT_Structure
     MT_ProtocolVersion* ProtocolVersion() { return const_cast<MT_ProtocolVersion*>(static_cast<const MT_TLSPlaintext*>(this)->ProtocolVersion()); }
 
     MT_UINT16 PayloadLength() const { return Fragment()->size(); }
-
-    ULONG Length() const;
 
     const std::vector<BYTE>* Fragment() const { return &m_vbFragment; }
     std::vector<BYTE>* Fragment() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_TLSPlaintext*>(this)->Fragment()); }
@@ -418,10 +418,15 @@ class TLSConnection
     TLSConnection();
     ~TLSConnection() { }
 
-    HRESULT ParseMessage(const BYTE* pv, LONGLONG cb);
+    HRESULT HandleMessage(
+        const BYTE* pv,
+        LONGLONG cb,
+        std::vector<BYTE>* pvbResponse);
 
     private:
-    HRESULT RespondTo(const MT_ClientHello* pClientHello, MT_Structure* pMessage);
+    HRESULT RespondTo(
+        const MT_ClientHello* pClientHello,
+        MT_TLSPlaintext* pMessage);
 };
 
 

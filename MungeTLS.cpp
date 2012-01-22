@@ -21,9 +21,10 @@ TLSConnection::TLSConnection()
 } // end ctor TLSConnection
 
 HRESULT
-TLSConnection::ParseMessage(
+TLSConnection::HandleMessage(
     const BYTE* pv,
-    LONGLONG cb
+    LONGLONG cb,
+    vector<BYTE>* pvbResponse
 )
 {
     HRESULT hr = S_OK;
@@ -74,10 +75,14 @@ TLSConnection::ParseMessage(
                         MT_TLSPlaintext response;
                         hr = RespondTo(&clientHello, &response);
 
-                        vector<BYTE> vbResponse;
-                        hr = response.SerializeToVect(&vbResponse);
-
-                        // TODO: actually send
+                        if (hr == S_OK)
+                        {
+                            hr = response.SerializeToVect(pvbResponse);
+                        }
+                        else
+                        {
+                            printf("failed RespondTo: %08LX\n", hr);
+                        }
                     }
                     else
                     {
@@ -106,27 +111,33 @@ TLSConnection::ParseMessage(
 HRESULT
 TLSConnection::RespondTo(
     const MT_ClientHello* pClientHello,
-    MT_Structure* pMessage
+    MT_TLSPlaintext* pMessage
 )
 {
     HRESULT hr = S_OK;
 
     MT_ProtocolVersion protocolVersion;
+    MT_Random random;
+    MT_SessionID sessionID;
+    const MT_CipherSuite* cipherSuite;
+    MT_CompressionMethod compressionMethod;
+    MT_ServerHello serverHello;
+    MT_Handshake handshake;
+    MT_ContentType contentType;
+    MT_TLSPlaintext plaintext;
+
     protocolVersion.SetVersion(MT_ProtocolVersion::MTPV_TLS10);
 
-    MT_Random random;
     hr = random.PopulateNow();
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
-    MT_SessionID sessionID;
-
-    const MT_CipherSuite* cipherSuite;
     assert(pClientHello->CipherSuites()->Count() > 0);
     cipherSuite = pClientHello->CipherSuites()->at(0);
 
-    MT_CompressionMethod compressionMethod;
     compressionMethod.SetMethod(MT_CompressionMethod::MTCM_Null);
-
-    MT_ServerHello serverHello;
 
     *(serverHello.ProtocolVersion()) = protocolVersion;
     *(serverHello.Random()) = random;
@@ -135,22 +146,28 @@ TLSConnection::RespondTo(
     *(serverHello.CompressionMethod()) = compressionMethod;
     // not setting server extensions
 
-    MT_Handshake handshake;
     handshake.SetType(MT_Handshake::MTH_ServerHello);
     hr = serverHello.SerializeToVect(handshake.Body());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
-    MT_ContentType contentType;
     contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
-
-    MT_TLSPlaintext plaintext;
 
     *(plaintext.ContentType()) = contentType;
     *(plaintext.ProtocolVersion()) = protocolVersion;
+
     hr = handshake.SerializeToVect(plaintext.Fragment());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
     *pMessage = plaintext;
 
-    return S_OK;
+error:
+    return hr;
 } // end function RespondTo
 
 
@@ -308,7 +325,7 @@ EpochTimeFromSystemTime(
     }
 
     // convert from 100 ns to ms
-    pLI->QuadPart /= 10000;
+    pLI->QuadPart /= 10000000ULL;
 
 error:
     return hr;
@@ -844,10 +861,66 @@ MT_TLSPlaintext::Length() const
 {
     ULONG cbLength = ContentType()->Length() +
                      ProtocolVersion()->Length() +
+                     2 + // sizeof MT_UINT16 payload length
                      PayloadLength();
 
     return cbLength;
 } // end function Length
+
+HRESULT
+MT_TLSPlaintext::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+    ULONG cbField = ContentType()->Length();
+
+    hr = ContentType()->Serialize(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    cbField = ProtocolVersion()->Length();
+    hr = ProtocolVersion()->Serialize(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    // uint16 length;
+    cbField = 2;
+    hr = WriteNetworkLong(PayloadLength(), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+    cbField = PayloadLength();
+    if (cbField > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    std::copy(Fragment()->begin(), Fragment()->end(), pv);
+
+    pv += cbField;
+    cb -= cbField;
+
+error:
+    return hr;
+} // end function SerializePriv
 
 /*********** MT_ContentType *****************/
 
@@ -896,6 +969,28 @@ MT_ContentType::ParseFromPriv(
 error:
     return hr;
 } // end function ParseFromPriv
+
+HRESULT
+MT_ContentType::SerializePriv(
+    BYTE* pv,
+    LONGLONG cb
+) const
+{
+    HRESULT hr = S_OK;
+
+    ULONG cbField = Length();
+    hr = WriteNetworkLong(Type(), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    pv += cbField;
+    cb -= cbField;
+
+error:
+    return hr;
+} // end function SerializePriv
 
 bool
 MT_ContentType::IsValidContentType(

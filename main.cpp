@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <atlbase.h>
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "MungeTLS.h"
@@ -105,20 +106,67 @@ HRESULT ProcessConnections()
         TLSConnection con;
         char c = 0;
         vector<BYTE> vbData;
-        int cch = recv(sockAccept, &c, 1, 0);
-        while (cch > 0)
+        vector<BYTE> vbResponse;
+        int cb = recv(sockAccept, &c, 1, 0);
+        while (cb > 0)
         {
-            printf("read %d chars. got char: %01LX\n", cch, c);
+            printf("read %d chars. got char: %01LX\n", cb, c);
             vbData.push_back(c);
 
-            HRESULT hr = con.ParseMessage(&vbData.front(), vbData.size());
+            HRESULT hr = con.HandleMessage(&vbData.front(), vbData.size(), &vbResponse);
             if (hr == S_OK)
             {
                 printf("finished parsing message\n");
                 vbData.clear();
+
+                if (!vbResponse.empty())
+                {
+                    ULONG cbPayload = vbResponse.size();
+
+                    printf("responding with %d bytes\n", cbPayload);
+
+                    while (cbPayload != 0)
+                    {
+                        assert(cbPayload == vbResponse.size());
+
+                        cb = send(sockAccept,
+                                  reinterpret_cast<char*>(&vbResponse.front()),
+                                  cbPayload,
+                                  0);
+
+                        if (cb == SOCKET_ERROR)
+                        {
+                            hr = HRESULT_FROM_WIN32(WSAGetLastError());
+                            printf("failed in send(): %08LX\n", hr);
+                            break;
+                        }
+
+                        assert(cb >= 0);
+                        assert(static_cast<ULONG>(cb) <= cbPayload);
+
+                        cbPayload -= cb;
+                        vbResponse.erase(
+                            vbResponse.begin(),
+                            vbResponse.begin() + cb);
+                    }
+
+                    if (hr == S_OK)
+                    {
+                        assert(vbResponse.empty());
+                    }
+                    else
+                    {
+                        printf("something failed. exiting\n");
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                printf("failed HandleMessage: %08LX\n", hr);
             }
 
-            cch = recv(sockAccept, &c, 1, 0);
+            cb = recv(sockAccept, &c, 1, 0);
         }
     }
 
