@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <vector>
 
+#pragma warning(push)
+#pragma warning(disable : 4100)
 namespace MungeTLS
 {
 
@@ -22,6 +24,9 @@ typedef ULONG MT_UINT32;
 
 #define MAXFORBYTES(b) ((1 << ((b) * 8)) - 1)
 
+extern const BYTE c_abyCert[];
+extern const ULONG c_cbCert;
+
 class MT_Structure
 {
     public:
@@ -32,6 +37,7 @@ class MT_Structure
     HRESULT ParseFromVect(const std::vector<BYTE>* pvb);
     HRESULT Serialize(BYTE* pv, LONGLONG cb) const;
     HRESULT SerializeToVect(std::vector<BYTE>* pvb) const;
+    HRESULT SerializeAppendToVect(std::vector<BYTE>* pvb) const;
     virtual ULONG Length() const = 0;
 
     private:
@@ -426,7 +432,32 @@ class TLSConnection
     private:
     HRESULT RespondTo(
         const MT_ClientHello* pClientHello,
-        MT_TLSPlaintext* pMessage);
+        std::vector<MT_TLSPlaintext>* pResponses);
+};
+
+// opaque ASN.1Cert<1..2^24-1>;
+typedef MT_VariableLengthByteField<3, 1, MAXFORBYTES(3)> MT_ASN1Cert;
+
+// ASN.1Cert certificate_list<0..2^24-1>;
+typedef MT_VariableLengthField<MT_ASN1Cert, 3, 0, MAXFORBYTES(3)> MT_CertificateList;
+
+class MT_Certificate : public MT_Structure
+{
+    public:
+    MT_Certificate();
+    ~MT_Certificate() { }
+
+    HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
+    ULONG Length() const { return CertificateList()->Length(); }
+
+    HRESULT PopulateFromFile(PCWSTR wszFilename);
+    HRESULT PopulateFromConst(const BYTE* pvCert, LONGLONG cbCert);
+
+    const MT_CertificateList* CertificateList() const { return &m_certificateList; }
+    MT_CertificateList* CertificateList() { return const_cast<MT_CertificateList*>(static_cast<const MT_Certificate*>(this)->CertificateList()); }
+
+    private:
+    MT_CertificateList m_certificateList;
 };
 
 
@@ -439,6 +470,7 @@ class MT_Thingy : public MT_Structure
 
     ULONG Length() const { return m_thingy.size(); }
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
+    // HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 
     private:
     std::vector<BYTE> m_thingy;
@@ -480,4 +512,14 @@ EpochTimeFromSystemTime(
     ULARGE_INTEGER* pLI
 );
 
+template <typename T>
+HRESULT
+SerializeMessagesToVector(
+    const std::vector<T>* pvMessages,
+    std::vector<BYTE>* pvb
+);
+
+void ResizeVector(std::vector<BYTE>* pv, std::vector<BYTE>::size_type siz);
+
 }
+#pragma warning(pop)
