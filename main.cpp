@@ -13,6 +13,9 @@ HRESULT ProcessConnections();
 
 int __cdecl wmain(int argc, wchar_t* argv[])
 {
+    UNREFERENCED_PARAMETER(argc);
+    UNREFERENCED_PARAMETER(argv);
+
     HRESULT hr = S_OK;
 
     hr = ProcessConnections();
