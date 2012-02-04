@@ -78,7 +78,8 @@ TLSConnection::HandleMessage(
                         if (hr == S_OK)
                         {
                             printf("got %u messages to respond with\n", responseMessages.size());
-                            hr = SerializeMessagesToVector(&responseMessages, pvbResponse);
+                            //hr = SerializeMessagesToVector(&responseMessages, pvbResponse);
+                            hr = responseMessages[0].SerializeToVect(pvbResponse);
                         }
                         else
                         {
@@ -402,17 +403,24 @@ SerializeMessagesToVector(
 )
 {
     HRESULT hr = S_OK;
+    ULONG cbTotal = 0;
 
     pvb->clear();
     for_each(pvMessages->begin(), pvMessages->end(),
-        [&hr, pvb](const T& pStructure)
+        [&hr, &cbTotal, pvb](const T& pStructure)
         {
             if (hr == S_OK)
             {
+                cbTotal += pStructure.Length();
                 hr = pStructure.SerializeAppendToVect(pvb);
             }
         }
     );
+
+    if (hr == S_OK)
+    {
+        assert(cbTotal == pvb->size());
+    }
 
     return hr;
 } // end function SerializeMessagesToVector
@@ -1273,7 +1281,7 @@ MT_Handshake::ParseFromPriv(
     pv += cbField;
     cb -= cbField;
 
-    cbField = 3;
+    cbField = LengthFieldLength();
     hr = ReadNetworkLong(pv, cb, cbField, &cbPayloadLength);
     if (hr != S_OK)
     {
@@ -1303,7 +1311,7 @@ ULONG
 MT_Handshake::Length() const
 {
     return 1 + // handshake type
-           3 + // uint24 length
+           LengthFieldLength() +
            PayloadLength();
 } // end function Length
 
@@ -1348,7 +1356,7 @@ MT_Handshake::SerializePriv(
     pv += cbField;
     cb -= cbField;
 
-    cbField = 3;
+    cbField = LengthFieldLength();
     hr = WriteNetworkLong(PayloadLength(), cbField, pv, cb);
     if (hr != S_OK)
     {

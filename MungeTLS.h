@@ -342,6 +342,9 @@ class MT_Handshake : public MT_Structure
     static const MTH_HandshakeType c_rgeSupportedTypes[];
     static const DWORD c_cSupportedTypes;
 
+    // uint24 length
+    ULONG LengthFieldLength() const { return 3; }
+
     MTH_HandshakeType m_eType;
     std::vector<BYTE> m_vbBody;
 };
