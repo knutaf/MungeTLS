@@ -3,6 +3,10 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <string>
 #include "MungeTLS.h"
 
 
@@ -22,6 +26,65 @@ int __cdecl wmain(int argc, wchar_t* argv[])
 
     return hr;
 }
+
+template <typename N>
+string StringFromInt(N n)
+{
+    stringstream s;
+    s << n;
+    return s.str();
+} // end function StringFromInt
+
+HRESULT LogTraffic(ULONG nFile, const string* psSuffix, const vector<BYTE>* pvb)
+{
+    HRESULT hr = S_OK;
+    string strFilename("out\\");
+
+    for (ULONG i = nFile; i < 100; i *= 10)
+    {
+        if (i == 0)
+        {
+            i++;
+        }
+
+        strFilename += "0";
+    }
+
+    strFilename += StringFromInt(nFile);
+    strFilename += "_";
+    strFilename += *psSuffix;
+
+    ofstream outfile(strFilename);
+
+    if (!outfile.bad())
+    {
+        for_each(pvb->begin(), pvb->end(),
+            [&outfile](BYTE b)
+            {
+                outfile.put(b);
+            }
+        );
+
+        printf("logged traffic '%s' to %s\n", psSuffix->c_str(), strFilename.c_str());
+    }
+    else
+    {
+        printf("failed to create outfile: %s\n", strFilename.c_str());
+        hr = E_FAIL;
+    }
+
+    return hr;
+} // end function LogTraffic
+
+HRESULT LogWrite(ULONG nFile, const vector<BYTE>* pvb)
+{
+    return LogTraffic(nFile, &string("w"), pvb);
+} // end function LogWrite
+
+HRESULT LogRead(ULONG nFile, const vector<BYTE>* pvb)
+{
+    return LogTraffic(nFile, &string("r"), pvb);
+} // end function LogRead
 
 HRESULT ProcessConnections()
 {
@@ -97,20 +160,13 @@ HRESULT ProcessConnections()
 
     wprintf(L"client connected with handle %d\n", sockAccept);
 
-    /*
-    char szMsg[] = "testing\r\n";
-    if (send(sockAccept, szMsg, ARRAYSIZE(szMsg), 0) <= 0)
-    {
-        wprintf(L"err in write: %d\n", errno);
-    }
-    */
-
     {
         TLSConnection con;
         char c = 0;
         vector<BYTE> vbData;
         vector<BYTE> vbResponse;
         int cb = recv(sockAccept, &c, 1, 0);
+        ULONG cMessages = 0;
         while (cb > 0)
         {
             printf("read %d chars. got char: %01LX\n", cb, c);
@@ -120,6 +176,8 @@ HRESULT ProcessConnections()
             if (hr == S_OK)
             {
                 printf("finished parsing message\n");
+                LogRead(cMessages, &vbData);
+                cMessages++;
                 vbData.clear();
 
                 if (!vbResponse.empty())
@@ -131,6 +189,9 @@ HRESULT ProcessConnections()
                     while (cbPayload != 0)
                     {
                         assert(cbPayload == vbResponse.size());
+
+                        LogWrite(cMessages, &vbResponse);
+                        cMessages++;
 
                         cb = send(sockAccept,
                                   reinterpret_cast<char*>(&vbResponse.front()),

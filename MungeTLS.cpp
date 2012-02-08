@@ -12,8 +12,6 @@ namespace MungeTLS
 
 using namespace std;
 
-
-
 /*********** TLSConnection *****************/
 
 TLSConnection::TLSConnection()
