@@ -11,6 +11,7 @@
 #include <vector>
 #include <iostream>
 #include <functional>
+#include <fstream>
 
 #include <Ntddndis.h>
 
@@ -46,7 +47,6 @@ ForEachFileInDirectory(
         if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
         {
             wprintf(L"file: %s\n", findData.cFileName);
-
             fnBody(&findData);
         }
 
@@ -65,9 +65,29 @@ error:
     return hr;
 } // end function ForEachFileInDirectory
 
-HRESULT GetFileContents(PCWSTR wszFilename, vector<BYTE>* pvbContents)
+HRESULT GetFileContents(PCWSTR wszFilename, DWORD cbFileSize, vector<BYTE>* pvbContents)
 {
-    wprintf(L"path: %s\n", wszFilename);
+    ifstream infile(wszFilename);
+
+    if (infile.bad())
+    {
+        wprintf(L"couldn't open %s\n", wszFilename);
+        goto error;
+    }
+
+    pvbContents->reserve(cbFileSize);
+    while (!infile.bad() && cbFileSize > 0)
+    {
+        char c = static_cast<char>(infile.get());
+        if (infile.eof())
+        {
+            break;
+        }
+
+        pvbContents->push_back(c);
+    }
+
+error:
     return S_OK;
 } // end function GetFileContents
 
@@ -75,6 +95,7 @@ HRESULT ConvertTrafficFiles(PCWSTR wszDir)
 {
     DWORD dwError = ERROR_SUCCESS;
     HRESULT hr = S_OK;
+    ULONG nFile = 0;
 
     wstring wsFilespec(wszDir);
     wsFilespec += L"\\*";
@@ -96,18 +117,62 @@ HRESULT ConvertTrafficFiles(PCWSTR wszDir)
     }
 
     ForEachFileInDirectory(wsFilespec.c_str(),
-    [&wszDir, &hCaptureFile]
+    [&wszDir, &nFile, &hCaptureFile]
     (const WIN32_FIND_DATAW* pFindData) -> HRESULT
     {
         HRESULT hr = S_OK;
-
+        DWORD dwError = ERROR_SUCCESS;
         wstring wsFilePath(wszDir);
+        vector<BYTE> vbFrame;
+        HANDLE hFrame = NULL;
+
+        if (pFindData->nFileSizeHigh != 0)
+        {
+            wprintf(L"large files not supported\n");
+            hr = S_FALSE;
+            goto error;
+        }
+
         wsFilePath += L"\\";
         wsFilePath += pFindData->cFileName;
 
-        vector<BYTE> vbFrame;
+        hr = GetFileContents(wsFilePath.c_str(), pFindData->nFileSizeLow, &vbFrame);
 
-        hr = GetFileContents(wsFilePath.c_str(), &vbFrame);
+        // custom media type header
+        //vbFrame.insert(vbFrame.begin(), 0x23);
+        //vbFrame.insert(vbFrame.begin(), 0x23);
+
+        dwError = NmBuildRawFrameFromBuffer(
+                      &vbFrame.front(),
+                      static_cast<ULONG>(vbFrame.size()),
+                      0x2323,
+                      nFile,
+                      &hFrame);
+
+        if (dwError != ERROR_SUCCESS)
+        {
+            hr = HRESULT_FROM_WIN32(dwError);
+            wprintf(L"failed to create frame: %08LX\n", hr);
+            goto error;
+        }
+
+        dwError = NmAddFrame(hCaptureFile, hFrame);
+        if (dwError != ERROR_SUCCESS)
+        {
+            hr = HRESULT_FROM_WIN32(dwError);
+            wprintf(L"failed to add frame: %08LX\n", hr);
+            goto error;
+        }
+
+        nFile++;
+
+error:
+        if (hFrame != NULL)
+        {
+            NmCloseHandle(hFrame);
+            hFrame = NULL;
+        }
+
         return hr;
     });
 
