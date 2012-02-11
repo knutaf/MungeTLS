@@ -55,16 +55,20 @@ class MT_VariableLengthFieldBase : public MT_Structure
     MT_VariableLengthFieldBase();
     virtual ~MT_VariableLengthFieldBase() { }
 
-    virtual ULONG Length() const = 0;
+    virtual ULONG DataLength() const = 0;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) = 0;
     virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const = 0;
 
+    ULONG Length() const;
     const std::vector<F>* Data() const { return &m_vData; }
     std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_VariableLengthFieldBase*>(this)->Data()); }
     ULONG Count() const { return Data()->size(); }
 
     const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
-    F* at(typename std::vector<F>::size_type pos) { return const_cast<F*>(static_cast<const MT_VariableLengthFieldBase*>(this)->at(pos)); }
+    F* at(typename std::vector<F>::size_type pos);
+
+    ULONG MinLength() const { return MinSize; }
+    ULONG MaxLength() const { return MaxSize; }
 
     private:
     std::vector<F> m_vData;
@@ -81,7 +85,7 @@ class MT_VariableLengthField : public MT_VariableLengthFieldBase
                                            MaxSize>
 {
     public:
-    virtual ULONG Length() const;
+    virtual ULONG DataLength() const;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 };
@@ -96,7 +100,7 @@ class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
                                                MaxSize>
 {
     public:
-    ULONG Length() const;
+    virtual ULONG DataLength() const;
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 };
@@ -108,7 +112,6 @@ class MT_FixedLengthStructureBase : public MT_Structure
     MT_FixedLengthStructureBase();
     virtual ~MT_FixedLengthStructureBase() { }
 
-    virtual ULONG Length() const = 0;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) = 0;
     virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const = 0;
 
@@ -117,7 +120,7 @@ class MT_FixedLengthStructureBase : public MT_Structure
     ULONG Count() const { return Data()->size(); }
 
     const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
-    F* at(typename std::vector<F>::size_type pos) { return const_cast<F*>(static_cast<const MT_FixedLengthStructureBase*>(this)->at(pos)); }
+    F* at(typename std::vector<F>::size_type pos);
 
     private:
     std::vector<F> m_vData;
@@ -238,6 +241,8 @@ class MT_SessionID : public MT_VariableLengthByteField<1, 0, 32>
     MT_SessionID()
         : MT_VariableLengthByteField()
     { }
+
+    HRESULT PopulateWithRandom();
 };
 
 class MT_CompressionMethod : public MT_Structure
@@ -454,7 +459,7 @@ class MT_Certificate : public MT_Structure
     ULONG Length() const { return CertificateList()->Length(); }
 
     HRESULT PopulateFromFile(PCWSTR wszFilename);
-    HRESULT PopulateFromConst(const BYTE* pvCert, LONGLONG cbCert);
+    HRESULT PopulateFromMemory(const BYTE* pvCert, LONGLONG cbCert);
 
     const MT_CertificateList* CertificateList() const { return &m_certificateList; }
     MT_CertificateList* CertificateList() { return const_cast<MT_CertificateList*>(static_cast<const MT_Certificate*>(this)->CertificateList()); }
@@ -522,7 +527,14 @@ SerializeMessagesToVector(
     std::vector<BYTE>* pvb
 );
 
-void ResizeVector(std::vector<BYTE>* pv, std::vector<BYTE>::size_type siz);
+template <typename T>
+void ResizeVector(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
+
+template <>
+void ResizeVector(std::vector<BYTE>* pv, typename std::vector<BYTE>::size_type siz);
+
+template <typename T>
+void EnsureVectorSize(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
 
 }
 #pragma warning(pop)

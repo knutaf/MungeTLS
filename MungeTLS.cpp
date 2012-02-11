@@ -76,8 +76,8 @@ TLSConnection::HandleMessage(
                         if (hr == S_OK)
                         {
                             printf("got %u messages to respond with\n", responseMessages.size());
-                            //hr = SerializeMessagesToVector(&responseMessages, pvbResponse);
-                            hr = responseMessages[0].SerializeToVect(pvbResponse);
+                            hr = SerializeMessagesToVector(&responseMessages, pvbResponse);
+                            //hr = responseMessages[0].SerializeToVect(pvbResponse);
                         }
                         else
                         {
@@ -121,8 +121,9 @@ TLSConnection::RespondTo(
         MT_ProtocolVersion protocolVersion;
         MT_Random random;
         MT_SessionID sessionID;
-        const MT_CipherSuite* cipherSuite;
+        MT_CipherSuite cipherSuite;
         MT_CompressionMethod compressionMethod;
+        MT_HelloExtensions extensions;
         MT_ServerHello serverHello;
         MT_Handshake handshake;
         MT_ContentType contentType;
@@ -136,17 +137,32 @@ TLSConnection::RespondTo(
             goto error;
         }
 
-        assert(pClientHello->CipherSuites()->Count() > 0);
-        cipherSuite = pClientHello->CipherSuites()->at(0);
+        hr = sessionID.PopulateWithRandom();
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        // rsa + sha256 cbc
+        *(cipherSuite.at(0)) = 0x00;
+        *(cipherSuite.at(1)) = 0x35;
 
         compressionMethod.SetMethod(MT_CompressionMethod::MTCM_Null);
+
+        /* renegotation info
+        *(extensions.at(0)) = 0xff;
+        *(extensions.at(1)) = 0x01;
+        *(extensions.at(2)) = 0x00;
+        *(extensions.at(3)) = 0x01;
+        *(extensions.at(4)) = 0x00;
+        */
 
         *(serverHello.ProtocolVersion()) = protocolVersion;
         *(serverHello.Random()) = random;
         *(serverHello.SessionID()) = sessionID;
-        *(serverHello.CipherSuite()) = *cipherSuite;
+        *(serverHello.CipherSuite()) = cipherSuite;
         *(serverHello.CompressionMethod()) = compressionMethod;
-        // not setting server extensions
+        *(serverHello.Extensions()) = extensions;
 
         handshake.SetType(MT_Handshake::MTH_ServerHello);
         hr = serverHello.SerializeToVect(handshake.Body());
@@ -179,7 +195,7 @@ TLSConnection::RespondTo(
         MT_TLSPlaintext plaintext;
         MT_ProtocolVersion protocolVersion;
 
-        hr = certificate.PopulateFromConst(c_abyCert, c_cbCert);
+        hr = certificate.PopulateFromMemory(c_abyCert, c_cbCert);
         if (hr != S_OK)
         {
             goto error;
@@ -423,14 +439,38 @@ SerializeMessagesToVector(
     return hr;
 } // end function SerializeMessagesToVector
 
+template <typename T>
 void
-ResizeVector(
+ResizeVector<T>(
+    std::vector<T>* pv,
+    typename std::vector<T>::size_type siz
+)
+{
+    pv->resize(siz);
+} // end function ResizeVector<T>
+
+template <>
+void
+ResizeVector<BYTE>(
     std::vector<BYTE>* pv,
-    std::vector<BYTE>::size_type siz
+    typename std::vector<BYTE>::size_type siz
 )
 {
     pv->resize(siz, 0x23);
-} // end function ResizeVector
+} // end function ResizeVector<BYTE>
+
+template <typename T>
+void
+EnsureVectorSize<T>(
+    std::vector<T>* pVect,
+    typename std::vector<T>::size_type siz
+)
+{
+    if (siz > pVect->size())
+    {
+        pVect->resize(siz);
+    }
+} // end function EnsureVectorSize
 
 /*********** MT_Structure *****************/
 
@@ -507,6 +547,38 @@ MT_VariableLengthFieldBase
 ::MT_VariableLengthFieldBase()
 {
     assert(LengthFieldSize <= sizeof(ULONG));
+    assert((1UL << (LengthFieldSize * 8)) - 1 >= MaxSize);
+}
+
+template <typename F,
+          ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
+ULONG
+MT_VariableLengthFieldBase
+<F, LengthFieldSize, MinSize, MaxSize>
+::Length() const
+{
+    return LengthFieldSize + DataLength();
+} // end function Length
+
+template <typename F,
+          ULONG LengthFieldSize,
+          ULONG MinSize,
+          ULONG MaxSize>
+F*
+MT_VariableLengthFieldBase
+<F, LengthFieldSize, MinSize, MaxSize>
+::at(
+    typename std::vector<F>::size_type pos
+)
+{
+    if (pos >= Data()->size())
+    {
+        ResizeVector(Data(), pos + 1);
+    }
+
+    return &(Data()->at(pos));
 }
 
 /*********** MT_VariableLengthField *****************/
@@ -585,7 +657,7 @@ template <typename F,
 ULONG
 MT_VariableLengthField
 <F, LengthFieldSize, MinSize, MaxSize>
-::Length() const
+::DataLength() const
 {
     assert((1UL << (LengthFieldSize * 8)) - 1 >= MaxSize);
 
@@ -601,8 +673,8 @@ MT_VariableLengthField
     assert(cbTotalDataLength <= MaxSize);
     assert(cbTotalDataLength >= MinSize);
 
-    return LengthFieldSize + cbTotalDataLength;
-} // end function Length
+    return cbTotalDataLength;
+} // end function DataLength
 
 template <typename F,
           ULONG LengthFieldSize,
@@ -626,7 +698,7 @@ MT_VariableLengthField
 
     ULONG cbField = LengthFieldSize;
 
-    hr = WriteNetworkLong(Data()->size(), cbField, pv, cb);
+    hr = WriteNetworkLong(DataLength(), cbField, pv, cb);
     assert(hr == S_OK);
 
     pv += cbField;
@@ -706,16 +778,14 @@ template <ULONG LengthFieldSize,
 ULONG
 MT_VariableLengthByteField
 <LengthFieldSize, MinSize, MaxSize>
-::Length() const
+::DataLength() const
 {
-    assert((1UL << (LengthFieldSize * 8)) - 1 >= MaxSize);
-
     ULONG cbTotalDataLength = Count();
     assert(cbTotalDataLength <= MaxSize);
     assert(cbTotalDataLength >= MinSize);
 
-    return LengthFieldSize + cbTotalDataLength;
-} // end function Length
+    return cbTotalDataLength;
+} // end function DataLength
 
 template <ULONG LengthFieldSize,
           ULONG MinSize,
@@ -738,13 +808,13 @@ MT_VariableLengthByteField
 
     ULONG cbField = LengthFieldSize;
 
-    hr = WriteNetworkLong(Data()->size(), cbField, pv, cb);
+    hr = WriteNetworkLong(DataLength(), cbField, pv, cb);
     assert(hr == S_OK);
 
     pv += cbField;
     cb -= cbField;
 
-    cbField = Data()->size();
+    cbField = DataLength();
 
     assert(cbField <= cb);
     std::copy(Data()->begin(), Data()->end(), pv);
@@ -763,6 +833,21 @@ MT_FixedLengthStructureBase<F, Size>::MT_FixedLengthStructureBase()
     : m_vData()
 {
     assert(Size > 0);
+}
+
+template <typename F,
+          ULONG Size>
+F*
+MT_FixedLengthStructureBase<F, Size>::at(
+    typename std::vector<F>::size_type pos
+)
+{
+    if (pos >= Data()->size())
+    {
+        ResizeVector(Data(), pos + 1);
+    }
+
+    return &(Data()->at(pos));
 }
 
 /*********** MT_FixedLengthStructure *****************/
@@ -1671,8 +1756,12 @@ MT_ServerHello::Length() const
                      Random()->Length() +
                      SessionID()->Length() +
                      CipherSuite()->Length() +
-                     CompressionMethod()->Length() +
-                     Extensions()->Length();
+                     CompressionMethod()->Length();
+
+    if (Extensions()->Count() > 0)
+    {
+        cbLength += Extensions()->Length();
+    }
 
     return cbLength;
 } // end function Length
@@ -1735,15 +1824,18 @@ MT_ServerHello::SerializePriv(
     pv += cbField;
     cb -= cbField;
 
-    cbField = Extensions()->Length();
-    hr = Extensions()->Serialize(pv, cb);
-    if (hr != S_OK)
+    if (Extensions()->Count() > 0)
     {
-        goto error;
-    }
+        cbField = Extensions()->Length();
+        hr = Extensions()->Serialize(pv, cb);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
 
-    pv += cbField;
-    cb -= cbField;
+        pv += cbField;
+        cb -= cbField;
+    }
 
 error:
     return hr;
@@ -1784,7 +1876,7 @@ MT_Certificate::PopulateFromFile(
 } // end function PopulateFromFile
 
 HRESULT
-MT_Certificate::PopulateFromConst(
+MT_Certificate::PopulateFromMemory(
     const BYTE* pvCert, LONGLONG cbCert
 )
 {
@@ -1792,7 +1884,21 @@ MT_Certificate::PopulateFromConst(
     cert.Data()->assign(pvCert, pvCert + cbCert);
     CertificateList()->Data()->assign(1, cert);
     return S_OK;
-} // end function PopulateFromConst
+} // end function PopulateFromMemory
+
+/*********** MT_SessionID *****************/
+
+HRESULT
+MT_SessionID::PopulateWithRandom()
+{
+    HRESULT hr = S_OK;
+
+    ResizeVector(Data(), MaxLength());
+    hr = WriteRandomBytes(&Data()->front(), Data()->size());
+
+error:
+    return hr;
+} // end function PopulateWithRandom
 
 /*********** MT_Thingy *****************/
 

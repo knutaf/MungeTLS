@@ -78,12 +78,14 @@ HRESULT LogTraffic(ULONG nFile, const string* psSuffix, const vector<BYTE>* pvb)
 
 HRESULT LogWrite(ULONG nFile, const vector<BYTE>* pvb)
 {
-    return LogTraffic(nFile, &string("w"), pvb);
+    static const string strWrite("w");
+    return LogTraffic(nFile, &strWrite, pvb);
 } // end function LogWrite
 
 HRESULT LogRead(ULONG nFile, const vector<BYTE>* pvb)
 {
-    return LogTraffic(nFile, &string("r"), pvb);
+    static const string strRead("r");
+    return LogTraffic(nFile, &strRead, pvb);
 } // end function LogRead
 
 HRESULT ProcessConnections()
@@ -175,7 +177,7 @@ HRESULT ProcessConnections()
             HRESULT hr = con.HandleMessage(&vbData.front(), vbData.size(), &vbResponse);
             if (hr == S_OK)
             {
-                printf("finished parsing message\n");
+                printf("finished parsing message of size %lu\n", vbData.size());
                 LogRead(cMessages, &vbData);
                 cMessages++;
                 vbData.clear();
