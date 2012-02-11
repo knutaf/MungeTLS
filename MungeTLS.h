@@ -25,7 +25,7 @@ typedef ULONG MT_UINT32;
 #define MAXFORBYTES(b) ((1 << ((b) * 8)) - 1)
 
 extern const BYTE c_abyCert[];
-extern const ULONG c_cbCert;
+extern const size_t c_cbCert;
 
 class MT_Structure
 {
@@ -38,7 +38,7 @@ class MT_Structure
     HRESULT Serialize(BYTE* pv, LONGLONG cb) const;
     HRESULT SerializeToVect(std::vector<BYTE>* pvb) const;
     HRESULT SerializeAppendToVect(std::vector<BYTE>* pvb) const;
-    virtual ULONG Length() const = 0;
+    virtual size_t Length() const = 0;
 
     private:
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) { return E_NOTIMPL; }
@@ -46,38 +46,38 @@ class MT_Structure
 };
 
 template <typename F,
-          ULONG LengthFieldSize,
-          ULONG MinSize,
-          ULONG MaxSize>
+          size_t LengthFieldSize,
+          size_t MinSize,
+          size_t MaxSize>
 class MT_VariableLengthFieldBase : public MT_Structure
 {
     public:
     MT_VariableLengthFieldBase();
     virtual ~MT_VariableLengthFieldBase() { }
 
-    virtual ULONG DataLength() const = 0;
+    virtual size_t DataLength() const = 0;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb) = 0;
     virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const = 0;
 
-    ULONG Length() const;
+    size_t Length() const;
     const std::vector<F>* Data() const { return &m_vData; }
     std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_VariableLengthFieldBase*>(this)->Data()); }
-    ULONG Count() const { return Data()->size(); }
+    size_t Count() const { return Data()->size(); }
 
     const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
     F* at(typename std::vector<F>::size_type pos);
 
-    ULONG MinLength() const { return MinSize; }
-    ULONG MaxLength() const { return MaxSize; }
+    size_t MinLength() const { return MinSize; }
+    size_t MaxLength() const { return MaxSize; }
 
     private:
     std::vector<F> m_vData;
 };
 
 template <typename F,
-          ULONG LengthFieldSize,
-          ULONG MinSize,
-          ULONG MaxSize>
+          size_t LengthFieldSize,
+          size_t MinSize,
+          size_t MaxSize>
 class MT_VariableLengthField : public MT_VariableLengthFieldBase
                                           <F,
                                            LengthFieldSize,
@@ -85,14 +85,14 @@ class MT_VariableLengthField : public MT_VariableLengthFieldBase
                                            MaxSize>
 {
     public:
-    virtual ULONG DataLength() const;
+    virtual size_t DataLength() const;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 };
 
-template <ULONG LengthFieldSize,
-          ULONG MinSize,
-          ULONG MaxSize>
+template <size_t LengthFieldSize,
+          size_t MinSize,
+          size_t MaxSize>
 class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
                                               <BYTE,
                                                LengthFieldSize,
@@ -100,12 +100,12 @@ class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
                                                MaxSize>
 {
     public:
-    virtual ULONG DataLength() const;
+    virtual size_t DataLength() const;
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 };
 
-template <typename F, ULONG Size>
+template <typename F, size_t Size>
 class MT_FixedLengthStructureBase : public MT_Structure
 {
     public:
@@ -117,7 +117,7 @@ class MT_FixedLengthStructureBase : public MT_Structure
 
     const std::vector<F>* Data() const { return &m_vData; }
     std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_FixedLengthStructureBase*>(this)->Data()); }
-    ULONG Count() const { return Data()->size(); }
+    size_t Count() const { return Data()->size(); }
 
     const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
     F* at(typename std::vector<F>::size_type pos);
@@ -126,22 +126,22 @@ class MT_FixedLengthStructureBase : public MT_Structure
     std::vector<F> m_vData;
 };
 
-template <typename F, ULONG Size>
+template <typename F, size_t Size>
 class MT_FixedLengthStructure : public MT_FixedLengthStructureBase<F, Size>
 {
     public:
-    virtual ULONG Length() const;
+    virtual size_t Length() const;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 };
 
-template <ULONG Size>
+template <size_t Size>
 class MT_FixedLengthByteStructure : public MT_FixedLengthStructureBase
                                                <BYTE,
                                                Size>
 {
     public:
-    virtual ULONG Length() const;
+    virtual size_t Length() const;
     virtual HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     virtual HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 };
@@ -163,7 +163,7 @@ class MT_ContentType : public MT_Structure
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
-    ULONG Length() const { return 1; }
+    size_t Length() const { return 1; }
 
     const MTCT_Type Type() const;
     void SetType(MTCT_Type eType) { m_eType = eType; }
@@ -194,7 +194,7 @@ class MT_ProtocolVersion : public MT_Structure
     MT_UINT16 Version() const;
     void SetVersion(MT_UINT16 ver) { m_version = ver; }
 
-    ULONG Length() const { return 2; } // sizeof(MT_UINT16)
+    size_t Length() const { return 2; } // sizeof(MT_UINT16)
 
     static bool IsKnownVersion(MT_UINT16 version);
 
@@ -208,7 +208,7 @@ class MT_Random : public MT_Structure
     MT_Random();
     ~MT_Random() { }
 
-    ULONG Length() const { return 4 + RandomBytes()->size(); }
+    size_t Length() const { return 4 + RandomBytes()->size(); }
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 
@@ -221,7 +221,7 @@ class MT_Random : public MT_Structure
     HRESULT PopulateNow();
 
     private:
-    static const ULONG c_cbRandomBytes;
+    static const size_t c_cbRandomBytes;
 
     MT_UINT32 m_timestamp;
     std::vector<BYTE> m_vbRandomBytes;
@@ -257,7 +257,7 @@ class MT_CompressionMethod : public MT_Structure
     MT_CompressionMethod();
     ~MT_CompressionMethod() { }
 
-    ULONG Length() const { return 1; }
+    size_t Length() const { return 1; }
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 
@@ -287,7 +287,7 @@ class MT_TLSPlaintext : public MT_Structure
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
-    ULONG Length() const;
+    size_t Length() const;
 
     const MT_ContentType* ContentType() const { return &m_contentType; }
     MT_ContentType* ContentType() { return const_cast<MT_ContentType*>(static_cast<const MT_TLSPlaintext*>(this)->ContentType()); }
@@ -295,7 +295,7 @@ class MT_TLSPlaintext : public MT_Structure
     const MT_ProtocolVersion* ProtocolVersion() const { return &m_protocolVersion; }
     MT_ProtocolVersion* ProtocolVersion() { return const_cast<MT_ProtocolVersion*>(static_cast<const MT_TLSPlaintext*>(this)->ProtocolVersion()); }
 
-    MT_UINT16 PayloadLength() const { return Fragment()->size(); }
+    MT_UINT16 PayloadLength() const;
 
     const std::vector<BYTE>* Fragment() const { return &m_vbFragment; }
     std::vector<BYTE>* Fragment() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_TLSPlaintext*>(this)->Fragment()); }
@@ -329,8 +329,8 @@ class MT_Handshake : public MT_Structure
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
-    ULONG PayloadLength() const { return Body()->size(); }
-    ULONG Length() const;
+    size_t PayloadLength() const { return Body()->size(); }
+    size_t Length() const;
 
     MTH_HandshakeType HandshakeType() const;
     void SetType(MTH_HandshakeType eType) { m_eType = eType; }
@@ -348,7 +348,7 @@ class MT_Handshake : public MT_Structure
     static const DWORD c_cSupportedTypes;
 
     // uint24 length
-    ULONG LengthFieldLength() const { return 3; }
+    size_t LengthFieldLength() const { return 3; }
 
     MTH_HandshakeType m_eType;
     std::vector<BYTE> m_vbBody;
@@ -379,7 +379,7 @@ class MT_ClientHello : public MT_Structure
     MT_HelloExtensions* Extensions() { return const_cast<MT_HelloExtensions*>(static_cast<const MT_ClientHello*>(this)->Extensions()); }
 
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
-    ULONG Length() const;
+    size_t Length() const;
 
     private:
     MT_ProtocolVersion m_protocolVersion;
@@ -396,7 +396,7 @@ class MT_ServerHello : public MT_Structure
     MT_ServerHello();
     ~MT_ServerHello() { }
 
-    ULONG Length() const;
+    size_t Length() const;
     HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 
     const MT_ProtocolVersion* ProtocolVersion() const { return &m_protocolVersion; }
@@ -456,7 +456,7 @@ class MT_Certificate : public MT_Structure
     ~MT_Certificate() { }
 
     HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
-    ULONG Length() const { return CertificateList()->Length(); }
+    size_t Length() const { return CertificateList()->Length(); }
 
     HRESULT PopulateFromFile(PCWSTR wszFilename);
     HRESULT PopulateFromMemory(const BYTE* pvCert, LONGLONG cbCert);
@@ -476,7 +476,7 @@ class MT_Thingy : public MT_Structure
     MT_Thingy();
     ~MT_Thingy() { }
 
-    ULONG Length() const { return m_thingy.size(); }
+    size_t Length() const { return m_thingy.size(); }
     HRESULT ParseFromPriv(const BYTE* pv, LONGLONG cb);
     // HRESULT SerializePriv(BYTE* pv, LONGLONG cb) const;
 
@@ -496,14 +496,15 @@ HRESULT
 ReadNetworkLong(
     const BYTE* pv,
     LONGLONG cb,
-    ULONG cbToRead,
+    size_t cbToRead,
     N* pResult
 );
 
+template <typename I>
 HRESULT
 WriteNetworkLong(
-    ULONG toWrite,
-    ULONG cbToWrite,
+    I toWrite,
+    size_t cbToWrite,
     BYTE* pv,
     LONGLONG cb
 );

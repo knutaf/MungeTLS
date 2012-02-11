@@ -184,7 +184,7 @@ HRESULT ProcessConnections()
 
                 if (!vbResponse.empty())
                 {
-                    ULONG cbPayload = vbResponse.size();
+                    size_t cbPayload = vbResponse.size();
 
                     printf("responding with %d bytes\n", cbPayload);
 
@@ -195,9 +195,11 @@ HRESULT ProcessConnections()
                         LogWrite(cMessages, &vbResponse);
                         cMessages++;
 
+                        assert(cbPayload <= INT_MAX);
+
                         cb = send(sockAccept,
                                   reinterpret_cast<char*>(&vbResponse.front()),
-                                  cbPayload,
+                                  static_cast<int>(cbPayload),
                                   0);
 
                         if (cb == SOCKET_ERROR)
