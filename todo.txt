@@ -1,2 +1,2 @@
-- make MT_Random just subclass from fixed length structure
 - add a check that ParseFrom is not called multiple times
+- customizable behavior for extensions. shouldn't just hard-code reneg info
