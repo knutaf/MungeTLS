@@ -1,0 +1,48 @@
+const MediumMungeTLS = 0x2323;
+
+const Flags_Receive = 0x0;
+const Flags_Send = 0x1;
+const Flags_Mask_SendReceive = 0x1;
+
+[ RegisterAfter(Frame.NetworkInfoEx, MungeTLS, MediumMungeTLS) ]
+Protocol MungeTLS
+{
+    [
+      Property.Source = MTLS_Source(Flags & Flags_Mask_SendReceive),
+      Property.Destination = MTLS_Destination(Flags & Flags_Mask_SendReceive)
+    ]
+    UINT8 Flags
+    {
+        UINT8 Unused:7;
+        UINT8 SendReceive:1 = FormatString("%s (0x%X)", MTLS_Flags_Table(this), this);
+    }
+
+    TLS InnerTLS;
+}
+
+Table MTLS_Source
+{
+    switch (value)
+    {
+        case Flags_Receive : "Client";
+        case Flags_Send : "Server";
+    }
+}
+
+Table MTLS_Destination
+{
+    switch (value)
+    {
+        case Flags_Receive : "Server";
+        case Flags_Send : "Client";
+    }
+}
+
+Table MTLS_Flags_Table
+{
+    switch (value)
+    {
+        case Flags_Receive : "R";
+        case Flags_Send : "S";
+    }
+}

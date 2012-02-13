@@ -12,10 +12,13 @@
 #include <iostream>
 #include <functional>
 #include <fstream>
+#include <assert.h>
 
 #include <Ntddndis.h>
 
 #include <nmapi.h>
+
+const NDIS_MEDIUM MediumMungeTLS = static_cast<NDIS_MEDIUM>(0x2323);
 
 using namespace std;
 
@@ -125,6 +128,7 @@ HRESULT ConvertTrafficFiles(PCWSTR wszDir)
         wstring wsFilePath(wszDir);
         vector<BYTE> vbFrame;
         HANDLE hFrame = NULL;
+        BYTE bFrameFlags = 0;
 
         if (pFindData->nFileSizeHigh != 0)
         {
@@ -138,14 +142,25 @@ HRESULT ConvertTrafficFiles(PCWSTR wszDir)
 
         hr = GetFileContents(wsFilePath.c_str(), pFindData->nFileSizeLow, &vbFrame);
 
-        // custom media type header
-        //vbFrame.insert(vbFrame.begin(), 0x23);
-        //vbFrame.insert(vbFrame.begin(), 0x23);
+        if (wsFilePath.back() == L'r')
+        {
+            bFrameFlags = 0;
+        }
+        else if (wsFilePath.back() == L'w')
+        {
+            bFrameFlags = 1;
+        }
+        else
+        {
+            assert(false);
+        }
+
+        vbFrame.insert(vbFrame.begin(), bFrameFlags);
 
         dwError = NmBuildRawFrameFromBuffer(
                       &vbFrame.front(),
                       static_cast<ULONG>(vbFrame.size()),
-                      0x2323,
+                      MediumMungeTLS,
                       nFile,
                       &hFrame);
 
