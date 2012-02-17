@@ -70,27 +70,55 @@ error:
 
 HRESULT GetFileContents(PCWSTR wszFilename, DWORD cbFileSize, vector<BYTE>* pvbContents)
 {
-    ifstream infile(wszFilename);
+    HRESULT hr = S_OK;
+    DWORD cbRead = 0;
 
-    if (infile.bad())
+    HANDLE hFile = CreateFileW(
+                       wszFilename,
+                       GENERIC_READ,
+                       FILE_SHARE_READ,
+                       NULL,
+                       OPEN_EXISTING,
+                       FILE_ATTRIBUTE_NORMAL |
+                       FILE_FLAG_SEQUENTIAL_SCAN,
+                       NULL);
+
+    if (hFile == INVALID_HANDLE_VALUE)
     {
-        wprintf(L"couldn't open %s\n", wszFilename);
+        hr = HRESULT_FROM_WIN32(GetLastError());
         goto error;
     }
 
-    pvbContents->reserve(cbFileSize);
-    while (!infile.bad() && cbFileSize > 0)
-    {
-        char c = static_cast<char>(infile.get());
-        if (infile.eof())
-        {
-            break;
-        }
+    pvbContents->clear();
+    pvbContents->resize(cbFileSize, 0x23);
 
-        pvbContents->push_back(c);
+    if (!ReadFile(
+             hFile,
+             &(pvbContents->front()),
+             static_cast<DWORD>(pvbContents->size()),
+             &cbRead,
+             NULL))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
     }
 
+    if (cbRead != pvbContents->size())
+    {
+        wprintf(L"only read %lu bytes out of %lu\n", cbRead, pvbContents->size());
+        hr = E_FAIL;
+        goto error;
+    }
+
+    wprintf(L"read %lu bytes from %s\n", pvbContents->size(), wszFilename);
+
 error:
+    if (hFile != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(hFile);
+        hFile = INVALID_HANDLE_VALUE;
+    }
+
     return S_OK;
 } // end function GetFileContents
 
