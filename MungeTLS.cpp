@@ -7,6 +7,18 @@
 
 #include "MungeTLS.h"
 
+#define SAFE_SUB(h, l, r)              \
+{                                      \
+    (h) = SizeTSub((l), (r), &(l));    \
+    if ((h) != S_OK) { goto error; }   \
+}                                      \
+
+#define ADVANCE_PARSE()                \
+{                                      \
+    pv += cbField;                     \
+    SAFE_SUB(hr, cb, cbField);         \
+}                                      \
+
 namespace MungeTLS
 {
 
@@ -21,7 +33,7 @@ TLSConnection::TLSConnection()
 HRESULT
 TLSConnection::HandleMessage(
     const BYTE* pv,
-    LONGLONG cb,
+    size_t cb,
     vector<BYTE>* pvbResponse
 )
 {
@@ -257,7 +269,7 @@ template <typename N>
 HRESULT
 ReadNetworkLong(
     const BYTE* pv,
-    LONGLONG cb,
+    size_t cb,
     size_t cbToRead,
     N* pResult
 )
@@ -295,7 +307,7 @@ WriteNetworkLong(
     I toWrite,
     size_t cbToWrite,
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     assert(pv != nullptr);
@@ -324,7 +336,7 @@ error:
 HRESULT
 WriteRandomBytes(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_FALSE;
@@ -479,7 +491,7 @@ EnsureVectorSize<T>(
 HRESULT
 MT_Structure::ParseFrom(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
@@ -508,7 +520,7 @@ MT_Structure::ParseFromVect(
 HRESULT
 MT_Structure::Serialize(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     return SerializePriv(pv, cb);
@@ -594,12 +606,12 @@ MT_VariableLengthField
 <F, LengthFieldSize, MinSize, MaxSize>
 ::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
     size_t cbField = LengthFieldSize;
-    LONGLONG cbTotalElementsSize = 0;
+    size_t cbTotalElementsSize = 0;
 
     hr = ReadNetworkLong(pv, cb, cbField, &cbTotalElementsSize);
     if (hr != S_OK)
@@ -607,8 +619,7 @@ MT_VariableLengthField
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     if (cbTotalElementsSize < MinSize)
     {
@@ -640,12 +651,9 @@ MT_VariableLengthField
         Data()->push_back(elem);
 
         cbField = elem.Length();
-        pv += cbField;
-        cb -= cbField;
-        cbTotalElementsSize -= cbField;
+        ADVANCE_PARSE();
+        SAFE_SUB(hr, cbTotalElementsSize, cbField);
     }
-
-    assert(cbTotalElementsSize >= 0);
 
 error:
     return hr;
@@ -687,7 +695,7 @@ MT_VariableLengthField
 <F, LengthFieldSize, MinSize, MaxSize>
 ::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -703,8 +711,7 @@ MT_VariableLengthField
     hr = WriteNetworkLong(DataLength(), cbField, pv, cb);
     assert(hr == S_OK);
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
     {
@@ -713,8 +720,7 @@ MT_VariableLengthField
         hr = iter->Serialize(pv, cb);
         assert(hr == S_OK);
 
-        pv += cbField;
-        cb -= cbField;
+        ADVANCE_PARSE();
     }
 
 error:
@@ -733,7 +739,7 @@ MT_VariableLengthByteField
 <LengthFieldSize, MinSize, MaxSize>
 ::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
@@ -746,8 +752,7 @@ MT_VariableLengthByteField
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     if (cbDataLength < MinSize)
     {
@@ -769,6 +774,8 @@ MT_VariableLengthByteField
     }
 
     Data()->assign(pv, pv + cbField);
+
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -797,7 +804,7 @@ MT_VariableLengthByteField
 <LengthFieldSize, MinSize, MaxSize>
 ::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -813,16 +820,14 @@ MT_VariableLengthByteField
     hr = WriteNetworkLong(DataLength(), cbField, pv, cb);
     assert(hr == S_OK);
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = DataLength();
 
     assert(cbField <= cb);
     std::copy(Data()->begin(), Data()->end(), pv);
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -858,11 +863,11 @@ template <typename F, size_t Size>
 HRESULT
 MT_FixedLengthStructure<F, Size>::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
-    LONGLONG cbTotalElementsSize = Size;
+    size_t cbTotalElementsSize = Size;
 
     if (cbTotalElementsSize > cb)
     {
@@ -881,10 +886,9 @@ MT_FixedLengthStructure<F, Size>::ParseFromPriv(
 
         Data()->push_back(elem);
 
-        LONGLONG cbField = elem.Length();
-        pv += cbField;
-        cb -= cbField;
-        cbTotalElementsSize -= cbField;
+        size_t cbField = elem.Length();
+        ADVANCE_PARSE();
+        SAFE_SUB(hr, cbTotalElementsSize, cbField);
     }
 
     assert(Length() == Size);
@@ -897,7 +901,7 @@ template <typename F, size_t Size>
 HRESULT
 MT_FixedLengthStructure<F, Size>::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -915,8 +919,7 @@ MT_FixedLengthStructure<F, Size>::SerializePriv(
         hr = iter->Serialize(pv, cb);
         assert(hr == S_OK);
 
-        pv += cbField;
-        cb -= cbField;
+        ADVANCE_PARSE();
     }
 
 error:
@@ -947,11 +950,11 @@ template <size_t Size>
 HRESULT
 MT_FixedLengthByteStructure<Size>::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
-    DWORD cbField = Size;
+    size_t cbField = Size;
 
     if (cbField > cb)
     {
@@ -961,6 +964,8 @@ MT_FixedLengthByteStructure<Size>::ParseFromPriv(
 
     Data()->assign(pv, pv + cbField);
 
+    ADVANCE_PARSE();
+
 error:
     return hr;
 } // end function ParseFromPriv
@@ -969,7 +974,7 @@ template <size_t Size>
 HRESULT
 MT_FixedLengthByteStructure<Size>::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -985,8 +990,7 @@ MT_FixedLengthByteStructure<Size>::SerializePriv(
     assert(cbField <= cb);
     std::copy(Data()->begin(), Data()->end(), pv);
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1012,7 +1016,7 @@ MT_TLSPlaintext::MT_TLSPlaintext()
 HRESULT
 MT_TLSPlaintext::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
@@ -1026,8 +1030,7 @@ MT_TLSPlaintext::ParseFromPriv(
     }
 
     cbField = ContentType()->Length();
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     hr = ProtocolVersion()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -1036,8 +1039,7 @@ MT_TLSPlaintext::ParseFromPriv(
     }
 
     cbField = ProtocolVersion()->Length();
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 
     cbField = 2;
@@ -1047,8 +1049,7 @@ MT_TLSPlaintext::ParseFromPriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = cbFragmentLength;
     if (cbField > cb)
@@ -1059,8 +1060,7 @@ MT_TLSPlaintext::ParseFromPriv(
 
     Fragment()->assign(pv, pv + cbField);
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1088,7 +1088,7 @@ MT_TLSPlaintext::Length() const
 HRESULT
 MT_TLSPlaintext::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -1100,8 +1100,7 @@ MT_TLSPlaintext::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = ProtocolVersion()->Length();
     hr = ProtocolVersion()->Serialize(pv, cb);
@@ -1110,8 +1109,7 @@ MT_TLSPlaintext::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     // uint16 length;
     cbField = 2;
@@ -1121,8 +1119,7 @@ MT_TLSPlaintext::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = PayloadLength();
     if (cbField > cb)
@@ -1133,8 +1130,7 @@ MT_TLSPlaintext::SerializePriv(
 
     std::copy(Fragment()->begin(), Fragment()->end(), pv);
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1157,13 +1153,13 @@ const MT_ContentType::MTCT_Type MT_ContentType::c_rgeValidTypes[] =
     MTCT_Type_Unknown,
 };
 
-const DWORD MT_ContentType::c_cValidTypes = ARRAYSIZE(c_rgeValidTypes);
+const ULONG MT_ContentType::c_cValidTypes = ARRAYSIZE(c_rgeValidTypes);
 
 
 HRESULT
 MT_ContentType::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
@@ -1191,7 +1187,7 @@ error:
 HRESULT
 MT_ContentType::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -1203,8 +1199,7 @@ MT_ContentType::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1237,7 +1232,7 @@ MT_ProtocolVersion::MT_ProtocolVersion()
 HRESULT
 MT_ProtocolVersion::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
@@ -1264,7 +1259,7 @@ error:
 HRESULT
 MT_ProtocolVersion::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -1276,8 +1271,7 @@ MT_ProtocolVersion::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1316,7 +1310,7 @@ const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeKnownTypes[] =
     MTH_Unknown,
 };
 
-const DWORD MT_Handshake::c_cKnownTypes = ARRAYSIZE(c_rgeKnownTypes);
+const ULONG MT_Handshake::c_cKnownTypes = ARRAYSIZE(c_rgeKnownTypes);
 
 const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeSupportedTypes[] =
 {
@@ -1330,7 +1324,7 @@ const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeSupportedTypes[] =
     MTH_Finished,
 };
 
-const DWORD MT_Handshake::c_cSupportedTypes = ARRAYSIZE(c_rgeSupportedTypes);
+const ULONG MT_Handshake::c_cSupportedTypes = ARRAYSIZE(c_rgeSupportedTypes);
 
 MT_Handshake::MT_Handshake()
     : m_eType(MTH_Unknown),
@@ -1341,7 +1335,7 @@ MT_Handshake::MT_Handshake()
 HRESULT
 MT_Handshake::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
@@ -1371,8 +1365,7 @@ MT_Handshake::ParseFromPriv(
 
     m_eType = eType;
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = LengthFieldLength();
     hr = ReadNetworkLong(pv, cb, cbField, &cbPayloadLength);
@@ -1381,8 +1374,7 @@ MT_Handshake::ParseFromPriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = cbPayloadLength;
     if (cbField > cb)
@@ -1393,8 +1385,7 @@ MT_Handshake::ParseFromPriv(
 
     Body()->assign(pv, pv + cbField);
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1434,7 +1425,7 @@ MT_Handshake::IsSupportedType(
 HRESULT
 MT_Handshake::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -1446,8 +1437,7 @@ MT_Handshake::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = LengthFieldLength();
     hr = WriteNetworkLong(PayloadLength(), cbField, pv, cb);
@@ -1456,10 +1446,18 @@ MT_Handshake::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
+
+    cbField = PayloadLength();
+    if (cbField > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
 
     std::copy(Body()->begin(), Body()->end(), pv);
+
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1478,7 +1476,7 @@ MT_Random::MT_Random()
 HRESULT
 MT_Random::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
@@ -1491,8 +1489,7 @@ MT_Random::ParseFromPriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     // Random.(opaque random_bytes[28])
     cbField = c_cbRandomBytes;
@@ -1504,8 +1501,7 @@ MT_Random::ParseFromPriv(
 
     RandomBytes()->assign(pv, pv + cbField);
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1514,7 +1510,7 @@ error:
 HRESULT
 MT_Random::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -1526,8 +1522,7 @@ MT_Random::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = RandomBytes()->size();
     if (cbField > cb)
@@ -1538,8 +1533,7 @@ MT_Random::SerializePriv(
 
     std::copy(RandomBytes()->begin(), RandomBytes()->end(), pv);
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1599,7 +1593,7 @@ MT_ClientHello::MT_ClientHello()
 HRESULT
 MT_ClientHello::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
@@ -1612,8 +1606,7 @@ MT_ClientHello::ParseFromPriv(
     }
 
     cbField = ProtocolVersion()->Length();
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     hr = Random()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -1622,8 +1615,7 @@ MT_ClientHello::ParseFromPriv(
     }
 
     cbField = Random()->Length();
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     hr = SessionID()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -1632,8 +1624,7 @@ MT_ClientHello::ParseFromPriv(
     }
 
     cbField = SessionID()->Length();
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     hr = CipherSuites()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -1642,8 +1633,7 @@ MT_ClientHello::ParseFromPriv(
     }
 
     cbField = CipherSuites()->Length();
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     hr = CompressionMethods()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -1652,8 +1642,7 @@ MT_ClientHello::ParseFromPriv(
     }
 
     cbField = CompressionMethods()->Length();
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     hr = Extensions()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -1662,8 +1651,7 @@ MT_ClientHello::ParseFromPriv(
     }
 
     cbField = Extensions()->Length();
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1692,7 +1680,7 @@ MT_CompressionMethod::MT_CompressionMethod()
 HRESULT
 MT_CompressionMethod::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
@@ -1712,6 +1700,8 @@ MT_CompressionMethod::ParseFromPriv(
 
     m_compressionMethod = pv[0];
 
+    ADVANCE_PARSE();
+
 error:
     return hr;
 } // end function ParseFromPriv
@@ -1719,7 +1709,7 @@ error:
 HRESULT
 MT_CompressionMethod::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -1732,8 +1722,7 @@ MT_CompressionMethod::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1779,7 +1768,7 @@ MT_ServerHello::Length() const
 HRESULT
 MT_ServerHello::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -1791,8 +1780,7 @@ MT_ServerHello::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = Random()->Length();
     hr = Random()->Serialize(pv, cb);
@@ -1801,8 +1789,7 @@ MT_ServerHello::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = SessionID()->Length();
     hr = SessionID()->Serialize(pv, cb);
@@ -1811,8 +1798,7 @@ MT_ServerHello::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = CipherSuite()->Length();
     hr = CipherSuite()->Serialize(pv, cb);
@@ -1821,8 +1807,7 @@ MT_ServerHello::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     cbField = CompressionMethod()->Length();
     hr = CompressionMethod()->Serialize(pv, cb);
@@ -1831,8 +1816,7 @@ MT_ServerHello::SerializePriv(
         goto error;
     }
 
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
     if (Extensions()->Count() > 0)
     {
@@ -1843,8 +1827,7 @@ MT_ServerHello::SerializePriv(
             goto error;
         }
 
-        pv += cbField;
-        cb -= cbField;
+        ADVANCE_PARSE();
     }
 
 error:
@@ -1861,7 +1844,7 @@ MT_Certificate::MT_Certificate()
 HRESULT
 MT_Certificate::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     HRESULT hr = S_OK;
@@ -1887,7 +1870,7 @@ MT_Certificate::PopulateFromFile(
 
 HRESULT
 MT_Certificate::PopulateFromMemory(
-    const BYTE* pvCert, LONGLONG cbCert
+    const BYTE* pvCert, size_t cbCert
 )
 {
     MT_ASN1Cert cert;
@@ -1926,7 +1909,7 @@ MT_Thingy::MT_Thingy()
 HRESULT
 MT_Thingy::ParseFromPriv(
     const BYTE* pv,
-    LONGLONG cb
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
@@ -1945,8 +1928,7 @@ MT_Thingy::ParseFromPriv(
     }
 
     cbField = Something()->Length();
-    pv += cbField;
-    cb -= cbField;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -1962,7 +1944,7 @@ MT_Thingy::Length() const
 HRESULT
 MT_Thingy::SerializePriv(
     BYTE* pv,
-    LONGLONG cb
+    size_t cb
 ) const
 {
     return E_NOTIMPL;
