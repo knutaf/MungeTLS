@@ -28,17 +28,18 @@ int __cdecl wmain(int argc, wchar_t* argv[])
 }
 
 template <typename N>
-string StringFromInt(N n)
+wstring StringFromInt(N n)
 {
-    stringstream s;
+    wstringstream s;
     s << n;
     return s.str();
 } // end function StringFromInt
 
-HRESULT LogTraffic(ULONG nFile, const string* psSuffix, const vector<BYTE>* pvb)
+HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const vector<BYTE>* pvb)
 {
     HRESULT hr = S_OK;
-    string strFilename("out\\");
+    wstring wsFilename(L"out\\");
+    HANDLE hOutfile = INVALID_HANDLE_VALUE;
 
     for (ULONG i = nFile; i < 100; i *= 10)
     {
@@ -47,30 +48,58 @@ HRESULT LogTraffic(ULONG nFile, const string* psSuffix, const vector<BYTE>* pvb)
             i++;
         }
 
-        strFilename += "0";
+        wsFilename += L"0";
     }
 
-    strFilename += StringFromInt(nFile);
-    strFilename += "_";
-    strFilename += *psSuffix;
+    wsFilename += StringFromInt(nFile);
+    wsFilename += L"_";
+    wsFilename += *pwsSuffix;
 
-    ofstream outfile(strFilename);
+    hOutfile = CreateFileW(
+                   wsFilename.c_str(),
+                   GENERIC_WRITE,
+                   0,
+                   NULL,
+                   CREATE_ALWAYS,
+                   FILE_ATTRIBUTE_NORMAL,
+                   NULL);
 
-    if (!outfile.bad())
+    if (hOutfile != INVALID_HANDLE_VALUE)
     {
-        for_each(pvb->begin(), pvb->end(),
-            [&outfile](BYTE b)
-            {
-                outfile.put(b);
-            }
-        );
+        DWORD cbWritten = 0;
 
-        printf("logged traffic '%s' to %s\n", psSuffix->c_str(), strFilename.c_str());
+        if (!WriteFile(
+                 hOutfile,
+                 &pvb->front(),
+                 static_cast<DWORD>(pvb->size()),
+                 &cbWritten,
+                 NULL))
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            goto error;
+        }
+
+        if (cbWritten != pvb->size())
+        {
+            wprintf(L"only wrote %lu bytes of %lu\n", cbWritten, pvb->size());
+            hr = E_FAIL;
+            goto error;
+        }
+
+        printf("logged %lu bytes of traffic '%s' to %s\n", cbWritten, pwsSuffix->c_str(), wsFilename.c_str());
     }
     else
     {
-        printf("failed to create outfile: %s\n", strFilename.c_str());
-        hr = E_FAIL;
+        printf("failed to create outfile: %s\n", wsFilename.c_str());
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+error:
+    if (hOutfile != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(hOutfile);
+        hOutfile = INVALID_HANDLE_VALUE;
     }
 
     return hr;
@@ -78,14 +107,14 @@ HRESULT LogTraffic(ULONG nFile, const string* psSuffix, const vector<BYTE>* pvb)
 
 HRESULT LogWrite(ULONG nFile, const vector<BYTE>* pvb)
 {
-    static const string strWrite("w");
-    return LogTraffic(nFile, &strWrite, pvb);
+    static const wstring wsWrite(L"w");
+    return LogTraffic(nFile, &wsWrite, pvb);
 } // end function LogWrite
 
 HRESULT LogRead(ULONG nFile, const vector<BYTE>* pvb)
 {
-    static const string strRead("r");
-    return LogTraffic(nFile, &strRead, pvb);
+    static const wstring wsRead(L"r");
+    return LogTraffic(nFile, &wsRead, pvb);
 } // end function LogRead
 
 HRESULT ProcessConnections()
