@@ -1,5 +1,4 @@
 const MediumMungeTLS = 0x2323;
-
 const Flags_Receive = 0x0;
 const Flags_Send = 0x1;
 const Flags_Mask_SendReceive = 0x1;
