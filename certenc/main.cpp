@@ -286,6 +286,8 @@ GetPrivateKeyFromCertificate(
     DWORD keySpec = 0;
     BOOL fCallerFree = FALSE;
 
+    wprintf(L"get private\n");
+
     if (!CryptAcquireCertificatePrivateKey(
              pCertContext,
              CRYPT_ACQUIRE_SILENT_FLAG,
@@ -379,6 +381,8 @@ GetPublicKeyFromCertificate(
     HCRYPTKEY hPubKey = NULL;
     vector<BYTE> vbPublicKeyInfo;
     KeyAndProv kp;
+
+    wprintf(L"get public\n");
 
     DWORD keySpec;
     if (!CryptAcquireCertificatePrivateKey(
