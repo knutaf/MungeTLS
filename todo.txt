@@ -1,2 +1,4 @@
 - add a check that ParseFrom is not called multiple times
 - customizable behavior for extensions. shouldn't just hard-code reneg info
+- configurable behavior about whether to encapsulate multiple handshake messages with a new plaintext message each, or to bundle them in one
+- ability to verify correct cert usages before using
