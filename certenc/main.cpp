@@ -15,9 +15,6 @@
 #include <assert.h>
 #include <wincrypt.h>
 
-// TODO: remove
-//const BYTE c_rgbEncrypted[] = {0x5A, 0x42, 0x80, 0x3C, 0x0D, 0x6A, 0x3C, 0x8F, 0x54, 0xCC, 0x2E, 0x0F, 0x18, 0xCC, 0x57, 0x8E, 0xC5, 0x3D, 0x0F, 0x69, 0x67, 0x3B, 0xF4, 0xDE, 0x99, 0x4F, 0x24, 0xDB, 0xBA, 0xD3, 0x2C, 0x14, 0x8A, 0x09, 0xB3, 0x4D, 0x4C, 0xE4, 0xDD, 0x79, 0x71, 0x76, 0x3A, 0xC2, 0x19, 0x0D, 0xC1, 0x7F, 0x61, 0x64, 0xC6, 0x8B, 0x84, 0xFF, 0x3C, 0xAD, 0x5E, 0x34, 0x7D, 0x50, 0x6E, 0x55, 0x17, 0xEC, 0xAA, 0x81, 0x31, 0xC5, 0x2F, 0x73, 0x86, 0x32, 0xD3, 0xD2, 0x03, 0xDB, 0x0A, 0xEB, 0x4A, 0x4F, 0xB5, 0x10, 0x0E, 0x48, 0xDE, 0x44, 0x11, 0x19, 0xF4, 0x33, 0x9A, 0xF6, 0x55, 0x58, 0xC7, 0xC2, 0x40, 0x80, 0xC4, 0xF0, 0x6C, 0x5C, 0x6E, 0x8E, 0x3D, 0xB3, 0x86, 0x8E, 0xA7, 0x5F, 0xC9, 0xFC, 0x58, 0xE0, 0xE1, 0x3A, 0x5E, 0xB7, 0x80, 0x37, 0x12, 0x5A, 0x26, 0x91, 0x87, 0xAA, 0xF1, 0x6E};
-
 using namespace std;
 
 class KeyAndProv
@@ -110,35 +107,6 @@ void Usage()
 {
     printf("Usage: certenc.exe text\n");
 }
-
-HRESULT SetSalt(HCRYPTKEY hKey)
-{
-    HRESULT hr = S_OK;
-
-    vector<BYTE> vbSalt;
-    DWORD cbSalt = 0;
-    CryptGetKeyParam(
-        hKey,
-        KP_SALT,
-        NULL,
-        &cbSalt,
-        0);
-
-    vbSalt.resize(cbSalt, 0x26);
-
-    if (!CryptSetKeyParam(
-             hKey,
-             KP_SALT,
-             &vbSalt.front(),
-             0))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
-
-error:
-    return hr;
-} // end function SetSalt
 
 HRESULT PrintByteVector(const vector<BYTE>* pvb)
 {
@@ -311,41 +279,7 @@ GetPrivateKeyFromCertificate(
 
     wprintf(L"done privkey\n");
 
-    /*
-    if (!CryptAcquireContextW(
-             &hProv,
-             L"7f4a55f3-c9ff-422b-a417-6b0a617b072c",
-             MS_ENHANCED_PROV,
-             PROV_RSA_FULL,
-             0))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
-
-    wprintf(L"done acquire w/ guid\n");
-    */
-
-    {
-        vector<char> vbContainerName;
-        DWORD cbContainerName = 0;
-
-        cbContainerName = 100;
-        vbContainerName.resize(cbContainerName * sizeof(char), 0x25);
-        if (!CryptGetProvParam(
-                 hProv,
-                 PP_CONTAINER,
-                 reinterpret_cast<BYTE*>(&vbContainerName.front()),
-                 &cbContainerName,
-                 0))
-        {
-            hr = HRESULT_FROM_WIN32(GetLastError());
-            goto error;
-        }
-
-        printf("container name: %s\n", &vbContainerName.front());
-    }
-
+    // gets the actual private key handle
     if (!CryptGetUserKey(
              hProv,
              AT_KEYEXCHANGE,
@@ -375,8 +309,8 @@ GetPublicKeyFromCertificate(
     KeyAndProv* pPublicKey)
 {
     HRESULT hr = S_OK;
-    HCRYPTPROV hPubProv = NULL;
     HCRYPTPROV hProv = NULL;
+    HCRYPTPROV hPubProv = NULL;
     BOOL fCallerFree = FALSE;
     HCRYPTKEY hPubKey = NULL;
     vector<BYTE> vbPublicKeyInfo;
@@ -408,7 +342,23 @@ GetPublicKeyFromCertificate(
 
     wprintf(L"done privkey\n");
 
-    DWORD cbPublicKeyInfo = 2048;
+    DWORD cbPublicKeyInfo = 0;
+    if (!CryptExportPublicKeyInfoEx(
+             hProv,
+             AT_KEYEXCHANGE,
+             X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+             szOID_RSA_RSA,
+             0,
+             NULL,
+             NULL,
+             &cbPublicKeyInfo))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    wprintf(L"found we need %d bytes for public key info\n", cbPublicKeyInfo);
+
     vbPublicKeyInfo.resize(cbPublicKeyInfo, 0x24);
     if (!CryptExportPublicKeyInfoEx(
              hProv,
