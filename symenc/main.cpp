@@ -523,12 +523,12 @@ TestEncryptDecrypt(
 
     if (*pvbCleartext == vbDecrypted)
     {
-        wprintf(L"cleartext and decrypted are the same\n");
+        wprintf(L"PASS: cleartext and decrypted are the same\n");
         hr = S_OK;
     }
     else
     {
-        wprintf(L"cleartext and decrypted didn't match\n");
+        wprintf(L"FAIL: cleartext and decrypted didn't match\n");
         hr = S_FALSE;
     }
 
@@ -774,11 +774,12 @@ wmain(
 
         if (hr != NTE_BAD_DATA)
         {
+            wprintf(L"FAIL: didn't get expected hr NTE_BAD DATA for decryption; got %08LX\n", hr);
             goto error;
         }
         else
         {
-            wprintf(L"got expected hr %08LX for bad decryption\n", hr);
+            wprintf(L"PASS: got expected hr %08LX for bad decryption\n", hr);
             hr = S_OK;
         }
 
