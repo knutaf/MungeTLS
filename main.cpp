@@ -1,3 +1,4 @@
+#include "precomp.h"
 #include <windows.h>
 #include <atlbase.h>
 #include <assert.h>
