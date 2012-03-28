@@ -124,6 +124,11 @@ HRESULT PrintByteVector(const vector<BYTE>* pvb)
 } // end function PrintByteVector
 
 HRESULT
+GetSerializedCertificate(
+    PCCERT_CONTEXT pCertContext,
+    vector<BYTE>* pvbCert);
+
+HRESULT
 EncryptBuffer(
     const vector<BYTE>* pvbCleartext,
     HCRYPTKEY hKey,
@@ -304,6 +309,16 @@ error:
 } // end function GetPrivateKeyFromCertificate
 
 HRESULT
+GetSerializedCertificate(
+    PCCERT_CONTEXT pCertContext,
+    vector<BYTE>* pvbCert)
+{
+    pvbCert->assign(pCertContext->pbCertEncoded, pCertContext->pbCertEncoded + pCertContext->cbCertEncoded);
+
+    return S_OK;
+} // end function GetSerializedCertificate
+
+HRESULT
 GetPublicKeyFromCertificate(
     PCCERT_CONTEXT pCertContext,
     KeyAndProv* pPublicKey)
@@ -374,7 +389,9 @@ GetPublicKeyFromCertificate(
         goto error;
     }
 
-    wprintf(L"done export pub\n");
+    wprintf(L"done export pub:\n");
+
+    PrintByteVector(&vbPublicKeyInfo);
 
     if (!CryptAcquireContextW(
              &hPubProv,
@@ -575,6 +592,18 @@ wmain(
         if (hr != S_OK)
         {
             goto error;
+        }
+
+        {
+            vector<BYTE> vbSerializedCertificate;
+            hr = GetSerializedCertificate(pCertContext, &vbSerializedCertificate);
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+
+            wprintf(L"certificate:\n");
+            PrintByteVector(&vbSerializedCertificate);
         }
 
         vbCleartext.assign(reinterpret_cast<BYTE*>(argv[1]), reinterpret_cast<BYTE*>(argv[1] + wcslen(argv[1])));
