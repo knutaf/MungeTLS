@@ -1,12 +1,8 @@
-all: exe\MungeTLS.exe
-
-exe\MungeTLS.exe: lib\MungeTLS.lib
-	cd exe
+all:
+	cd lib
 	$(MAKE)
 	cd ..
-
-lib\MungeTLS.lib:
-	cd lib
+	cd exe
 	$(MAKE)
 	cd ..
 
