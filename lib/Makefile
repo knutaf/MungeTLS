@@ -5,17 +5,18 @@ C_FILES=\
     MungeTLS.cpp \
 
 O_FILES=\
-    MungeTLS.obj\
+    MungeTLS.obj \
 
 H_FILES=\
-    MungeTLS.h \
+    ..\inc\MungeTLS.h \
+    precomp.h  \
 
 SOURCES=$(C_FILES) $(H_FILES)
 
 $(TARGET).lib: $(O_FILES)
 	lib /out:$(TARGET).lib $(O_FILES)
 
-MungeTLS.obj: MungeTLS.cpp ..\inc\MungeTLS.h
+MungeTLS.obj: $(C_FILES) $(H_FILES)
 	cl /c $(C_DEFINES) -I..\inc /EHsc /Zi /W4 /Ycprecomp.h MungeTLS.cpp
 
 clean:
