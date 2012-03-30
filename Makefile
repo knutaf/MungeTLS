@@ -1,20 +1,27 @@
-TARGET=MungeTLS
-C_DEFINES=/DUNICODE
+all: exe\MungeTLS.exe
 
-C_FILES=\
-    main.cpp \
-    MungeTLS.cpp \
+exe\MungeTLS.exe: lib\MungeTLS.lib
+	cd exe
+	$(MAKE)
+	cd ..
 
-H_FILES=\
-    MungeTLS.h \
-
-SOURCES=$(C_FILES) $(H_FILES)
-
-$(TARGET).exe: $(SOURCES)
-	cl /Fe$(TARGET).exe $(C_DEFINES) /EHsc /Zi /W4 /Ycprecomp.h $(C_FILES) /link shlwapi.lib shell32.lib ws2_32.lib
+lib\MungeTLS.lib:
+	cd lib
+	$(MAKE)
+	cd ..
 
 clean:
-	del *.exe *.obj *.pdb *.ilk *.pch
+	cd exe
+	$(MAKE) clean
+	cd ..
+	cd lib
+	$(MAKE) clean
+	cd ..
 
 cleanup:
-	del *.obj *.pdb *.ilk
+	cd exe
+	$(MAKE) cleanup
+	cd ..
+	cd lib
+	$(MAKE) cleanup
+	cd ..
