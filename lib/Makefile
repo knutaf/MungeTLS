@@ -16,6 +16,8 @@ H_FILES=\
 
 SOURCES=$(C_FILES) $(H_FILES)
 
+$(O_FILES): $(H_FILES) $(C_FILES)
+
 $(TARGET).lib: $(O_FILES)
 	lib /out:$(TARGET).lib $(O_FILES)
 
