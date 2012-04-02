@@ -7,12 +7,19 @@ C_FILES=\
 H_FILES=\
 
 LIBS=\
+    shlwapi.lib \
+    shell32.lib \
+    ws2_32.lib \
+    crypt32.lib \
+    $(MY_LIBS) \
+
+MY_LIBS=\
     ..\lib\MungeTLS.lib \
 
 SOURCES=$(C_FILES) $(H_FILES)
 
-$(TARGET).exe: $(SOURCES) $(LIBS)
-	cl /Fe$(TARGET).exe $(C_DEFINES) -I..\inc /EHsc /Zi /W4 /Ycprecomp.h $(C_FILES) /link shlwapi.lib shell32.lib ws2_32.lib $(LIBS)
+$(TARGET).exe: $(SOURCES) $(MY_LIBS)
+	cl /Fe$(TARGET).exe $(C_DEFINES) -I..\inc /EHsc /Zi /W4 /Ycprecomp.h $(C_FILES) /link $(LIBS)
 
 clean:
 	del *.exe *.obj *.pdb *.ilk *.pch

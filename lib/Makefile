@@ -3,12 +3,15 @@ C_DEFINES=/DUNICODE
 
 C_FILES=\
     MungeTLS.cpp \
+    WindowsCrypto.cpp \
 
 O_FILES=\
     MungeTLS.obj \
+    WindowsCrypto.obj \
 
 H_FILES=\
     ..\inc\MungeTLS.h \
+    mtls_helper.h  \
     precomp.h  \
 
 SOURCES=$(C_FILES) $(H_FILES)
@@ -16,8 +19,8 @@ SOURCES=$(C_FILES) $(H_FILES)
 $(TARGET).lib: $(O_FILES)
 	lib /out:$(TARGET).lib $(O_FILES)
 
-MungeTLS.obj: $(C_FILES) $(H_FILES)
-	cl /c $(C_DEFINES) -I..\inc /EHsc /Zi /W4 /Ycprecomp.h MungeTLS.cpp
+.cpp.obj:
+	cl /c $(C_DEFINES) -I..\inc /EHsc /Zi /W4 /Ycprecomp.h $<
 
 clean:
 	del *.exe *.obj *.pdb *.ilk *.pch *.lib
