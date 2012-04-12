@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <vector>
+#include <memory>
 
 #pragma warning(push)
 #pragma warning(disable : 4100)
@@ -16,6 +17,7 @@ const HRESULT MT_E_UNKNOWN_HANDSHAKE_TYPE                   = 0x80230004;
 const HRESULT MT_E_UNSUPPORTED_HANDSHAKE_TYPE               = 0x80230005;
 const HRESULT MT_E_DATA_SIZE_OUT_OF_RANGE                   = 0x80230006;
 const HRESULT MT_E_UNKNOWN_COMPRESSION_METHOD               = 0x80230007;
+const HRESULT MT_E_UNKNOWN_CIPHER_SUITE                     = 0x80230008;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
 typedef ULONG MT_UINT8;
@@ -146,6 +148,39 @@ class MT_FixedLengthByteStructure : public MT_FixedLengthStructureBase
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
 
+template <typename T>
+class MT_PublicKeyEncryptedStructure : public MT_Structure
+{
+    public:
+    MT_PublicKeyEncryptedStructure();
+    virtual ~MT_PublicKeyEncryptedStructure() { }
+
+    virtual size_t Length() const;
+    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+
+    // TODO: impl
+    const T* Structure() const { return &m_structure; }
+    // TODO: need?
+    //T* Structure() { return const_cast<T*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->Structure()); }
+
+    const std::vector<BYTE>* EncryptedStructure() const { return &m_encryptedStructure; }
+    std::vector<BYTE>* EncryptedStructure() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->EncryptedStructure()); }
+
+    private:
+    T m_structure;
+    std::vector<BYTE> m_encryptedStructure;
+};
+
+enum MT_KeyExchangeAlgorithm
+{
+    MTKEA_dhe_dss,
+    MTKEA_dhe_rsa,
+    MTKEA_dh_anon,
+    MTKEA_rsa,
+    MTKEA_dh_dss,
+    MTKEA_dh_rsa
+};
+
 class MT_ContentType : public MT_Structure
 {
     public:
@@ -227,8 +262,30 @@ class MT_Random : public MT_Structure
     std::vector<BYTE> m_vbRandomBytes;
 };
 
+enum MT_CipherSuiteValue
+{
+      MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
+      MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
+      MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
+      MTCS_TLS_RSA_WITH_RC4_128_MD5              = 0x0004,
+      MTCS_TLS_RSA_WITH_RC4_128_SHA              = 0x0005,
+      MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA         = 0x000A,
+      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA          = 0x002F,
+      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA          = 0x0035,
+      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256       = 0x003C,
+      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256       = 0x003D
+};
+
+const MT_CipherSuiteValue* GetSupportedCipherSuites(size_t* pcCipherSuites);
+bool IsKnownCipherSuite(MT_CipherSuiteValue eSuite);
+
 // uint8 CipherSuite[2];    /* Cryptographic suite selector */
-typedef MT_FixedLengthByteStructure<2> MT_CipherSuite;
+class MT_CipherSuite : public MT_FixedLengthByteStructure<2>
+{
+    public:
+    HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
+    operator MT_CipherSuiteValue() const;
+};
 
 // CipherSuite cipher_suites<2..2^16-1>;
 typedef MT_VariableLengthField<MT_CipherSuite, 2, 2, MAXFORBYTES(2)>
@@ -468,6 +525,57 @@ class MT_Certificate : public MT_Structure
     MT_CertificateList m_certificateList;
 };
 
+class MT_ExchangeKeys : public MT_Structure
+{
+    public:
+    MT_ExchangeKeys() { }
+    virtual ~MT_ExchangeKeys() { }
+};
+
+class MT_PreMasterSecret : public MT_ExchangeKeys
+{
+    typedef MT_FixedLengthByteStructure<46> OpaqueRandom;
+
+    public:
+    MT_PreMasterSecret();
+    ~MT_PreMasterSecret() { }
+
+    size_t Length() const;
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    const MT_ProtocolVersion* ClientVersion() const { return &m_clientVersion; }
+    MT_ProtocolVersion* ClientVersion() { return const_cast<MT_ProtocolVersion*>(static_cast<const MT_PreMasterSecret*>(this)->ClientVersion()); }
+
+    const OpaqueRandom* Random() const { return &m_random; }
+    OpaqueRandom* Random() { return const_cast<OpaqueRandom*>(static_cast<const MT_PreMasterSecret*>(this)->Random()); }
+
+    private:
+    MT_ProtocolVersion m_clientVersion;
+    OpaqueRandom m_random;
+};
+
+class MT_ClientKeyExchange : public MT_Structure
+{
+    public:
+    MT_ClientKeyExchange(MT_KeyExchangeAlgorithm kea);
+    ~MT_ClientKeyExchange() { }
+
+    size_t Length() const { return ExchangeKeys()->Length(); }
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    MT_KeyExchangeAlgorithm KeyExchangeAlgorithm() const { return m_kea; }
+
+    // TODO: make shared_ptr, I think
+    const MT_ExchangeKeys* ExchangeKeys() const { return m_spExchangeKeys.get(); }
+    MT_ExchangeKeys* ExchangeKeys() { return const_cast<MT_ExchangeKeys*>(static_cast<const MT_ClientKeyExchange*>(this)->ExchangeKeys()); }
+
+    private:
+    MT_KeyExchangeAlgorithm m_kea;
+    std::shared_ptr<MT_ExchangeKeys> m_spExchangeKeys;
+};
+
 
 /*
 class MT_Thingy : public MT_Structure
@@ -476,12 +584,15 @@ class MT_Thingy : public MT_Structure
     MT_Thingy();
     ~MT_Thingy() { }
 
-    size_t Length() const { return m_thingy.size(); }
+    size_t Length() const { return Thingy->Length(); }
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
+    const ThingyType* Thingy() const { return &m_thingy; }
+    ThingyType* Thingy() { return const_cast<ThingyType*>(static_cast<const MT_Thingy*>(this)->Thingy()); }
+
     private:
-    std::vector<BYTE> m_thingy;
+    ThingyType m_thingy;
 };
 */
 

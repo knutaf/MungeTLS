@@ -1013,6 +1013,57 @@ MT_FixedLengthByteStructure<Size>::Length() const
     return Size;
 } // end function Length
 
+/*********** MT_PublicKeyEncryptedStructure *****************/
+
+template <typename T>
+MT_PublicKeyEncryptedStructure<T>::MT_PublicKeyEncryptedStructure()
+    : m_structure(),
+      m_encryptedStructure()
+{
+} // end ctor MT_PublicKeyEncryptedStructure
+
+template <typename T>
+HRESULT
+MT_PublicKeyEncryptedStructure<T>::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 2;
+    size_t cbStructureLength = 0;
+
+    hr = ReadNetworkLong(pv, cb, cbField, &cbStructureLength);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = cbStructureLength;
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    EncryptedStructure()->assign(pv, pv + cbField);
+
+    ADVANCE_PARSE();
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
+template <typename T>
+size_t
+MT_PublicKeyEncryptedStructure<T>::Length() const
+{
+    size_t cbLength = EncryptedStructure()->size();
+    return cbLength;
+} // end function Length
+
 /*********** MT_TLSPlaintext *****************/
 
 MT_TLSPlaintext::MT_TLSPlaintext()
@@ -1907,6 +1958,168 @@ error:
     return hr;
 } // end function PopulateWithRandom
 
+/*********** MT_PreMasterSecret *****************/
+
+MT_PreMasterSecret::MT_PreMasterSecret()
+    : m_clientVersion(),
+      m_random()
+{
+} // end ctor MT_PreMasterSecret
+
+HRESULT
+MT_PreMasterSecret::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    hr = ClientVersion()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = ClientVersion()->Length();
+    ADVANCE_PARSE();
+
+    hr = Random()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = Random()->Length();
+    ADVANCE_PARSE();
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
+size_t
+MT_PreMasterSecret::Length() const
+{
+    size_t cbLength = ClientVersion()->Length() +
+                      Random()->Length();
+
+    return cbLength;
+} // end function Length
+
+
+/*********** MT_CipherSuite *****************/
+
+const MT_CipherSuiteValue c_rgeSupportedCipherSuites[] =
+{
+      MTCS_TLS_RSA_WITH_NULL_MD5,
+      MTCS_TLS_RSA_WITH_NULL_SHA,
+      MTCS_TLS_RSA_WITH_NULL_SHA256,
+      MTCS_TLS_RSA_WITH_RC4_128_MD5,
+      MTCS_TLS_RSA_WITH_RC4_128_SHA,
+      MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA,
+      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA,
+      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA,
+      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256,
+      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256
+};
+
+const ULONG c_cSupportedCipherSuites = ARRAYSIZE(c_rgeSupportedCipherSuites);
+
+const MT_CipherSuiteValue* GetSupportedCipherSuites(size_t* pcCipherSuites)
+{
+    assert(pcCipherSuites != nullptr);
+    *pcCipherSuites = c_cSupportedCipherSuites;
+    return c_rgeSupportedCipherSuites;
+} // end function GetSupportedCipherSuites
+
+bool
+IsKnownCipherSuite(
+    MT_CipherSuiteValue eSuite
+)
+{
+    size_t cCipherSuites = 0;
+    const MT_CipherSuiteValue* rgeCipherSuites = GetSupportedCipherSuites(&cCipherSuites);
+
+    return (find(
+                rgeCipherSuites,
+                rgeCipherSuites+cCipherSuites,
+                eSuite)
+                != rgeCipherSuites+cCipherSuites);
+} // end function IsKnownCipherSuite
+
+HRESULT
+MT_CipherSuite::KeyExchangeAlgorithm(
+    MT_KeyExchangeAlgorithm* pAlg
+) const
+{
+    HRESULT hr = S_OK;
+
+    if (IsKnownCipherSuite(*this))
+    {
+        *pAlg = MTKEA_rsa;
+    }
+    else
+    {
+        hr = MT_E_UNKNOWN_CIPHER_SUITE;
+    }
+
+    return hr;
+} // end function KeyExchangeAlgorithm
+
+MT_CipherSuite::operator MT_CipherSuiteValue() const
+{
+    MT_CipherSuiteValue cs;
+
+    assert(Data()->size() <= sizeof(cs));
+
+    HRESULT hr = ReadNetworkLong(
+                     &Data()->front(),
+                     Data()->size(),
+                     Data()->size(),
+                     reinterpret_cast<ULONG*>(&cs));
+
+    assert(hr == S_OK);
+
+    return cs;
+} // end operator MT_CipherSuiteValue
+
+/*********** MT_ClientKeyExchange *****************/
+
+MT_ClientKeyExchange::MT_ClientKeyExchange(
+    MT_KeyExchangeAlgorithm kea
+)
+    : m_kea(kea),
+      m_spExchangeKeys()
+{
+} // end ctor MT_ClientKeyExchange
+
+HRESULT
+MT_ClientKeyExchange::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    assert(ExchangeKeys() == nullptr);
+    assert(KeyExchangeAlgorithm() == MTKEA_rsa);
+    // TODO: fixit
+    //m_spExchangeKeys.reset(new EncryptedPreMasterSecret());
+
+    hr = ExchangeKeys()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = ExchangeKeys()->Length();
+    ADVANCE_PARSE();
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
 /*********** MT_Thingy *****************/
 
 /*
@@ -1924,19 +2137,13 @@ MT_Thingy::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    hr = Something()->ParseFrom(pv, cb);
+    hr = Thingy()->ParseFrom(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
-    cbField = Something()->Length();
+    cbField = Thingy()->Length();
     ADVANCE_PARSE();
 
 error:
@@ -1946,7 +2153,7 @@ error:
 size_t
 MT_Thingy::Length() const
 {
-    size_t cbLength = Something()->Length;
+    size_t cbLength = Thingy()->Length();
     return cbLength;
 } // end function Length
 

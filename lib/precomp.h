@@ -13,6 +13,7 @@
 #include <sstream>
 #include <string>
 #include <wincrypt.h>
+#include <memory>
 
 #include "MungeTLS.h"
 #include "mtls_helper.h"
