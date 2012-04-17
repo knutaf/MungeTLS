@@ -1018,7 +1018,8 @@ MT_FixedLengthByteStructure<Size>::Length() const
 template <typename T>
 MT_PublicKeyEncryptedStructure<T>::MT_PublicKeyEncryptedStructure()
     : m_structure(),
-      m_encryptedStructure()
+      m_encryptedStructure(),
+      m_plaintextStructure()
 {
 } // end ctor MT_PublicKeyEncryptedStructure
 
@@ -1052,6 +1053,12 @@ MT_PublicKeyEncryptedStructure<T>::ParseFromPriv(
 
     ADVANCE_PARSE();
 
+    hr = DecryptStructure();
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
 error:
     return hr;
 } // end function ParseFromPriv
@@ -1063,6 +1070,36 @@ MT_PublicKeyEncryptedStructure<T>::Length() const
     size_t cbLength = EncryptedStructure()->size();
     return cbLength;
 } // end function Length
+
+template <typename T>
+HRESULT
+MT_PublicKeyEncryptedStructure<T>::DecryptStructure()
+{
+    HRESULT hr = S_OK;
+    PlaintextStructure()->clear();
+
+    hr = GetCipherer()->DecryptBufferWithPrivateKey(
+             EncryptedStructure(),
+             PlaintextStructure());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = Structure()->ParseFrom(&PlaintextStructure()->front(), PlaintextStructure()->size());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function DecryptStructure
 
 /*********** MT_TLSPlaintext *****************/
 

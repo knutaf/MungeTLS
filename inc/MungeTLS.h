@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <vector>
 #include <memory>
+#include "MungeCrypto.h"
 
 #pragma warning(push)
 #pragma warning(disable : 4100)
@@ -158,17 +159,25 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     virtual size_t Length() const;
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
 
-    // TODO: impl
+    HRESULT SetCipherer(const PublicKeyCipherer* pCipherer) { m_pCipherer = pCipherer; }
+
     const T* Structure() const { return &m_structure; }
-    // TODO: need?
-    //T* Structure() { return const_cast<T*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->Structure()); }
+    T* Structure() { return const_cast<T*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->Structure()); }
 
     const std::vector<BYTE>* EncryptedStructure() const { return &m_encryptedStructure; }
     std::vector<BYTE>* EncryptedStructure() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->EncryptedStructure()); }
 
     private:
+    const std::vector<BYTE>* PlaintextStructure() const { return &m_encryptedStructure; }
+    std::vector<BYTE>* PlaintextStructure() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->PlaintextStructure()); }
+
+    const PublicKeyCipherer* GetCipherer() const { return m_pCipherer; }
+    HRESULT DecryptStructure();
+
     T m_structure;
+    std::vector<BYTE> m_plaintextStructure;
     std::vector<BYTE> m_encryptedStructure;
+    const PublicKeyCipherer* m_pCipherer;
 };
 
 enum MT_KeyExchangeAlgorithm
@@ -554,6 +563,8 @@ class MT_PreMasterSecret : public MT_ExchangeKeys
     MT_ProtocolVersion m_clientVersion;
     OpaqueRandom m_random;
 };
+
+typedef MT_PublicKeyEncryptedStructure<MT_PreMasterSecret> MT_EncryptedPreMasterSecret;
 
 class MT_ClientKeyExchange : public MT_Structure
 {

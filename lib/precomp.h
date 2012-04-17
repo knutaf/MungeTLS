@@ -16,4 +16,5 @@
 #include <memory>
 
 #include "MungeTLS.h"
+#include "MungeCrypto.h"
 #include "mtls_helper.h"
