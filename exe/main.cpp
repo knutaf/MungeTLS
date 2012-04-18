@@ -197,14 +197,23 @@ HRESULT ProcessConnections()
         char c = 0;
         vector<BYTE> vbData;
         vector<BYTE> vbResponse;
-        int cb = recv(sockAccept, &c, 1, 0);
+        int cb;
+        HRESULT hr = S_OK;
         ULONG cMessages = 0;
+
+        hr = con.Initialize();
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        cb = recv(sockAccept, &c, 1, 0);
         while (cb > 0)
         {
             printf("read %d chars. got char: %01LX\n", cb, c);
             vbData.push_back(c);
 
-            HRESULT hr = con.HandleMessage(&vbData.front(), vbData.size(), &vbResponse);
+            hr = con.HandleMessage(&vbData.front(), vbData.size(), &vbResponse);
             if (hr == S_OK)
             {
                 printf("finished parsing message of size %lu\n", vbData.size());

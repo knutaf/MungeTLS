@@ -19,6 +19,7 @@ const HRESULT MT_E_UNSUPPORTED_HANDSHAKE_TYPE               = 0x80230005;
 const HRESULT MT_E_DATA_SIZE_OUT_OF_RANGE                   = 0x80230006;
 const HRESULT MT_E_UNKNOWN_COMPRESSION_METHOD               = 0x80230007;
 const HRESULT MT_E_UNKNOWN_CIPHER_SUITE                     = 0x80230008;
+const HRESULT MT_E_UNSUPPORTED_KEY_EXCHANGE                 = 0x80230009;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
 typedef ULONG MT_UINT8;
@@ -159,7 +160,8 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     virtual size_t Length() const;
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
 
-    HRESULT SetCipherer(const PublicKeyCipherer* pCipherer) { m_pCipherer = pCipherer; }
+    HRESULT DecryptStructure();
+    HRESULT SetCipherer(const PublicKeyCipherer* pCipherer) { m_pCipherer = pCipherer; return S_OK; }
 
     const T* Structure() const { return &m_structure; }
     T* Structure() { return const_cast<T*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->Structure()); }
@@ -172,7 +174,6 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     std::vector<BYTE>* PlaintextStructure() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->PlaintextStructure()); }
 
     const PublicKeyCipherer* GetCipherer() const { return m_pCipherer; }
-    HRESULT DecryptStructure();
 
     T m_structure;
     std::vector<BYTE> m_plaintextStructure;
@@ -496,17 +497,32 @@ class TLSConnection
 {
     public:
     TLSConnection();
-    ~TLSConnection() { }
+    virtual ~TLSConnection() { }
+
+    HRESULT Initialize();
 
     HRESULT HandleMessage(
         const BYTE* pv,
         size_t cb,
         std::vector<BYTE>* pvbResponse);
 
+    const PCCERT_CONTEXT* CertContext() const { return &m_pCertContext; }
+    PCCERT_CONTEXT* CertContext() { return const_cast<PCCERT_CONTEXT*>(static_cast<const TLSConnection*>(this)->CertContext()); }
+
+    const PublicKeyCipherer* PubKeyCipherer() const { return m_spPubKeyCipherer.get(); }
+    PublicKeyCipherer* PubKeyCipherer() { return const_cast<PublicKeyCipherer*>(static_cast<const TLSConnection*>(this)->PubKeyCipherer()); }
+
+    const MT_CipherSuite* CipherSuite() const { return &m_cipherSuite; }
+    MT_CipherSuite* CipherSuite() { return const_cast<MT_CipherSuite*>(static_cast<const TLSConnection*>(this)->CipherSuite()); }
+
     private:
     HRESULT RespondTo(
         const MT_ClientHello* pClientHello,
         std::vector<MT_TLSPlaintext>* pResponses);
+
+    MT_CipherSuite m_cipherSuite;
+    PCCERT_CONTEXT m_pCertContext;
+    std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
 };
 
 // opaque ASN.1Cert<1..2^24-1>;
@@ -534,20 +550,13 @@ class MT_Certificate : public MT_Structure
     MT_CertificateList m_certificateList;
 };
 
-class MT_ExchangeKeys : public MT_Structure
-{
-    public:
-    MT_ExchangeKeys() { }
-    virtual ~MT_ExchangeKeys() { }
-};
-
-class MT_PreMasterSecret : public MT_ExchangeKeys
+class MT_PreMasterSecret : public MT_Structure
 {
     typedef MT_FixedLengthByteStructure<46> OpaqueRandom;
 
     public:
     MT_PreMasterSecret();
-    ~MT_PreMasterSecret() { }
+    virtual ~MT_PreMasterSecret() { }
 
     size_t Length() const;
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
@@ -566,25 +575,23 @@ class MT_PreMasterSecret : public MT_ExchangeKeys
 
 typedef MT_PublicKeyEncryptedStructure<MT_PreMasterSecret> MT_EncryptedPreMasterSecret;
 
+template <typename KeyType>
 class MT_ClientKeyExchange : public MT_Structure
 {
     public:
-    MT_ClientKeyExchange(MT_KeyExchangeAlgorithm kea);
-    ~MT_ClientKeyExchange() { }
+    MT_ClientKeyExchange();
+    virtual ~MT_ClientKeyExchange() { }
 
     size_t Length() const { return ExchangeKeys()->Length(); }
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    MT_KeyExchangeAlgorithm KeyExchangeAlgorithm() const { return m_kea; }
-
-    // TODO: make shared_ptr, I think
-    const MT_ExchangeKeys* ExchangeKeys() const { return m_spExchangeKeys.get(); }
-    MT_ExchangeKeys* ExchangeKeys() { return const_cast<MT_ExchangeKeys*>(static_cast<const MT_ClientKeyExchange*>(this)->ExchangeKeys()); }
+    // TODO: make shared_ptr, I think?
+    const KeyType* ExchangeKeys() const { return m_spExchangeKeys.get(); }
+    KeyType* ExchangeKeys() { return const_cast<KeyType*>(static_cast<const MT_ClientKeyExchange*>(this)->ExchangeKeys()); }
 
     private:
-    MT_KeyExchangeAlgorithm m_kea;
-    std::shared_ptr<MT_ExchangeKeys> m_spExchangeKeys;
+    std::shared_ptr<KeyType> m_spExchangeKeys;
 };
 
 

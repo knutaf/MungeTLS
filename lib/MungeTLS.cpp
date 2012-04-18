@@ -18,8 +18,46 @@ using namespace std;
 /*********** TLSConnection *****************/
 
 TLSConnection::TLSConnection()
+    : m_cipherSuite(),
+      m_pCertContext(nullptr),
+      m_spPubKeyCipherer(nullptr)
 {
 } // end ctor TLSConnection
+
+HRESULT
+TLSConnection::Initialize()
+{
+    HRESULT hr = S_OK;
+    shared_ptr<WindowsPublicKeyCipherer> spPubKeyCipherer;
+
+    assert(*CertContext() == nullptr);
+
+    hr = LookupCertificate(
+             CERT_SYSTEM_STORE_CURRENT_USER,
+             L"my",
+             L"mtls-test",
+             CertContext());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    spPubKeyCipherer.reset(new WindowsPublicKeyCipherer());
+    hr = spPubKeyCipherer->Initialize(*CertContext());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    m_spPubKeyCipherer = spPubKeyCipherer;
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function Initialize
 
 HRESULT
 TLSConnection::HandleMessage(
@@ -92,6 +130,50 @@ TLSConnection::HandleMessage(
                         printf("failed to parse client hello: %08LX\n", hr);
                     }
                 }
+                else if (handshakeMessage.HandshakeType() == MT_Handshake::MTH_ClientKeyExchange)
+                {
+                    MT_KeyExchangeAlgorithm keyExchangeAlg;
+                    hr = CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg);
+
+                    if (hr == S_OK)
+                    {
+                        if (keyExchangeAlg == MTKEA_rsa)
+                        {
+                            MT_ClientKeyExchange<MT_EncryptedPreMasterSecret> keyExchange;
+                            hr = keyExchange.ParseFromVect(handshakeMessage.Body());
+
+                            if (hr == S_OK)
+                            {
+                                MT_EncryptedPreMasterSecret* pExchangeKeys = keyExchange.ExchangeKeys();
+                                pExchangeKeys->SetCipherer(PubKeyCipherer());
+                                hr = pExchangeKeys->DecryptStructure();
+
+                                if (hr == S_OK)
+                                {
+                                    MT_PreMasterSecret* pSecret = pExchangeKeys->Structure();
+                                    printf("version %04LX\n", pSecret->ClientVersion()->Version());
+                                }
+                                else
+                                {
+                                    printf("failed to decrypt structure: %08LX\n", hr);
+                                }
+                            }
+                            else
+                            {
+                                printf("failed to parse key exchange message from handshake body: %08LX\n", hr);
+                            }
+                        }
+                        else
+                        {
+                            printf("unsupported key exchange type: %d\n", keyExchangeAlg);
+                            hr = MT_E_UNSUPPORTED_KEY_EXCHANGE;
+                        }
+                    }
+                    else
+                    {
+                        printf("failed to get key exchange algorithm: %08LX\n", hr);
+                    }
+                }
                 else
                 {
                     printf("not yet supporting handshake type %d\n", handshakeMessage.HandshakeType());
@@ -125,7 +207,6 @@ TLSConnection::RespondTo(
         MT_ProtocolVersion protocolVersion;
         MT_Random random;
         MT_SessionID sessionID;
-        MT_CipherSuite cipherSuite;
         MT_CompressionMethod compressionMethod;
         MT_HelloExtensions extensions;
         MT_ServerHello serverHello;
@@ -147,9 +228,10 @@ TLSConnection::RespondTo(
             goto error;
         }
 
+        // TODO: setting this on the connection object. feels unclean
         // rsa + sha256 cbc
-        *(cipherSuite.at(0)) = 0x00;
-        *(cipherSuite.at(1)) = 0x35;
+        *(CipherSuite()->at(0)) = 0x00;
+        *(CipherSuite()->at(1)) = 0x35;
 
         compressionMethod.SetMethod(MT_CompressionMethod::MTCM_Null);
 
@@ -164,7 +246,7 @@ TLSConnection::RespondTo(
         *(serverHello.ProtocolVersion()) = protocolVersion;
         *(serverHello.Random()) = random;
         *(serverHello.SessionID()) = sessionID;
-        *(serverHello.CipherSuite()) = cipherSuite;
+        *(serverHello.CipherSuite()) = *CipherSuite();
         *(serverHello.CompressionMethod()) = compressionMethod;
         *(serverHello.Extensions()) = extensions;
 
@@ -198,13 +280,6 @@ TLSConnection::RespondTo(
         MT_ContentType contentType;
         MT_TLSPlaintext plaintext;
         MT_ProtocolVersion protocolVersion;
-        PCCERT_CONTEXT pCertContext = NULL;
-
-        hr = LookupCertificate(
-                 CERT_SYSTEM_STORE_CURRENT_USER,
-                 L"my",
-                 L"mtls-test",
-                 &pCertContext);
 
         if (hr != S_OK)
         {
@@ -213,8 +288,8 @@ TLSConnection::RespondTo(
 
 
         hr = certificate.PopulateFromMemory(
-                 pCertContext->pbCertEncoded,
-                 pCertContext->cbCertEncoded);
+                 (*CertContext())->pbCertEncoded,
+                 (*CertContext())->cbCertEncoded);
 
         if (hr != S_OK)
         {
@@ -1019,7 +1094,8 @@ template <typename T>
 MT_PublicKeyEncryptedStructure<T>::MT_PublicKeyEncryptedStructure()
     : m_structure(),
       m_encryptedStructure(),
-      m_plaintextStructure()
+      m_plaintextStructure(),
+      m_pCipherer(nullptr)
 {
 } // end ctor MT_PublicKeyEncryptedStructure
 
@@ -1052,12 +1128,6 @@ MT_PublicKeyEncryptedStructure<T>::ParseFromPriv(
     EncryptedStructure()->assign(pv, pv + cbField);
 
     ADVANCE_PARSE();
-
-    hr = DecryptStructure();
-    if (hr != S_OK)
-    {
-        goto error;
-    }
 
 error:
     return hr;
@@ -2122,16 +2192,15 @@ MT_CipherSuite::operator MT_CipherSuiteValue() const
 
 /*********** MT_ClientKeyExchange *****************/
 
-MT_ClientKeyExchange::MT_ClientKeyExchange(
-    MT_KeyExchangeAlgorithm kea
-)
-    : m_kea(kea),
-      m_spExchangeKeys()
+template <typename KeyType>
+MT_ClientKeyExchange<KeyType>::MT_ClientKeyExchange()
+    : m_spExchangeKeys()
 {
 } // end ctor MT_ClientKeyExchange
 
+template <typename KeyType>
 HRESULT
-MT_ClientKeyExchange::ParseFromPriv(
+MT_ClientKeyExchange<KeyType>::ParseFromPriv(
     const BYTE* pv,
     size_t cb
 )
@@ -2140,9 +2209,8 @@ MT_ClientKeyExchange::ParseFromPriv(
     size_t cbField = 0;
 
     assert(ExchangeKeys() == nullptr);
-    assert(KeyExchangeAlgorithm() == MTKEA_rsa);
-    // TODO: fixit
-    //m_spExchangeKeys.reset(new EncryptedPreMasterSecret());
+
+    m_spExchangeKeys.reset(new KeyType());
 
     hr = ExchangeKeys()->ParseFrom(pv, cb);
     if (hr != S_OK)

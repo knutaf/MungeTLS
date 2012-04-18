@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <intsafe.h>
 #include <wincrypt.h>
+#include <memory>
 #include "MungeCrypto.h"
 
 #define SAFE_SUB(h, l, r)              \
@@ -18,13 +19,6 @@
 
 namespace MungeTLS
 {
-
-HRESULT
-LookupCertificate(
-    DWORD dwCertStoreFlags,
-    PCWSTR wszStoreName,
-    PCWSTR wszSubjectName,
-    PCCERT_CONTEXT* ppCertContext);
 
 class KeyAndProv
 {
@@ -43,14 +37,34 @@ class KeyAndProv
     BOOL m_fCallerFree;
 };
 
+HRESULT
+LookupCertificate(
+    DWORD dwCertStoreFlags,
+    PCWSTR wszStoreName,
+    PCWSTR wszSubjectName,
+    PCCERT_CONTEXT* ppCertContext);
+
+HRESULT
+GetPrivateKeyFromCertificate(
+    PCCERT_CONTEXT pCertContext,
+    KeyAndProv* pPrivateKey);
+
+HRESULT
+GetPublicKeyFromCertificate(
+    PCCERT_CONTEXT pCertContext,
+    KeyAndProv* pPublicKey);
+
 class WindowsPublicKeyCipherer : public PublicKeyCipherer
 {
     public:
-    WindowsPublicKeyCipherer(
+    WindowsPublicKeyCipherer();
+    ~WindowsPublicKeyCipherer() { }
+
+    HRESULT Initialize(
         std::shared_ptr<KeyAndProv> spPublicKeyProv,
         std::shared_ptr<KeyAndProv> spPrivateKeyProv);
 
-    ~WindowsPublicKeyCipherer() { }
+    HRESULT Initialize(PCCERT_CONTEXT pCertCContext);
 
     HRESULT
     EncryptBufferWithPublicKey(
@@ -68,8 +82,11 @@ class WindowsPublicKeyCipherer : public PublicKeyCipherer
         std::vector<BYTE>* pvbEncrypted) const;
 
     private:
-    HCRYPTKEY PublicKey() const { return m_spPublicKeyProv->GetKey(); }
-    HCRYPTKEY PrivateKey() const { return m_spPrivateKeyProv->GetKey(); }
+    HCRYPTKEY PublicKey() const { return PublicKeyAndProv()->GetKey(); }
+    HCRYPTKEY PrivateKey() const { return PrivateKeyAndProv()->GetKey(); }
+
+    std::shared_ptr<KeyAndProv> PrivateKeyAndProv() const { return m_spPrivateKeyProv; }
+    std::shared_ptr<KeyAndProv> PublicKeyAndProv() const { return m_spPublicKeyProv; }
 
     std::shared_ptr<KeyAndProv> m_spPublicKeyProv;
     std::shared_ptr<KeyAndProv> m_spPrivateKeyProv;
