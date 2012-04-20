@@ -166,18 +166,18 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     const T* Structure() const { return &m_structure; }
     T* Structure() { return const_cast<T*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->Structure()); }
 
-    const std::vector<BYTE>* EncryptedStructure() const { return &m_encryptedStructure; }
+    const std::vector<BYTE>* EncryptedStructure() const { return &m_vbEncryptedStructure; }
     std::vector<BYTE>* EncryptedStructure() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->EncryptedStructure()); }
 
     private:
-    const std::vector<BYTE>* PlaintextStructure() const { return &m_encryptedStructure; }
+    const std::vector<BYTE>* PlaintextStructure() const { return &m_vbPlaintextStructure; }
     std::vector<BYTE>* PlaintextStructure() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->PlaintextStructure()); }
 
     const PublicKeyCipherer* GetCipherer() const { return m_pCipherer; }
 
     T m_structure;
-    std::vector<BYTE> m_plaintextStructure;
-    std::vector<BYTE> m_encryptedStructure;
+    std::vector<BYTE> m_vbPlaintextStructure;
+    std::vector<BYTE> m_vbEncryptedStructure;
     const PublicKeyCipherer* m_pCipherer;
 };
 
@@ -228,6 +228,7 @@ class MT_ProtocolVersion : public MT_Structure
     enum MTPV_Version
     {
         MTPV_TLS10 = 0x0301,
+        MTPV_TLS12 = 0x0303,
     };
 
     MT_ProtocolVersion();

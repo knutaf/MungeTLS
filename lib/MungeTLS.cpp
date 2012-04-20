@@ -34,7 +34,7 @@ TLSConnection::Initialize()
 
     hr = LookupCertificate(
              CERT_SYSTEM_STORE_CURRENT_USER,
-             L"my",
+             L"root",
              L"mtls-test",
              CertContext());
 
@@ -1093,8 +1093,8 @@ MT_FixedLengthByteStructure<Size>::Length() const
 template <typename T>
 MT_PublicKeyEncryptedStructure<T>::MT_PublicKeyEncryptedStructure()
     : m_structure(),
-      m_encryptedStructure(),
-      m_plaintextStructure(),
+      m_vbEncryptedStructure(),
+      m_vbPlaintextStructure(),
       m_pCipherer(nullptr)
 {
 } // end ctor MT_PublicKeyEncryptedStructure
@@ -1157,7 +1157,7 @@ MT_PublicKeyEncryptedStructure<T>::DecryptStructure()
         goto error;
     }
 
-    hr = Structure()->ParseFrom(&PlaintextStructure()->front(), PlaintextStructure()->size());
+    hr = Structure()->ParseFromVect(PlaintextStructure());
 
     if (hr != S_OK)
     {
@@ -1449,7 +1449,8 @@ MT_ProtocolVersion::IsKnownVersion(
     MT_UINT16 version
 )
 {
-    return (version == MTPV_TLS10);
+    return (version == MTPV_TLS10 ||
+            version == MTPV_TLS12);
 } // end function IsKnownVersion
 
 MT_UINT16

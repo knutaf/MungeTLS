@@ -362,7 +362,7 @@ DecryptBuffer(
 
     wprintf(L"decrypting\n");
 
-    pvbDecrypted->assign(pvbEncrypted->begin(), pvbEncrypted->end());
+    *pvbDecrypted = *pvbEncrypted;
 
     hr = SizeTToDWord(pvbDecrypted->size(), &cb);
     if (hr != S_OK)
