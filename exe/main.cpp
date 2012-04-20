@@ -210,14 +210,14 @@ HRESULT ProcessConnections()
         cb = recv(sockAccept, &c, 1, 0);
         while (cb > 0)
         {
-            printf("read %d chars. got char: %01LX\n", cb, c);
+            printf("read %d chars. got char: %01X\n", cb, c);
             vbData.push_back(c);
+            LogRead(cMessages, &vbData);
 
             hr = con.HandleMessage(&vbData.front(), vbData.size(), &vbResponse);
             if (hr == S_OK)
             {
                 printf("finished parsing message of size %lu\n", vbData.size());
-                LogRead(cMessages, &vbData);
                 cMessages++;
                 vbData.clear();
 
