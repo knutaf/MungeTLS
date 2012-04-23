@@ -17,6 +17,8 @@
 
 using namespace std;
 
+const HRESULT MT_E_BAD_PADDING                              = 0x8023000a;
+
 class KeyAndProv
 {
     public:
@@ -171,12 +173,13 @@ EncryptBuffer(
              pvbEncrypted->size()))
     {
         hr = HRESULT_FROM_WIN32(GetLastError());
+        wprintf(L"failed CryptEncrypt: %08LX\n", hr);
         goto error;
     }
 
     wprintf(L"done encrypt\n");
 
-    pvbEncrypted->resize(cb);
+    assert(cb == pvbEncrypted->size());
 
 done:
     return hr;
@@ -462,8 +465,11 @@ DecryptBuffer(
 {
     HRESULT hr = S_OK;
     DWORD cb;
+    vector<BYTE> vbReversed;
 
-    wprintf(L"decrypting\n");
+    wprintf(L"decrypting.\n");
+    wprintf(L"ciphertext:\n");
+    PrintByteVector(pvbEncrypted);
 
     pvbDecrypted->assign(pvbEncrypted->begin(), pvbEncrypted->end());
 
@@ -473,7 +479,7 @@ DecryptBuffer(
              hKey,
              0,
              TRUE,
-             0,
+             CRYPT_DECRYPT_RSA_NO_PADDING_CHECK,
              &pvbDecrypted->front(),
              &cb))
     {
@@ -481,10 +487,50 @@ DecryptBuffer(
         goto error;
     }
 
-    wprintf(L"done decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
+    wprintf(L"done initial decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
+    PrintByteVector(pvbDecrypted);
 
-    assert(cb <= pvbDecrypted->size());
-    pvbDecrypted->resize(cb);
+    {
+        auto iter = pvbDecrypted->end();
+        iter--;
+        if (*iter != 0x00)
+        {
+            wprintf(L"didn't find initial 0x00 in padding string\n");
+            hr = MT_E_BAD_PADDING;
+            goto error;
+        }
+
+        iter--;
+        if (*iter == 0x02)
+        {
+            while (*iter != 0x00 && iter != pvbDecrypted->begin())
+            {
+                iter--;
+            }
+
+            if (iter == pvbDecrypted->begin())
+            {
+                wprintf(L"end of padding not found\n");
+                hr = MT_E_BAD_PADDING;
+                goto error;
+            }
+
+            pvbDecrypted->resize(iter - pvbDecrypted->begin());
+            wprintf(L"resizing to %d bytes\n", pvbDecrypted->size());
+
+            vbReversed.assign(pvbDecrypted->rbegin(), pvbDecrypted->rend());
+            *pvbDecrypted = vbReversed;
+
+            wprintf(L"final decrypted:\n");
+            PrintByteVector(pvbDecrypted);
+        }
+        else
+        {
+            wprintf(L"unsupported block type %02X\n", *iter);
+            hr = MT_E_BAD_PADDING;
+            goto error;
+        }
+    }
 
 done:
     return hr;
@@ -503,9 +549,6 @@ EncryptDecryptTest(
     HRESULT hr = S_OK;
     vector<BYTE> vbEncrypted;
     vector<BYTE> vbDecrypted;
-
-    wprintf(L"cleartext:\n");
-    PrintByteVector(pvbCleartext);
 
     hr = EncryptBuffer(
              pvbCleartext,
@@ -633,21 +676,13 @@ wmain(
 
         wprintf(L"encrypt with public, decrypt with private:\n");
         hr = EncryptDecryptTest(&vbCleartext, kpPublic.GetKey(), kpPrivate.GetKey());
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        wprintf(L"test result: %08LX\n", hr);
 
         wprintf(L"\n\n");
 
         wprintf(L"encrypt with private, decrypt with public:\n");
         hr = EncryptDecryptTest(&vbCleartext, kpPrivate.GetKey(), kpPublic.GetKey());
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        wprintf(L"test result: %08LX\n", hr);
 
 error:
         if (pCertContext != NULL)
