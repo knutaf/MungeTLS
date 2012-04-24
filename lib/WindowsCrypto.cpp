@@ -16,6 +16,13 @@ namespace MungeTLS
 
 using namespace std;
 
+enum RSAEncryptionBlockType
+{
+    RSABT_Priv_0 = 0x00,
+    RSABT_Priv_FF = 0x01,
+    RSABT_Pub = 0x02
+};
+
 HRESULT PrintByteVector(const vector<BYTE>* pvb);
 
 HRESULT
@@ -311,7 +318,7 @@ EncryptBuffer(
         goto error;
     }
 
-    pvbEncrypted->assign(pvbCleartext->begin(), pvbCleartext->end());
+    *pvbEncrypted = *pvbCleartext;
     pvbEncrypted->resize(cb, 0x23);
 
     hr = SizeTToDWord(pvbCleartext->size(), &cb);
@@ -341,7 +348,10 @@ EncryptBuffer(
 
     wprintf(L"done encrypt\n");
 
-    pvbEncrypted->resize(cb);
+    assert(cb == pvbEncrypted->size());
+
+    // CryptEncrypt returns in little-endian
+    *pvbEncrypted = ReverseByteOrder(pvbEncrypted);
 
 done:
     return hr;
@@ -361,8 +371,11 @@ DecryptBuffer(
     DWORD cb;
 
     wprintf(L"decrypting\n");
+    wprintf(L"ciphertext:\n");
+    PrintByteVector(pvbEncrypted);
 
-    *pvbDecrypted = *pvbEncrypted;
+    // CryptDecrypt expects input in little endian
+    *pvbDecrypted = ReverseByteOrder(pvbEncrypted);
 
     hr = SizeTToDWord(pvbDecrypted->size(), &cb);
     if (hr != S_OK)
@@ -374,7 +387,7 @@ DecryptBuffer(
              hKey,
              0,
              TRUE,
-             0,
+             CRYPT_DECRYPT_RSA_NO_PADDING_CHECK,
              &pvbDecrypted->front(),
              &cb))
     {
@@ -382,10 +395,61 @@ DecryptBuffer(
         goto error;
     }
 
-    wprintf(L"done decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
+    wprintf(L"done initial decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
+    assert(pvbDecrypted->size() == cb);
 
-    assert(cb <= pvbDecrypted->size());
-    pvbDecrypted->resize(cb);
+    // CryptDecrypt produces output in little endian
+    *pvbDecrypted = ReverseByteOrder(pvbDecrypted);
+    PrintByteVector(pvbDecrypted);
+
+    {
+        auto iter = pvbDecrypted->begin();
+        if (*iter != 0x00)
+        {
+            wprintf(L"didn't find initial 0x00 in padding string\n");
+            hr = MT_E_BAD_PADDING;
+            goto error;
+        }
+
+        // skip initial 0x00
+        iter++;
+
+        assert(sizeof(*iter) == sizeof(BYTE)); // needed for following cast
+        if (static_cast<RSAEncryptionBlockType>(*iter) == RSABT_Pub)
+        {
+            vector<BYTE> vbTemp;
+
+            // skip over block type
+            iter++;
+
+            while (*iter != 0x00 && iter != pvbDecrypted->end())
+            {
+                iter++;
+            }
+
+            if (iter == pvbDecrypted->end())
+            {
+                wprintf(L"end of padding not found\n");
+                hr = MT_E_BAD_PADDING;
+                goto error;
+            }
+
+            // skip over 0x00 at end of padding
+            iter++;
+
+            vbTemp.assign(iter, pvbDecrypted->end());
+            *pvbDecrypted = vbTemp;
+
+            wprintf(L"final decrypted (%d bytes):\n", pvbDecrypted->size());
+            PrintByteVector(pvbDecrypted);
+        }
+        else
+        {
+            wprintf(L"unsupported block type %02X\n", *iter);
+            hr = MT_E_BAD_PADDING;
+            goto error;
+        }
+    }
 
 done:
     return hr;

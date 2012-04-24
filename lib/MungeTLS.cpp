@@ -570,6 +570,14 @@ EnsureVectorSize<T>(
     }
 } // end function EnsureVectorSize
 
+vector<BYTE>
+ReverseByteOrder(
+    const vector<BYTE>* pvb
+)
+{
+    return vector<BYTE>(pvb->rbegin(), pvb->rend());
+} // end function ReverseByteOrder
+
 /*********** MT_Structure *****************/
 
 HRESULT
@@ -1413,6 +1421,7 @@ MT_ProtocolVersion::ParseFromPriv(
 
     if (!IsKnownVersion(version))
     {
+        wprintf(L"unknown protocol version: %02X\n", version);
         hr = MT_E_UNKNOWN_PROTOCOL_VERSION;
         goto error;
     }

@@ -104,4 +104,6 @@ DecryptBuffer(
     HCRYPTKEY hKey,
     std::vector<BYTE>* pvbDecrypted);
 
+std::vector<BYTE> ReverseByteOrder(const std::vector<BYTE>* pvb);
+
 }
