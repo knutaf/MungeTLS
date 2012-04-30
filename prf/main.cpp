@@ -149,7 +149,7 @@ CreateFixedSymmetricKey(
              &hProv,
              L"symenc_key",
              MS_ENH_RSA_AES_PROV_W,
-             PROV_RSA_FULL,
+             PROV_RSA_AES,
              0))
     {
         if (GetLastError() == NTE_BAD_KEYSET)
@@ -158,7 +158,7 @@ CreateFixedSymmetricKey(
                      &hProv,
                      L"symenc_key",
                      MS_ENH_RSA_AES_PROV_W,
-                     PROV_RSA_FULL,
+                     PROV_RSA_AES,
                      CRYPT_NEWKEYSET))
             {
                 hr = HRESULT_FROM_WIN32(GetLastError());
@@ -332,7 +332,7 @@ Hash(
 )
 {
     HRESULT hr = S_OK;
-    ALG_ID algID = CALG_SHA1;
+    ALG_ID algID = CALG_SHA_256;
     HCRYPTPROV hProv = NULL;
     HCRYPTHASH hHash = NULL;
     DWORD cbText = 0;
@@ -533,7 +533,7 @@ WindowsHMAC(
 
     hProv = pKP->GetProv();
 
-    hinfo.HashAlgid = CALG_SHA1;
+    hinfo.HashAlgid = CALG_SHA_256;
 
     if (!CryptCreateHash(
              hProv,
