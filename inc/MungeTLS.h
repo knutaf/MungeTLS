@@ -596,6 +596,28 @@ class MT_ClientKeyExchange : public MT_Structure
     std::shared_ptr<KeyType> m_spExchangeKeys;
 };
 
+class MT_ChangeCipherSpec : public MT_Structure
+{
+    enum MTCCS_Type
+    {
+        MTCCS_ChangeCipherSpc = 1,
+        MTCCS_Unknown = 255
+    };
+
+    public:
+    MT_ChangeCipherSpec();
+    ~MT_ChangeCipherSpec() { }
+
+    size_t Length() const { return 1; }
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    const MTCCS_Type* Type() const { return &m_type; }
+    MTCCS_Type* Type() { return const_cast<MTCCS_Type*>(static_cast<const MT_ChangeCipherSpec*>(this)->Type()); }
+
+    private:
+    MTCCS_Type m_type;
+};
 
 /*
 class MT_Thingy : public MT_Structure

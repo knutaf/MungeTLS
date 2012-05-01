@@ -184,6 +184,20 @@ TLSConnection::HandleMessage(
                 printf("failed to parse handshake: %08LX\n", hr);
             }
         }
+        else if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
+        {
+            MT_ChangeCipherSpec changeCipherSpec;
+
+            hr = changeCipherSpec.ParseFromVect(message.Fragment());
+            if (hr == S_OK)
+            {
+                printf("change cipher spec found: %d\n", *(changeCipherSpec.Type()));
+            }
+            else
+            {
+                printf("failed to parse change cipher spec: %08LX\n", hr);
+            }
+        }
     }
     else
     {
@@ -2234,6 +2248,64 @@ MT_ClientKeyExchange<KeyType>::ParseFromPriv(
 error:
     return hr;
 } // end function ParseFromPriv
+
+/*********** MT_ChangeCipherSpec *****************/
+
+MT_ChangeCipherSpec::MT_ChangeCipherSpec()
+    : m_type(MTCCS_ChangeCipherSpc)
+{
+} // end ctor MT_ChangeCipherSpec
+
+HRESULT
+MT_ChangeCipherSpec::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 1;
+
+    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<UINT*>(Type()));
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    if (*Type() != MTCCS_ChangeCipherSpc)
+    {
+        wprintf(L"unrecognized change cipher spec type: %d\n", *Type());
+    }
+
+    ADVANCE_PARSE();
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
+HRESULT
+MT_ChangeCipherSpec::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+
+    if (Length() > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    size_t cbField = 1;
+
+    hr = WriteNetworkLong(static_cast<BYTE>(*Type()), cbField, pv, cb);
+    assert(hr == S_OK);
+
+    ADVANCE_PARSE();
+
+error:
+    return hr;
+} // end function SerializePriv
 
 /*********** MT_Thingy *****************/
 
