@@ -101,6 +101,28 @@ WindowsHMAC(
     std::vector<BYTE>* pvbHMAC);
 
 HRESULT
+ComputePRF(
+    const std::vector<BYTE>* pvbSecret,
+    const std::vector<BYTE>* pvbSeed,
+    const std::vector<BYTE>* pvbLabel,
+    size_t cbMinimumLengthDesired,
+    std::vector<BYTE>* pvbPRF);
+
+HRESULT
+PRF_P_hash(
+    const std::vector<BYTE>* pvbSecret,
+    const std::vector<BYTE>* pvbSeed,
+    size_t cbMinimumLengthDesired,
+    std::vector<BYTE>* pvbResult);
+
+HRESULT
+PRF_A(
+    UINT i,
+    const std::vector<BYTE>* pvbSecret,
+    const std::vector<BYTE>* pvbSeed,
+    std::vector<BYTE>* pvbResult);
+
+HRESULT
 CreateFixedSymmetricKey(
     const vector<BYTE>* pvbBaseData,
     KeyAndProv* pKey);
@@ -665,6 +687,126 @@ done:
 error:
     goto done;
 }
+
+HRESULT
+ComputePRF(
+    const vector<BYTE>* pvbSecret,
+    const vector<BYTE>* pvbSeed,
+    const vector<BYTE>* pvbLabel,
+    size_t cbMinimumLengthDesired,
+    vector<BYTE>* pvbPRF
+)
+{
+    HRESULT hr = S_OK;
+
+    vector<BYTE> vbLabelAndSeed(*pvbLabel);
+    vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
+
+    hr = PRF_P_hash(
+             pvbSecret,
+             &vbLabelAndSeed,
+             cbMinimumLengthDesired,
+             pvbPRF);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    pvbPRF->clear();
+    goto done;
+} // end function ComputePRF
+
+HRESULT
+PRF_A(
+    UINT i,
+    const vector<BYTE>* pvbSecret,
+    const vector<BYTE>* pvbSeed,
+    vector<BYTE>* pvbResult
+)
+{
+    HRESULT hr = S_OK;
+    vector<BYTE> vbTemp;
+
+    vbTemp = *pvbSeed;
+
+    while (i > 0)
+    {
+        hr = ComputeHMAC(
+                 pvbSecret,
+                 &vbTemp,
+                 pvbResult);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        vbTemp = *pvbResult;
+        i--;
+    }
+
+done:
+    return hr;
+
+error:
+    pvbResult->clear();
+    goto done;
+} // end function PRF_A
+
+HRESULT
+PRF_P_hash(
+    const vector<BYTE>* pvbSecret,
+    const vector<BYTE>* pvbSeed,
+    size_t cbMinimumLengthDesired,
+    vector<BYTE>* pvbResult
+)
+{
+    HRESULT hr = S_OK;
+
+    // starts from A(1), not A(0)
+    for (UINT i = 1; pvbResult->size() < cbMinimumLengthDesired; i++)
+    {
+        vector<BYTE> vbIteration;
+        vector<BYTE> vbInnerSeed;
+
+        hr = PRF_A(
+                 i,
+                 pvbSecret,
+                 pvbSeed,
+                 &vbInnerSeed);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        vbInnerSeed.insert(vbInnerSeed.end(), pvbSeed->begin(), pvbSeed->end());
+
+        hr = ComputeHMAC(
+                 pvbSecret,
+                 &vbInnerSeed,
+                 &vbIteration);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        pvbResult->insert(pvbResult->end(), vbIteration.begin(), vbIteration.end());
+    }
+
+done:
+    return hr;
+
+error:
+    pvbResult->clear();
+    goto done;
+} // end function PRF_P_hash
 
 int
 __cdecl
