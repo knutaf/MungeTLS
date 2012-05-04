@@ -9,6 +9,11 @@
 namespace MungeTLS
 {
 
+#define ACCESSORS(returnType, name, member, thisType) \
+    const returnType name() const { return member; } \
+    returnType name() { return const_cast<returnType>(static_cast<const thisType>(this)->name()); } \
+
+
 typedef unsigned long MT_UINT16;
 
 const HRESULT MT_E_INCOMPLETE_MESSAGE                       = 0x80230001;
@@ -65,8 +70,7 @@ class MT_VariableLengthFieldBase : public MT_Structure
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const = 0;
 
     size_t Length() const;
-    const std::vector<F>* Data() const { return &m_vData; }
-    std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_VariableLengthFieldBase*>(this)->Data()); }
+    ACCESSORS(std::vector<F>*, Data, &m_vData, MT_VariableLengthFieldBase*);
     size_t Count() const { return Data()->size(); }
 
     const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
@@ -120,8 +124,7 @@ class MT_FixedLengthStructureBase : public MT_Structure
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb) = 0;
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const = 0;
 
-    const std::vector<F>* Data() const { return &m_vData; }
-    std::vector<F>* Data() { return const_cast<std::vector<F>*>(static_cast<const MT_FixedLengthStructureBase*>(this)->Data()); }
+    ACCESSORS(std::vector<F>*, Data, &m_vData, MT_FixedLengthStructureBase*);
     size_t Count() const { return Data()->size(); }
 
     const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
@@ -164,15 +167,11 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     HRESULT DecryptStructure();
     HRESULT SetCipherer(const PublicKeyCipherer* pCipherer) { m_pCipherer = pCipherer; return S_OK; }
 
-    const T* Structure() const { return &m_structure; }
-    T* Structure() { return const_cast<T*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->Structure()); }
-
-    const std::vector<BYTE>* EncryptedStructure() const { return &m_vbEncryptedStructure; }
-    std::vector<BYTE>* EncryptedStructure() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->EncryptedStructure()); }
+    ACCESSORS(T*, Structure, &m_structure, MT_PublicKeyEncryptedStructure<T>*);
+    ACCESSORS(std::vector<BYTE>*, EncryptedStructure, &m_vbEncryptedStructure, MT_PublicKeyEncryptedStructure<T>*);
 
     private:
-    const std::vector<BYTE>* PlaintextStructure() const { return &m_vbPlaintextStructure; }
-    std::vector<BYTE>* PlaintextStructure() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_PublicKeyEncryptedStructure<T>*>(this)->PlaintextStructure()); }
+    ACCESSORS(std::vector<BYTE>*, PlaintextStructure, &m_vbPlaintextStructure, MT_PublicKeyEncryptedStructure<T>*);
 
     const PublicKeyCipherer* GetCipherer() const { return m_pCipherer; }
 
@@ -262,8 +261,7 @@ class MT_Random : public MT_Structure
     MT_UINT32 GMTUnixTime() const { return m_timestamp; }
     void SetGMTUnixTime(MT_UINT32 timestamp) { m_timestamp = timestamp; }
 
-    const std::vector<BYTE>* RandomBytes() const { return &m_vbRandomBytes; }
-    std::vector<BYTE>* RandomBytes() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_Random*>(this)->RandomBytes()); }
+    ACCESSORS(std::vector<BYTE>*, RandomBytes, &m_vbRandomBytes, MT_Random*);
 
     HRESULT PopulateNow();
 
@@ -358,16 +356,11 @@ class MT_TLSPlaintext : public MT_Structure
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     size_t Length() const;
 
-    const MT_ContentType* ContentType() const { return &m_contentType; }
-    MT_ContentType* ContentType() { return const_cast<MT_ContentType*>(static_cast<const MT_TLSPlaintext*>(this)->ContentType()); }
-
-    const MT_ProtocolVersion* ProtocolVersion() const { return &m_protocolVersion; }
-    MT_ProtocolVersion* ProtocolVersion() { return const_cast<MT_ProtocolVersion*>(static_cast<const MT_TLSPlaintext*>(this)->ProtocolVersion()); }
+    ACCESSORS(MT_ContentType*, ContentType, &m_contentType, MT_TLSPlaintext*);
+    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion, MT_TLSPlaintext*);
+    ACCESSORS(std::vector<BYTE>*, Fragment, &m_vbFragment, MT_TLSPlaintext*);
 
     MT_UINT16 PayloadLength() const;
-
-    const std::vector<BYTE>* Fragment() const { return &m_vbFragment; }
-    std::vector<BYTE>* Fragment() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_TLSPlaintext*>(this)->Fragment()); }
 
     private:
     MT_ContentType m_contentType;
@@ -404,8 +397,7 @@ class MT_Handshake : public MT_Structure
     MTH_HandshakeType HandshakeType() const;
     void SetType(MTH_HandshakeType eType) { m_eType = eType; }
 
-    const std::vector<BYTE>* Body() const { return &m_vbBody; }
-    std::vector<BYTE>* Body() { return const_cast<std::vector<BYTE>*>(static_cast<const MT_Handshake*>(this)->Body()); }
+    ACCESSORS(std::vector<BYTE>*, Body, &m_vbBody, MT_Handshake*);
 
     static bool IsKnownType(MTH_HandshakeType eType);
     static bool IsSupportedType(MTH_HandshakeType eType);
@@ -429,23 +421,12 @@ class MT_ClientHello : public MT_Structure
     MT_ClientHello();
     ~MT_ClientHello() { }
 
-    const MT_ProtocolVersion* ProtocolVersion() const { return &m_protocolVersion; }
-    MT_ProtocolVersion* ProtocolVersion() { return const_cast<MT_ProtocolVersion*>(static_cast<const MT_ClientHello*>(this)->ProtocolVersion()); }
-
-    const MT_Random* Random() const { return &m_random; }
-    MT_Random* Random() { return const_cast<MT_Random*>(static_cast<const MT_ClientHello*>(this)->Random()); }
-
-    const MT_SessionID* SessionID() const { return &m_sessionID; }
-    MT_SessionID* SessionID() { return const_cast<MT_SessionID*>(static_cast<const MT_ClientHello*>(this)->SessionID()); }
-
-    const MT_CipherSuites* CipherSuites() const { return &m_cipherSuites; }
-    MT_CipherSuites* CipherSuites() { return const_cast<MT_CipherSuites*>(static_cast<const MT_ClientHello*>(this)->CipherSuites()); }
-
-    const MT_CompressionMethods* CompressionMethods() const { return &m_compressionMethods; }
-    MT_CompressionMethods* CompressionMethods() { return const_cast<MT_CompressionMethods*>(static_cast<const MT_ClientHello*>(this)->CompressionMethods()); }
-
-    const MT_HelloExtensions* Extensions() const { return &m_extensions; }
-    MT_HelloExtensions* Extensions() { return const_cast<MT_HelloExtensions*>(static_cast<const MT_ClientHello*>(this)->Extensions()); }
+    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion, MT_ClientHello*);
+    ACCESSORS(MT_Random*, Random, &m_random, MT_ClientHello*);
+    ACCESSORS(MT_SessionID*, SessionID, &m_sessionID, MT_ClientHello*);
+    ACCESSORS(MT_CipherSuites*, CipherSuites, &m_cipherSuites, MT_ClientHello*);
+    ACCESSORS(MT_CompressionMethods*, CompressionMethods, &m_compressionMethods, MT_ClientHello*);
+    ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions, MT_ClientHello*);
 
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     size_t Length() const;
@@ -468,23 +449,12 @@ class MT_ServerHello : public MT_Structure
     size_t Length() const;
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    const MT_ProtocolVersion* ProtocolVersion() const { return &m_protocolVersion; }
-    MT_ProtocolVersion* ProtocolVersion() { return const_cast<MT_ProtocolVersion*>(static_cast<const MT_ServerHello*>(this)->ProtocolVersion()); }
-
-    const MT_Random* Random() const { return &m_random; }
-    MT_Random* Random() { return const_cast<MT_Random*>(static_cast<const MT_ServerHello*>(this)->Random()); }
-
-    const MT_SessionID* SessionID() const { return &m_sessionID; }
-    MT_SessionID* SessionID() { return const_cast<MT_SessionID*>(static_cast<const MT_ServerHello*>(this)->SessionID()); }
-
-    const MT_CipherSuite* CipherSuite() const { return &m_cipherSuite; }
-    MT_CipherSuite* CipherSuite() { return const_cast<MT_CipherSuite*>(static_cast<const MT_ServerHello*>(this)->CipherSuite()); }
-
-    const MT_CompressionMethod* CompressionMethod() const { return &m_compressionMethod; }
-    MT_CompressionMethod* CompressionMethod() { return const_cast<MT_CompressionMethod*>(static_cast<const MT_ServerHello*>(this)->CompressionMethod()); }
-
-    const MT_HelloExtensions* Extensions() const { return &m_extensions; }
-    MT_HelloExtensions* Extensions() { return const_cast<MT_HelloExtensions*>(static_cast<const MT_ServerHello*>(this)->Extensions()); }
+    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion, MT_ServerHello*);
+    ACCESSORS(MT_Random*, Random, &m_random, MT_ServerHello*);
+    ACCESSORS(MT_SessionID*, SessionID, &m_sessionID, MT_ServerHello*);
+    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite, MT_ServerHello*);
+    ACCESSORS(MT_CompressionMethod*, CompressionMethod, &m_compressionMethod, MT_ServerHello*);
+    ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions, MT_ServerHello*);
 
     private:
     MT_ProtocolVersion m_protocolVersion;
@@ -508,14 +478,9 @@ class TLSConnection
         size_t cb,
         std::vector<BYTE>* pvbResponse);
 
-    const PCCERT_CONTEXT* CertContext() const { return &m_pCertContext; }
-    PCCERT_CONTEXT* CertContext() { return const_cast<PCCERT_CONTEXT*>(static_cast<const TLSConnection*>(this)->CertContext()); }
-
-    const PublicKeyCipherer* PubKeyCipherer() const { return m_spPubKeyCipherer.get(); }
-    PublicKeyCipherer* PubKeyCipherer() { return const_cast<PublicKeyCipherer*>(static_cast<const TLSConnection*>(this)->PubKeyCipherer()); }
-
-    const MT_CipherSuite* CipherSuite() const { return &m_cipherSuite; }
-    MT_CipherSuite* CipherSuite() { return const_cast<MT_CipherSuite*>(static_cast<const TLSConnection*>(this)->CipherSuite()); }
+    ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext, TLSConnection*);
+    ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get(), TLSConnection*);
+    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite, TLSConnection*);
 
     private:
     HRESULT RespondTo(
@@ -545,8 +510,7 @@ class MT_Certificate : public MT_Structure
     HRESULT PopulateFromFile(PCWSTR wszFilename);
     HRESULT PopulateFromMemory(const BYTE* pvCert, size_t cbCert);
 
-    const MT_CertificateList* CertificateList() const { return &m_certificateList; }
-    MT_CertificateList* CertificateList() { return const_cast<MT_CertificateList*>(static_cast<const MT_Certificate*>(this)->CertificateList()); }
+    ACCESSORS(MT_CertificateList*, CertificateList, &m_certificateList, MT_Certificate*);
 
     private:
     MT_CertificateList m_certificateList;
@@ -564,11 +528,9 @@ class MT_PreMasterSecret : public MT_Structure
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    const MT_ProtocolVersion* ClientVersion() const { return &m_clientVersion; }
-    MT_ProtocolVersion* ClientVersion() { return const_cast<MT_ProtocolVersion*>(static_cast<const MT_PreMasterSecret*>(this)->ClientVersion()); }
+    ACCESSORS(MT_ProtocolVersion*, ClientVersion, &m_clientVersion, MT_PreMasterSecret*);
+    ACCESSORS(OpaqueRandom*, Random, &m_random, MT_PreMasterSecret*);
 
-    const OpaqueRandom* Random() const { return &m_random; }
-    OpaqueRandom* Random() { return const_cast<OpaqueRandom*>(static_cast<const MT_PreMasterSecret*>(this)->Random()); }
 
     private:
     MT_ProtocolVersion m_clientVersion;
@@ -589,8 +551,7 @@ class MT_ClientKeyExchange : public MT_Structure
     // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     // TODO: make shared_ptr, I think?
-    const KeyType* ExchangeKeys() const { return m_spExchangeKeys.get(); }
-    KeyType* ExchangeKeys() { return const_cast<KeyType*>(static_cast<const MT_ClientKeyExchange*>(this)->ExchangeKeys()); }
+    ACCESSORS(KeyType*, ExchangeKeys, m_spExchangeKeys.get(), MT_ClientKeyExchange*);
 
     private:
     std::shared_ptr<KeyType> m_spExchangeKeys;
@@ -612,8 +573,7 @@ class MT_ChangeCipherSpec : public MT_Structure
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    const MTCCS_Type* Type() const { return &m_type; }
-    MTCCS_Type* Type() { return const_cast<MTCCS_Type*>(static_cast<const MT_ChangeCipherSpec*>(this)->Type()); }
+    ACCESSORS(MTCCS_Type*, Type, &m_type, MT_ChangeCipherSpec*);
 
     private:
     MTCCS_Type m_type;
@@ -630,8 +590,7 @@ class MT_Thingy : public MT_Structure
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    const ThingyType* Thingy() const { return &m_thingy; }
-    ThingyType* Thingy() { return const_cast<ThingyType*>(static_cast<const MT_Thingy*>(this)->Thingy()); }
+    ACCESSORS(ThingyType*, Thingy, &m_thingy, MT_Thingy);
 
     private:
     ThingyType m_thingy;
