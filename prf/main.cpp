@@ -96,12 +96,12 @@ ComputeHMAC(
 
 HRESULT
 WindowsHMAC(
-    const KeyAndProv* pKP,
+    const std::vector<BYTE>* pvbKey,
     const std::vector<BYTE>* pvbText,
     std::vector<BYTE>* pvbHMAC);
 
 HRESULT
-ComputePRF(
+ComputeTLS12PRF(
     const std::vector<BYTE>* pvbSecret,
     const std::vector<BYTE>* pvbSeed,
     const std::vector<BYTE>* pvbLabel,
@@ -131,6 +131,11 @@ HRESULT
 ExportSymmetricKey(
     HCRYPTKEY hKey,
     vector<BYTE>* pvbKey);
+
+HRESULT
+ImportSymmetricKey(
+    const std::vector<BYTE>* pvbKey,
+    KeyAndProv* pKey);
 
 HRESULT PrintByteVector(const vector<BYTE>* pvb)
 {
@@ -289,6 +294,88 @@ done:
 error:
     goto done;
 } // end function CreateFixedSymmetricKey
+
+HRESULT
+ImportSymmetricKey(
+    const vector<BYTE>* pvbKey,
+    KeyAndProv* pKey)
+{
+    HRESULT hr = S_OK;
+    HCRYPTPROV hProv = NULL;
+    HCRYPTKEY hKey = NULL;
+    KeyAndProv kp;
+    vector<BYTE> vbPlaintextKey;
+    PlaintextKey* pPlaintextKey;
+
+    wprintf(L"import key\n");
+
+    if (!CryptAcquireContextW(
+             &hProv,
+             L"symenc_key",
+             MS_ENH_RSA_AES_PROV_W,
+             PROV_RSA_AES,
+             0))
+    {
+        if (GetLastError() == NTE_BAD_KEYSET)
+        {
+            if (!CryptAcquireContextW(
+                     &hProv,
+                     L"symenc_key",
+                     MS_ENH_RSA_AES_PROV_W,
+                     PROV_RSA_AES,
+                     CRYPT_NEWKEYSET))
+            {
+                hr = HRESULT_FROM_WIN32(GetLastError());
+                goto error;
+            }
+
+            wprintf(L"done acquire creatnew\n");
+        }
+        else
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            goto error;
+        }
+    }
+
+    kp.Init(hProv, TRUE);
+
+    vbPlaintextKey.resize(sizeof(PlaintextKey) + pvbKey->size());
+
+    pPlaintextKey = reinterpret_cast<PlaintextKey*>(&vbPlaintextKey.front());
+    pPlaintextKey->hdr.bType = PLAINTEXTKEYBLOB;
+    pPlaintextKey->hdr.bVersion = 2;
+    pPlaintextKey->hdr.aiKeyAlg = CALG_AES_128;
+    pPlaintextKey->cbKeySize = pvbKey->size();
+
+    copy(pvbKey->begin(), pvbKey->end(), pPlaintextKey->rgbKeyData);
+
+    wprintf(L"import\n");
+
+    if (!CryptImportKey(
+             hProv,
+             reinterpret_cast<const BYTE*>(pPlaintextKey),
+             vbPlaintextKey.size(),
+             NULL,
+             0,
+             &hKey))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        wprintf(L"failed CryptImportKey: %08LX\n", hr);
+        goto error;
+    }
+
+    kp.SetKey(hKey);
+
+    *pKey = kp;
+    kp.Detach();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ImportSymmetricKey
 
 HRESULT
 ExportSymmetricKey(
@@ -540,27 +627,30 @@ error:
 
 HRESULT
 WindowsHMAC(
-    const KeyAndProv* pKP,
-    const std::vector<BYTE>* pvbText,
-    std::vector<BYTE>* pvbHMAC
+    const vector<BYTE>* pvbKey,
+    const vector<BYTE>* pvbText,
+    vector<BYTE>* pvbHMAC
 )
 {
     HRESULT hr = S_OK;
 
-    HCRYPTPROV hProv = NULL;
     HCRYPTHASH hHash = NULL;
     DWORD cbHashValue = 0;
-
+    KeyAndProv kp;
     HMAC_INFO hinfo = {0};
 
-    hProv = pKP->GetProv();
+    hr = ImportSymmetricKey(pvbKey, &kp);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
     hinfo.HashAlgid = CALG_SHA_256;
 
     if (!CryptCreateHash(
-             hProv,
+             kp.GetProv(),
              CALG_HMAC,
-             pKP->GetKey(),
+             kp.GetKey(),
              0,
              &hHash))
     {
@@ -621,12 +711,6 @@ WindowsHMAC(
     }
 
 done:
-    if (hProv != NULL)
-    {
-        CryptReleaseContext(hProv, 0);
-        hProv = NULL;
-    }
-
     return hr;
 
 error:
@@ -666,7 +750,7 @@ TestHMAC()
     wprintf(L"my hmac:\n");
     PrintByteVector(&vbHMAC);
 
-    hr = WindowsHMAC(&kp, &vbText, &vbWinHMAC);
+    hr = WindowsHMAC(&vbKey, &vbText, &vbWinHMAC);
     if (hr != S_OK)
     {
         goto error;
@@ -689,7 +773,7 @@ error:
 }
 
 HRESULT
-ComputePRF(
+ComputeTLS12PRF(
     const vector<BYTE>* pvbSecret,
     const vector<BYTE>* pvbSeed,
     const vector<BYTE>* pvbLabel,
@@ -719,7 +803,7 @@ done:
 error:
     pvbPRF->clear();
     goto done;
-} // end function ComputePRF
+} // end function ComputeTLS12PRF
 
 HRESULT
 PRF_A(
