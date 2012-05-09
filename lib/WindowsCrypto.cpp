@@ -23,6 +23,13 @@ enum RSAEncryptionBlockType
     RSABT_Pub = 0x02
 };
 
+struct PlaintextKey
+{
+    BLOBHEADER hdr;
+    DWORD cbKeySize;
+    BYTE rgbKeyData[1];
+};
+
 HRESULT PrintByteVector(const vector<BYTE>* pvb);
 
 HRESULT
@@ -500,6 +507,11 @@ void KeyAndProv::Detach()
     m_fCallerFree = FALSE;
 } // end function Detach
 
+void KeyAndProv::SetKey(HCRYPTKEY hKey)
+{
+    assert(GetProv());
+    m_hKey = hKey;
+} // end function SetKey
 
 
 /*********** WindowsPublicKeyCipherer *****************/
@@ -596,6 +608,384 @@ WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
                PrivateKey(),
                pvbEncrypted);
 } // end function EncryptBufferWithPrivateKey
+
+/*********** WindowsPublicKeyCipherer *****************/
+
+HRESULT
+WindowsHasher::Hash(
+    Hasher::HashAlg alg,
+    const vector<BYTE>* pvbText,
+    vector<BYTE>* pvbHash
+)
+{
+    HRESULT hr = S_OK;
+    HCRYPTPROV hProv = NULL;
+    HCRYPTHASH hHash = NULL;
+    DWORD cbText = 0;
+    ALG_ID algID;
+
+    hr = WindowsHashAlgFromMTHashAlg(alg, &algID);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    if (!CryptAcquireContextW(
+             &hProv,
+             L"some_hash",
+             MS_ENH_RSA_AES_PROV_W,
+             PROV_RSA_AES,
+             0))
+    {
+        if (GetLastError() == NTE_BAD_KEYSET)
+        {
+            if (!CryptAcquireContextW(
+                     &hProv,
+                     L"some_hash",
+                     MS_ENH_RSA_AES_PROV_W,
+                     PROV_RSA_AES,
+                     CRYPT_NEWKEYSET))
+            {
+                hr = HRESULT_FROM_WIN32(GetLastError());
+                goto error;
+            }
+
+            wprintf(L"done acquire creatnew\n");
+        }
+        else
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            goto error;
+        }
+    }
+
+    if (!CryptCreateHash(
+             hProv,
+             algID,
+             0,
+             0,
+             &hHash))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    hr = SizeTToDWord(pvbText->size(), &cbText);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    if (!CryptHashData(
+             hHash,
+             &pvbText->front(),
+             cbText,
+             0))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    {
+        DWORD cbHashValue = 0;
+        CryptGetHashParam(
+            hHash,
+            HP_HASHVAL,
+            NULL,
+            &cbHashValue,
+            0);
+
+        if (GetLastError() != ERROR_MORE_DATA &&
+            GetLastError() != ERROR_SUCCESS)
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            goto error;
+        }
+
+        pvbHash->resize(cbHashValue, 0x30);
+
+        if (!CryptGetHashParam(
+                 hHash,
+                 HP_HASHVAL,
+                 &pvbHash->front(),
+                 &cbHashValue,
+                 0))
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            goto error;
+        }
+
+        assert(cbHashValue == pvbHash->size());
+    }
+
+done:
+    if (hHash != NULL)
+    {
+        CryptDestroyHash(hHash);
+        hHash = NULL;
+    }
+
+    return hr;
+
+error:
+    pvbHash->clear();
+    goto done;
+} // end function Hash
+
+HRESULT
+WindowsHasher::HMAC(
+    Hasher::HashAlg alg,
+    const vector<BYTE>* pvbKey,
+    const vector<BYTE>* pvbText,
+    vector<BYTE>* pvbHMAC
+)
+{
+    HRESULT hr = S_OK;
+
+    HCRYPTHASH hHash = NULL;
+    DWORD cbHashValue = 0;
+    DWORD cbTextSize = 0;
+    KeyAndProv kp;
+    HMAC_INFO hinfo = {0};
+
+    hr = WindowsHashAlgFromMTHashAlg(alg, &hinfo.HashAlgid);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = ImportSymmetricKey(pvbKey, &kp);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    if (!CryptCreateHash(
+             kp.GetProv(),
+             CALG_HMAC,
+             kp.GetKey(),
+             0,
+             &hHash))
+    {
+        wprintf(L"CryptCreateHash\n");
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    if (!CryptSetHashParam(
+             hHash,
+             HP_HMAC_INFO,
+             reinterpret_cast<const BYTE*>(&hinfo),
+             NULL))
+    {
+        wprintf(L"CryptSetHashParam\n");
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    hr = SizeTToDWord(pvbText->size(), &cbTextSize);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    if (!CryptHashData(
+             hHash,
+             &pvbText->front(),
+             cbTextSize,
+             0))
+    {
+        wprintf(L"CryptHashData\n");
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    CryptGetHashParam(
+        hHash,
+        HP_HASHVAL,
+        NULL,
+        &cbHashValue,
+        0);
+
+    if (GetLastError() != ERROR_MORE_DATA &&
+        GetLastError() != ERROR_SUCCESS)
+    {
+        wprintf(L"CryptGetHashParam 1\n");
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    pvbHMAC->resize(cbHashValue, 0x30);
+
+    if (!CryptGetHashParam(
+             hHash,
+             HP_HASHVAL,
+             &pvbHMAC->front(),
+             &cbHashValue,
+             0))
+    {
+        wprintf(L"CryptGetHashParam 2\n");
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    pvbHMAC->clear();
+    goto done;
+} // end function HMAC
+
+HRESULT
+WindowsHasher::WindowsHashAlgFromMTHashAlg(
+    Hasher::HashAlg alg,
+    ALG_ID* pAlg
+)
+{
+    HRESULT hr = S_OK;
+
+    /* TODO: debris to be used elsewhere
+    if (cipherSuite == MTCS_TLS_RSA_WITH_NULL_SHA ||
+        cipherSuite == MTCS_TLS_RSA_WITH_RC4_128_SHA ||
+        cipherSuite == MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA ||
+        cipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
+        cipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA)
+    {
+        *pAlg = CALG_SHA1;
+    }
+    else if (cipherSuite == MTCS_TLS_RSA_WITH_NULL_SHA256 ||
+             cipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256 ||
+             cipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
+    {
+        *pAlg = CALG_SHA_256;
+    }
+    else
+    {
+        hr = MT_E_UNSUPPORTED_HASH;
+        goto error;
+    }
+    */
+
+    if (alg == HashAlg_MD5)
+    {
+        *pAlg = CALG_MD5;
+    }
+    else if (alg == HashAlg_SHA1)
+    {
+        *pAlg = CALG_SHA1;
+    }
+    else if (alg == HashAlg_SHA256)
+    {
+        *pAlg = CALG_SHA_256;
+    }
+    else
+    {
+        hr = MT_E_UNSUPPORTED_HASH;
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function WindowsHashAlgFromMTHashAlg
+
+HRESULT
+ImportSymmetricKey(
+    const vector<BYTE>* pvbKey,
+    KeyAndProv* pKey
+)
+{
+    HRESULT hr = S_OK;
+    HCRYPTPROV hProv = NULL;
+    HCRYPTKEY hKey = NULL;
+    KeyAndProv kp;
+    vector<BYTE> vbPlaintextKey;
+    PlaintextKey* pPlaintextKey;
+    DWORD cbKeySize = 0;
+
+    wprintf(L"import key\n");
+
+    if (!CryptAcquireContextW(
+             &hProv,
+             L"symenc_key",
+             MS_ENH_RSA_AES_PROV_W,
+             PROV_RSA_AES,
+             0))
+    {
+        if (GetLastError() == NTE_BAD_KEYSET)
+        {
+            if (!CryptAcquireContextW(
+                     &hProv,
+                     L"symenc_key",
+                     MS_ENH_RSA_AES_PROV_W,
+                     PROV_RSA_AES,
+                     CRYPT_NEWKEYSET))
+            {
+                hr = HRESULT_FROM_WIN32(GetLastError());
+                goto error;
+            }
+
+            wprintf(L"done acquire creatnew\n");
+        }
+        else
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            goto error;
+        }
+    }
+
+    kp.Init(hProv, TRUE);
+
+    vbPlaintextKey.resize(sizeof(PlaintextKey) + pvbKey->size());
+
+    pPlaintextKey = reinterpret_cast<PlaintextKey*>(&vbPlaintextKey.front());
+    pPlaintextKey->hdr.bType = PLAINTEXTKEYBLOB;
+    pPlaintextKey->hdr.bVersion = CUR_BLOB_VERSION;
+    pPlaintextKey->hdr.aiKeyAlg = CALG_AES_128;
+
+    hr = SizeTToDWord(pvbKey->size(), &(pPlaintextKey->cbKeySize));
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    copy(pvbKey->begin(), pvbKey->end(), pPlaintextKey->rgbKeyData);
+
+    wprintf(L"import\n");
+
+    hr = SizeTToDWord(vbPlaintextKey.size(), &cbKeySize);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    if (!CryptImportKey(
+             hProv,
+             reinterpret_cast<const BYTE*>(pPlaintextKey),
+             cbKeySize,
+             NULL,
+             0,
+             &hKey))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        wprintf(L"failed CryptImportKey: %08LX\n", hr);
+        goto error;
+    }
+
+    kp.SetKey(hKey);
+
+    *pKey = kp;
+    kp.Detach();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ImportSymmetricKey
 
 HRESULT PrintByteVector(const vector<BYTE>* pvb)
 {

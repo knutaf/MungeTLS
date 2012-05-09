@@ -15,12 +15,51 @@ namespace MungeTLS
 
 using namespace std;
 
+HRESULT
+ComputePRF_TLS12(
+    Hasher* pHasher,
+    const std::vector<BYTE>* pvbSecret,
+    const std::vector<BYTE>* pvbSeed,
+    const std::vector<BYTE>* pvbLabel,
+    size_t cbMinimumLengthDesired,
+    std::vector<BYTE>* pvbPRF);
+
+HRESULT
+PRF_P_hash(
+    Hasher* pHasher,
+    Hasher::HashAlg alg,
+    const std::vector<BYTE>* pvbSecret,
+    const std::vector<BYTE>* pvbSeed,
+    size_t cbMinimumLengthDesired,
+    std::vector<BYTE>* pvbResult);
+
+HRESULT
+PRF_A(
+    Hasher* pHasher,
+    Hasher::HashAlg alg,
+    UINT i,
+    const std::vector<BYTE>* pvbSecret,
+    const std::vector<BYTE>* pvbSeed,
+    std::vector<BYTE>* pvbResult);
+
+HRESULT
+ComputeMasterSecret_TLS12(
+    Hasher* pHasher,
+    const MT_PreMasterSecret* pPreMasterSecret,
+    const MT_Random* pClientRandom,
+    const MT_Random* pServerRandom,
+    std::vector<BYTE>* pvbMasterSecret);
+
 /*********** TLSConnection *****************/
 
 TLSConnection::TLSConnection()
     : m_cipherSuite(),
       m_pCertContext(nullptr),
-      m_spPubKeyCipherer(nullptr)
+      m_spPubKeyCipherer(nullptr),
+      m_spHasher(nullptr),
+      m_vbMasterSecret(),
+      m_clientRandom(),
+      m_serverRandom()
 {
 } // end ctor TLSConnection
 
@@ -51,6 +90,8 @@ TLSConnection::Initialize()
     }
 
     m_spPubKeyCipherer = spPubKeyCipherer;
+
+    m_spHasher.reset(new WindowsHasher());
 
 done:
     return hr;
@@ -152,6 +193,22 @@ TLSConnection::HandleMessage(
                                 {
                                     MT_PreMasterSecret* pSecret = pExchangeKeys->Structure();
                                     printf("version %04LX\n", pSecret->ClientVersion()->Version());
+
+                                    hr = ComputeMasterSecret_TLS12(
+                                             HashInst(),
+                                             pSecret,
+                                             ClientRandom(),
+                                             ServerRandom(),
+                                             MasterSecret());
+
+                                    if (hr == S_OK)
+                                    {
+                                        printf("computed master secret\n");
+                                    }
+                                    else
+                                    {
+                                        printf("failed to compute master secret: %08LX\n", hr);
+                                    }
                                 }
                                 else
                                 {
@@ -244,8 +301,12 @@ TLSConnection::RespondTo(
 
         // TODO: setting this on the connection object. feels unclean
         // rsa + sha256 cbc
+        //*(CipherSuite()->at(0)) = 0x00;
+        //*(CipherSuite()->at(1)) = 0x35;
+
+        // rsa + rc4_128 + sha
         *(CipherSuite()->at(0)) = 0x00;
-        *(CipherSuite()->at(1)) = 0x35;
+        *(CipherSuite()->at(1)) = 0x05;
 
         compressionMethod.SetMethod(MT_CompressionMethod::MTCM_Null);
 
@@ -591,6 +652,196 @@ ReverseByteOrder(
 {
     return vector<BYTE>(pvb->rbegin(), pvb->rend());
 } // end function ReverseByteOrder
+
+/*********** crypto stuff *****************/
+
+HRESULT
+ComputePRF_TLS12(
+    Hasher* pHasher,
+    const vector<BYTE>* pvbSecret,
+    const vector<BYTE>* pvbSeed,
+    const vector<BYTE>* pvbLabel,
+    size_t cbMinimumLengthDesired,
+    vector<BYTE>* pvbPRF
+)
+{
+    HRESULT hr = S_OK;
+
+    vector<BYTE> vbLabelAndSeed(*pvbLabel);
+    vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
+
+    hr = PRF_P_hash(
+             pHasher,
+             Hasher::HashAlg_SHA256,
+             pvbSecret,
+             &vbLabelAndSeed,
+             cbMinimumLengthDesired,
+             pvbPRF);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    pvbPRF->clear();
+    goto done;
+} // end function ComputePRF_TLS12
+
+HRESULT
+PRF_A(
+    Hasher* pHasher,
+    Hasher::HashAlg alg,
+    UINT i,
+    const vector<BYTE>* pvbSecret,
+    const vector<BYTE>* pvbSeed,
+    vector<BYTE>* pvbResult
+)
+{
+    HRESULT hr = S_OK;
+    vector<BYTE> vbTemp;
+
+    vbTemp = *pvbSeed;
+
+    while (i > 0)
+    {
+        hr = pHasher->HMAC(
+                          alg,
+                          pvbSecret,
+                          &vbTemp,
+                          pvbResult);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        vbTemp = *pvbResult;
+        i--;
+    }
+
+done:
+    return hr;
+
+error:
+    pvbResult->clear();
+    goto done;
+} // end function PRF_A
+
+HRESULT
+PRF_P_hash(
+    Hasher* pHasher,
+    Hasher::HashAlg alg,
+    const vector<BYTE>* pvbSecret,
+    const vector<BYTE>* pvbSeed,
+    size_t cbMinimumLengthDesired,
+    vector<BYTE>* pvbResult
+)
+{
+    HRESULT hr = S_OK;
+
+    // starts from A(1), not A(0)
+    for (UINT i = 1; pvbResult->size() < cbMinimumLengthDesired; i++)
+    {
+        vector<BYTE> vbIteration;
+        vector<BYTE> vbInnerSeed;
+
+        hr = PRF_A(
+                 pHasher,
+                 alg,
+                 i,
+                 pvbSecret,
+                 pvbSeed,
+                 &vbInnerSeed);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        vbInnerSeed.insert(vbInnerSeed.end(), pvbSeed->begin(), pvbSeed->end());
+
+        hr = pHasher->HMAC(
+                          alg,
+                          pvbSecret,
+                          &vbInnerSeed,
+                          &vbIteration);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        pvbResult->insert(pvbResult->end(), vbIteration.begin(), vbIteration.end());
+    }
+
+done:
+    return hr;
+
+error:
+    pvbResult->clear();
+    goto done;
+} // end function PRF_P_hash
+
+HRESULT
+ComputeMasterSecret_TLS12(
+    Hasher* pHasher,
+    const MT_PreMasterSecret* pPreMasterSecret,
+    const MT_Random* pClientRandom,
+    const MT_Random* pServerRandom,
+    std::vector<BYTE>* pvbMasterSecret
+)
+{
+    const CHAR szSeed[] = "master secret";
+    HRESULT hr = S_OK;
+
+    vector<BYTE> vbPreMasterSecret;
+    vector<BYTE> vbSeed;
+    vector<BYTE> vbRandoms;
+
+    hr = pPreMasterSecret->SerializeToVect(&vbPreMasterSecret);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    vbSeed.assign(szSeed, szSeed + ARRAYSIZE(szSeed) - 1);
+
+    hr = pClientRandom->SerializeToVect(&vbRandoms);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = pServerRandom->SerializeAppendToVect(&vbRandoms);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = ComputePRF_TLS12(
+             pHasher,
+             &vbPreMasterSecret,
+             &vbSeed,
+             &vbRandoms,
+             48,
+             pvbMasterSecret);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    pvbMasterSecret->clear();
+    goto done;
+} // end function ComputeMasterSecret_TLS12
 
 /*********** MT_Structure *****************/
 

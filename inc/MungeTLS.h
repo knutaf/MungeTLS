@@ -26,6 +26,7 @@ const HRESULT MT_E_UNKNOWN_COMPRESSION_METHOD               = 0x80230007;
 const HRESULT MT_E_UNKNOWN_CIPHER_SUITE                     = 0x80230008;
 const HRESULT MT_E_UNSUPPORTED_KEY_EXCHANGE                 = 0x80230009;
 const HRESULT MT_E_BAD_PADDING                              = 0x8023000a;
+const HRESULT MT_E_UNSUPPORTED_HASH                         = 0x8023000b;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
 typedef ULONG MT_UINT8;
@@ -480,7 +481,12 @@ class TLSConnection
 
     ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext, TLSConnection*);
     ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get(), TLSConnection*);
+    ACCESSORS(Hasher*, HashInst, m_spHasher.get(), TLSConnection*);
     ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite, TLSConnection*);
+
+    ACCESSORS(std::vector<BYTE>*, MasterSecret, &m_vbMasterSecret, TLSConnection*);
+    ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom, TLSConnection*);
+    ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom, TLSConnection*);
 
     private:
     HRESULT RespondTo(
@@ -490,6 +496,11 @@ class TLSConnection
     MT_CipherSuite m_cipherSuite;
     PCCERT_CONTEXT m_pCertContext;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
+    std::shared_ptr<Hasher> m_spHasher;
+
+    std::vector<BYTE> m_vbMasterSecret;
+    MT_Random m_clientRandom;
+    MT_Random m_serverRandom;
 };
 
 // opaque ASN.1Cert<1..2^24-1>;
@@ -648,6 +659,15 @@ void ResizeVector(std::vector<BYTE>* pv, typename std::vector<BYTE>::size_type s
 
 template <typename T>
 void EnsureVectorSize(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
+
+HRESULT
+ComputeTLS12PRF(
+    Hasher* pHasher,
+    const std::vector<BYTE>* pvbSecret,
+    const std::vector<BYTE>* pvbSeed,
+    const std::vector<BYTE>* pvbLabel,
+    size_t cbMinimumLengthDesired,
+    std::vector<BYTE>* pvbPRF);
 
 }
 #pragma warning(pop)

@@ -3,6 +3,7 @@
 #include <intsafe.h>
 #include <wincrypt.h>
 #include <memory>
+#include "MungeTLS.h"
 #include "MungeCrypto.h"
 
 #define SAFE_SUB(h, l, r)              \
@@ -28,7 +29,8 @@ class KeyAndProv
 
     void Init(HCRYPTPROV hProv, BOOL fCallerFree);
     HCRYPTKEY GetKey() const { return m_hKey; }
-    void SetKey(HCRYPTKEY hKey) { m_hKey = hKey; }
+    HCRYPTPROV GetProv() const { return m_hProv; }
+    void SetKey(HCRYPTKEY hKey);
     void Detach();
 
     private:
@@ -92,6 +94,29 @@ class WindowsPublicKeyCipherer : public PublicKeyCipherer
     std::shared_ptr<KeyAndProv> m_spPrivateKeyProv;
 };
 
+class WindowsHasher : public Hasher
+{
+    public:
+    HRESULT
+    Hash(
+        Hasher::HashAlg alg,
+        const std::vector<BYTE>* pvbText,
+        std::vector<BYTE>* pvbHash);
+
+    HRESULT
+    HMAC(
+        Hasher::HashAlg alg,
+        const std::vector<BYTE>* pvbKey,
+        const std::vector<BYTE>* pvbText,
+        std::vector<BYTE>* pvbHMAC);
+
+    private:
+    static
+    HRESULT WindowsHashAlgFromMTHashAlg(
+        Hasher::HashAlg alg,
+        ALG_ID* pAlg);
+};
+
 HRESULT
 EncryptBuffer(
     const std::vector<BYTE>* pvbCleartext,
@@ -105,5 +130,10 @@ DecryptBuffer(
     std::vector<BYTE>* pvbDecrypted);
 
 std::vector<BYTE> ReverseByteOrder(const std::vector<BYTE>* pvb);
+
+HRESULT
+ImportSymmetricKey(
+    const std::vector<BYTE>* pvbKey,
+    KeyAndProv* pKey);
 
 }
