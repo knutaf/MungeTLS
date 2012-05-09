@@ -344,7 +344,7 @@ ImportSymmetricKey(
 
     pPlaintextKey = reinterpret_cast<PlaintextKey*>(&vbPlaintextKey.front());
     pPlaintextKey->hdr.bType = PLAINTEXTKEYBLOB;
-    pPlaintextKey->hdr.bVersion = 2;
+    pPlaintextKey->hdr.bVersion = CUR_BLOB_VERSION;
     pPlaintextKey->hdr.aiKeyAlg = CALG_AES_128;
     pPlaintextKey->cbKeySize = pvbKey->size();
 
