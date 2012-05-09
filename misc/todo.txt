@@ -2,3 +2,14 @@
 - customizable behavior for extensions. shouldn't just hard-code reneg info
 - configurable behavior about whether to encapsulate multiple handshake messages with a new plaintext message each, or to bundle them in one
 - ability to verify correct cert usages before using
+- HandshakeType should be a regular accessor
+- use a state machine for the handle message stuff
+- proper consts for all magic numbers
+
+Finish message:
+- compute master secret from premaster secret
+- generate client write mac, server write mac, client write key, and server write key
+- add Finish message structure
+- translation of TLSCiphertext to TLSPlaintext
+- translation of TLSPlaintext to TLSCiphertext
+- compute hash of all handshake messages
