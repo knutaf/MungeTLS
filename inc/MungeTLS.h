@@ -608,7 +608,7 @@ class MT_Thingy : public MT_Structure
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    ACCESSORS(ThingyType*, Thingy, &m_thingy, MT_Thingy);
+    ACCESSORS(ThingyType*, Thingy, &m_thingy, MT_Thingy*);
 
     private:
     ThingyType m_thingy;
