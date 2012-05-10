@@ -39,6 +39,8 @@ typedef ULONG MT_UINT32;
 extern const BYTE c_abyCert[];
 extern const size_t c_cbCert;
 
+class MT_PreMasterSecret;
+
 class MT_Structure
 {
     public:
@@ -488,11 +490,14 @@ class TLSConnection
     ACCESSORS(std::vector<BYTE>*, MasterSecret, &m_vbMasterSecret, TLSConnection*);
     ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom, TLSConnection*);
     ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom, TLSConnection*);
+    ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion, TLSConnection*);
 
     private:
     HRESULT RespondTo(
         const MT_ClientHello* pClientHello,
         std::vector<MT_TLSPlaintext>* pResponses);
+
+    HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
 
     MT_CipherSuite m_cipherSuite;
     PCCERT_CONTEXT m_pCertContext;
@@ -502,6 +507,7 @@ class TLSConnection
     std::vector<BYTE> m_vbMasterSecret;
     MT_Random m_clientRandom;
     MT_Random m_serverRandom;
+    MT_ProtocolVersion m_negotiatedVersion;
 };
 
 // opaque ASN.1Cert<1..2^24-1>;
@@ -662,11 +668,20 @@ template <typename T>
 void EnsureVectorSize(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
 
 HRESULT
-ComputeTLS12PRF(
+ComputePRF_TLS12(
     Hasher* pHasher,
     const std::vector<BYTE>* pvbSecret,
+    PCSTR szLabel,
     const std::vector<BYTE>* pvbSeed,
-    const std::vector<BYTE>* pvbLabel,
+    size_t cbMinimumLengthDesired,
+    std::vector<BYTE>* pvbPRF);
+
+HRESULT
+ComputePRF_TLS10(
+    Hasher* pHasher,
+    const std::vector<BYTE>* pvbSecret,
+    PCSTR szLabel,
+    const std::vector<BYTE>* pvbSeed,
     size_t cbMinimumLengthDesired,
     std::vector<BYTE>* pvbPRF);
 

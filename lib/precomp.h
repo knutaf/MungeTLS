@@ -14,6 +14,7 @@
 #include <string>
 #include <wincrypt.h>
 #include <memory>
+#include <functional>
 
 #include "MungeTLS.h"
 #include "MungeCrypto.h"

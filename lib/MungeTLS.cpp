@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <numeric>
 #include <intsafe.h>
+#include <functional>
 
 #include "MungeTLS.h"
 #include "mtls_helper.h"
@@ -17,6 +18,15 @@ using namespace std;
 
 HRESULT
 ComputePRF_TLS12(
+    Hasher* pHasher,
+    const std::vector<BYTE>* pvbSecret,
+    PCSTR szLabel,
+    const std::vector<BYTE>* pvbSeed,
+    size_t cbMinimumLengthDesired,
+    std::vector<BYTE>* pvbPRF);
+
+HRESULT
+ComputePRF_TLS10(
     Hasher* pHasher,
     const std::vector<BYTE>* pvbSecret,
     PCSTR szLabel,
@@ -42,14 +52,6 @@ PRF_A(
     const std::vector<BYTE>* pvbSeed,
     std::vector<BYTE>* pvbResult);
 
-HRESULT
-ComputeMasterSecret_TLS12(
-    Hasher* pHasher,
-    const MT_PreMasterSecret* pPreMasterSecret,
-    const MT_Random* pClientRandom,
-    const MT_Random* pServerRandom,
-    std::vector<BYTE>* pvbMasterSecret);
-
 /*********** TLSConnection *****************/
 
 TLSConnection::TLSConnection()
@@ -59,7 +61,8 @@ TLSConnection::TLSConnection()
       m_spHasher(nullptr),
       m_vbMasterSecret(),
       m_clientRandom(),
-      m_serverRandom()
+      m_serverRandom(),
+      m_negotiatedVersion()
 {
 } // end ctor TLSConnection
 
@@ -152,6 +155,8 @@ TLSConnection::HandleMessage(
 
                         printf("%d bytes of extensions\n", clientHello.Extensions()->Length());
 
+                        *NegotiatedVersion() = *(clientHello.ProtocolVersion());
+
                         vector<MT_TLSPlaintext> responseMessages;
                         hr = RespondTo(&clientHello, &responseMessages);
 
@@ -194,12 +199,7 @@ TLSConnection::HandleMessage(
                                     MT_PreMasterSecret* pSecret = pExchangeKeys->Structure();
                                     printf("version %04LX\n", pSecret->ClientVersion()->Version());
 
-                                    hr = ComputeMasterSecret_TLS12(
-                                             HashInst(),
-                                             pSecret,
-                                             ClientRandom(),
-                                             ServerRandom(),
-                                             MasterSecret());
+                                    hr = ComputeMasterSecret(pSecret);
 
                                     if (hr == S_OK)
                                     {
@@ -420,6 +420,70 @@ error:
     return hr;
 } // end function RespondTo
 
+HRESULT
+TLSConnection::ComputeMasterSecret(
+    const MT_PreMasterSecret* pPreMasterSecret
+)
+{
+    HRESULT hr = S_OK;
+
+    vector<BYTE> vbPreMasterSecret;
+    vector<BYTE> vbRandoms;
+
+    hr = pPreMasterSecret->SerializeToVect(&vbPreMasterSecret);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = ClientRandom()->SerializeToVect(&vbRandoms);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = ServerRandom()->SerializeAppendToVect(&vbRandoms);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    if (NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+    {
+        hr = ComputePRF_TLS10(
+                 HashInst(),
+                 &vbPreMasterSecret,
+                 "master secret",
+                 &vbRandoms,
+                 48,
+                 MasterSecret());
+    }
+    else if (NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+    {
+        hr = ComputePRF_TLS12(
+                 HashInst(),
+                 &vbPreMasterSecret,
+                 "master secret",
+                 &vbRandoms,
+                 48,
+                 MasterSecret());
+    }
+    else
+    {
+        assert(false);
+    }
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ComputeMasterSecret
 
 
 
@@ -693,6 +757,90 @@ error:
 } // end function ComputePRF_TLS12
 
 HRESULT
+ComputePRF_TLS10(
+    Hasher* pHasher,
+    const vector<BYTE>* pvbSecret,
+    PCSTR szLabel,
+    const vector<BYTE>* pvbSeed,
+    size_t cbMinimumLengthDesired,
+    vector<BYTE>* pvbPRF
+)
+{
+    HRESULT hr = S_OK;
+
+    vector<BYTE> vbLabelAndSeed;
+    vbLabelAndSeed.assign(szLabel, szLabel + strlen(szLabel));
+    vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
+
+    vector<BYTE> vbS1;
+    vector<BYTE> vbS2;
+    vector<BYTE> vbS1_Expanded;
+    vector<BYTE> vbS2_Expanded;
+
+    // ceil(size / 2)
+    size_t cbL_S1 = (pvbSecret->size() + 1) / 2;
+    auto itMidpoint = pvbSecret->begin() + cbL_S1;
+
+    vbS1.assign(pvbSecret->begin(), itMidpoint);
+
+    // makes the two halves overlap by one byte, as required in RFC
+    if ((pvbSecret->size() % 2) != 0)
+    {
+        itMidpoint--;
+    }
+
+    vbS2.assign(itMidpoint, pvbSecret->end());
+
+    assert(vbS1.size() == vbS2.size());
+
+    hr = PRF_P_hash(
+             pHasher,
+             Hasher::HashAlg_MD5,
+             &vbS1,
+             &vbLabelAndSeed,
+             cbMinimumLengthDesired,
+             &vbS1_Expanded);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = PRF_P_hash(
+             pHasher,
+             Hasher::HashAlg_SHA1,
+             &vbS2,
+             &vbLabelAndSeed,
+             cbMinimumLengthDesired,
+             &vbS2_Expanded);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    assert(vbS1_Expanded.size() >= cbMinimumLengthDesired);
+    assert(vbS2_Expanded.size() >= cbMinimumLengthDesired);
+    vbS1_Expanded.resize(cbMinimumLengthDesired);
+    vbS2_Expanded.resize(cbMinimumLengthDesired);
+    assert(vbS1_Expanded.size() == vbS2_Expanded.size());
+
+    transform(
+        vbS1_Expanded.begin(),
+        vbS1_Expanded.end(),
+        vbS2_Expanded.begin(),
+        pvbPRF->begin(),
+        bit_xor<BYTE>());
+
+done:
+    return hr;
+
+error:
+    pvbPRF->clear();
+    goto done;
+} // end function ComputePRF_TLS10
+
+HRESULT
 PRF_A(
     Hasher* pHasher,
     Hasher::HashAlg alg,
@@ -786,59 +934,6 @@ error:
     pvbResult->clear();
     goto done;
 } // end function PRF_P_hash
-
-HRESULT
-ComputeMasterSecret_TLS12(
-    Hasher* pHasher,
-    const MT_PreMasterSecret* pPreMasterSecret,
-    const MT_Random* pClientRandom,
-    const MT_Random* pServerRandom,
-    std::vector<BYTE>* pvbMasterSecret
-)
-{
-    HRESULT hr = S_OK;
-
-    vector<BYTE> vbPreMasterSecret;
-    vector<BYTE> vbRandoms;
-
-    hr = pPreMasterSecret->SerializeToVect(&vbPreMasterSecret);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = pClientRandom->SerializeToVect(&vbRandoms);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = pServerRandom->SerializeAppendToVect(&vbRandoms);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = ComputePRF_TLS12(
-             pHasher,
-             &vbPreMasterSecret,
-             "master secret",
-             &vbRandoms,
-             48,
-             pvbMasterSecret);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    pvbMasterSecret->clear();
-    goto done;
-} // end function ComputeMasterSecret_TLS12
 
 /*********** MT_Structure *****************/
 
