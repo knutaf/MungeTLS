@@ -537,7 +537,7 @@ class MT_PreMasterSecret : public MT_Structure
 
     size_t Length() const;
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     ACCESSORS(MT_ProtocolVersion*, ClientVersion, &m_clientVersion, MT_PreMasterSecret*);
     ACCESSORS(OpaqueRandom*, Random, &m_random, MT_PreMasterSecret*);

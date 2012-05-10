@@ -2379,6 +2379,46 @@ error:
     return hr;
 } // end function ParseFromPriv
 
+HRESULT
+MT_PreMasterSecret::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    if (Length() > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    cbField = ClientVersion()->Length();
+    hr = ClientVersion()->Serialize(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = Random()->Length();
+    hr = Random()->Serialize(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
 size_t
 MT_PreMasterSecret::Length() const
 {
