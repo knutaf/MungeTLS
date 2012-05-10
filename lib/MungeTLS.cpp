@@ -448,6 +448,8 @@ TLSConnection::ComputeMasterSecret(
         goto error;
     }
 
+    printf("protocol version for master secret PRF algorithm: %04LX\n", NegotiatedVersion()->Version());
+
     if (NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
     {
         hr = ComputePRF_TLS10(
@@ -779,17 +781,17 @@ ComputePRF_TLS10(
 
     // ceil(size / 2)
     size_t cbL_S1 = (pvbSecret->size() + 1) / 2;
-    auto itMidpoint = pvbSecret->begin() + cbL_S1;
+    auto itSecretMidpoint = pvbSecret->begin() + cbL_S1;
 
-    vbS1.assign(pvbSecret->begin(), itMidpoint);
+    vbS1.assign(pvbSecret->begin(), itSecretMidpoint);
 
     // makes the two halves overlap by one byte, as required in RFC
     if ((pvbSecret->size() % 2) != 0)
     {
-        itMidpoint--;
+        itSecretMidpoint--;
     }
 
-    vbS2.assign(itMidpoint, pvbSecret->end());
+    vbS2.assign(itSecretMidpoint, pvbSecret->end());
 
     assert(vbS1.size() == vbS2.size());
 
@@ -824,6 +826,8 @@ ComputePRF_TLS10(
     vbS1_Expanded.resize(cbMinimumLengthDesired);
     vbS2_Expanded.resize(cbMinimumLengthDesired);
     assert(vbS1_Expanded.size() == vbS2_Expanded.size());
+
+    pvbPRF->resize(vbS1_Expanded.size());
 
     transform(
         vbS1_Expanded.begin(),
