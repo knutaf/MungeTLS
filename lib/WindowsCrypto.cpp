@@ -754,7 +754,8 @@ WindowsHasher::HMAC(
         goto error;
     }
 
-    hr = ImportSymmetricKey(pvbKey, &kp);
+    // according to MSDN, keys imported for HMAC use RC2
+    hr = ImportSymmetricKey(pvbKey, CALG_RC2, &kp);
     if (hr != S_OK)
     {
         goto error;
@@ -893,8 +894,50 @@ error:
 } // end function WindowsHashAlgFromMTHashAlg
 
 HRESULT
+WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
+    SymmetricCipherer::CipherAlg alg,
+    ALG_ID* pAlgID
+)
+{
+    HRESULT hr = S_OK;
+
+    if (alg == CipherAlg_RC4)
+    {
+        *pAlgID = CALG_RC4;
+    }
+    else if (alg == CipherAlg_AES)
+    {
+        *pAlgID = CALG_AES;
+    }
+    else if (alg == CipherAlg_AES_128)
+    {
+        *pAlgID = CALG_AES_128;
+    }
+    else if (alg == CipherAlg_AES_192)
+    {
+        *pAlgID = CALG_AES_192;
+    }
+    else if (alg == CipherAlg_AES_256)
+    {
+        *pAlgID = CALG_AES_256;
+    }
+    else
+    {
+        hr = MT_E_UNSUPPORTED_CIPHER;
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function WindowsCipherAlgFromMTCipherAlg
+
+HRESULT
 ImportSymmetricKey(
     const vector<BYTE>* pvbKey,
+    ALG_ID algID,
     KeyAndProv* pKey
 )
 {
@@ -944,7 +987,7 @@ ImportSymmetricKey(
     pPlaintextKey = reinterpret_cast<PlaintextKey*>(&vbPlaintextKey.front());
     pPlaintextKey->hdr.bType = PLAINTEXTKEYBLOB;
     pPlaintextKey->hdr.bVersion = CUR_BLOB_VERSION;
-    pPlaintextKey->hdr.aiKeyAlg = CALG_AES_128;
+    pPlaintextKey->hdr.aiKeyAlg = algID;
 
     hr = SizeTToDWord(pvbKey->size(), &(pPlaintextKey->cbKeySize));
     if (hr != S_OK)
@@ -954,20 +997,20 @@ ImportSymmetricKey(
 
     copy(pvbKey->begin(), pvbKey->end(), pPlaintextKey->rgbKeyData);
 
-    wprintf(L"import\n");
-
     hr = SizeTToDWord(vbPlaintextKey.size(), &cbKeySize);
     if (hr != S_OK)
     {
         goto error;
     }
 
+    wprintf(L"importing key of size %d\n", cbKeySize);
+
     if (!CryptImportKey(
              hProv,
              reinterpret_cast<const BYTE*>(pPlaintextKey),
              cbKeySize,
              NULL,
-             0,
+             CRYPT_IPSEC_HMAC_KEY,
              &hKey))
     {
         hr = HRESULT_FROM_WIN32(GetLastError());

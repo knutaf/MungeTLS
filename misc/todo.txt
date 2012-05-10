@@ -5,6 +5,7 @@
 - HandshakeType should be a regular accessor
 - use a state machine for the handle message stuff
 - proper consts for all magic numbers
+- renegotiation info
 
 Finish message:
 - compute master secret from premaster secret

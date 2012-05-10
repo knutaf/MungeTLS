@@ -345,7 +345,7 @@ ImportSymmetricKey(
     pPlaintextKey = reinterpret_cast<PlaintextKey*>(&vbPlaintextKey.front());
     pPlaintextKey->hdr.bType = PLAINTEXTKEYBLOB;
     pPlaintextKey->hdr.bVersion = CUR_BLOB_VERSION;
-    pPlaintextKey->hdr.aiKeyAlg = CALG_AES_128;
+    pPlaintextKey->hdr.aiKeyAlg = CALG_RC2;
     pPlaintextKey->cbKeySize = pvbKey->size();
 
     copy(pvbKey->begin(), pvbKey->end(), pPlaintextKey->rgbKeyData);
@@ -357,7 +357,7 @@ ImportSymmetricKey(
              reinterpret_cast<const BYTE*>(pPlaintextKey),
              vbPlaintextKey.size(),
              NULL,
-             0,
+             CRYPT_IPSEC_HMAC_KEY,
              &hKey))
     {
         hr = HRESULT_FROM_WIN32(GetLastError());

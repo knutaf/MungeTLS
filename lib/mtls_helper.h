@@ -56,6 +56,16 @@ GetPublicKeyFromCertificate(
     PCCERT_CONTEXT pCertContext,
     KeyAndProv* pPublicKey);
 
+class WindowsSymmetricCipherer : public SymmetricCipherer
+{
+    public:
+    static
+    HRESULT
+    WindowsCipherAlgFromMTCipherAlg(
+        SymmetricCipherer::CipherAlg alg,
+        ALG_ID* pAlgID);
+};
+
 class WindowsPublicKeyCipherer : public PublicKeyCipherer
 {
     public:
@@ -134,6 +144,7 @@ std::vector<BYTE> ReverseByteOrder(const std::vector<BYTE>* pvb);
 HRESULT
 ImportSymmetricKey(
     const std::vector<BYTE>* pvbKey,
+    ALG_ID algID,
     KeyAndProv* pKey);
 
 }

@@ -27,6 +27,7 @@ const HRESULT MT_E_UNKNOWN_CIPHER_SUITE                     = 0x80230008;
 const HRESULT MT_E_UNSUPPORTED_KEY_EXCHANGE                 = 0x80230009;
 const HRESULT MT_E_BAD_PADDING                              = 0x8023000a;
 const HRESULT MT_E_UNSUPPORTED_HASH                         = 0x8023000b;
+const HRESULT MT_E_UNSUPPORTED_CIPHER                       = 0x8023000c;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
 typedef ULONG MT_UINT8;
