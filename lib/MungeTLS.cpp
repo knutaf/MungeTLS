@@ -19,7 +19,7 @@ HRESULT
 ComputePRF_TLS12(
     Hasher* pHasher,
     const std::vector<BYTE>* pvbSecret,
-    const std::vector<BYTE>* pvbLabel,
+    PCSTR szLabel,
     const std::vector<BYTE>* pvbSeed,
     size_t cbMinimumLengthDesired,
     std::vector<BYTE>* pvbPRF);
@@ -659,7 +659,7 @@ HRESULT
 ComputePRF_TLS12(
     Hasher* pHasher,
     const vector<BYTE>* pvbSecret,
-    const vector<BYTE>* pvbLabel,
+    PCSTR szLabel,
     const vector<BYTE>* pvbSeed,
     size_t cbMinimumLengthDesired,
     vector<BYTE>* pvbPRF
@@ -667,7 +667,8 @@ ComputePRF_TLS12(
 {
     HRESULT hr = S_OK;
 
-    vector<BYTE> vbLabelAndSeed(*pvbLabel);
+    vector<BYTE> vbLabelAndSeed;
+    vbLabelAndSeed.assign(szLabel, szLabel + strlen(szLabel));
     vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
 
     hr = PRF_P_hash(
@@ -795,11 +796,9 @@ ComputeMasterSecret_TLS12(
     std::vector<BYTE>* pvbMasterSecret
 )
 {
-    const CHAR szLabel[] = "master secret";
     HRESULT hr = S_OK;
 
     vector<BYTE> vbPreMasterSecret;
-    vector<BYTE> vbLabel;
     vector<BYTE> vbRandoms;
 
     hr = pPreMasterSecret->SerializeToVect(&vbPreMasterSecret);
@@ -807,8 +806,6 @@ ComputeMasterSecret_TLS12(
     {
         goto error;
     }
-
-    vbLabel.assign(szLabel, szLabel + ARRAYSIZE(szLabel) - 1);
 
     hr = pClientRandom->SerializeToVect(&vbRandoms);
     if (hr != S_OK)
@@ -825,7 +822,7 @@ ComputeMasterSecret_TLS12(
     hr = ComputePRF_TLS12(
              pHasher,
              &vbPreMasterSecret,
-             &vbLabel,
+             "master secret",
              &vbRandoms,
              48,
              pvbMasterSecret);
