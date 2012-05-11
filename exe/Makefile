@@ -5,6 +5,7 @@ C_FILES=\
     main.cpp \
 
 H_FILES=\
+    ..\inc\MungeTLS.h \
 
 LIBS=\
     shlwapi.lib \
