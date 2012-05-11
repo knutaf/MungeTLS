@@ -901,21 +901,13 @@ WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
 {
     HRESULT hr = S_OK;
 
-    if (alg == CipherAlg_RC4)
+    if (alg == CipherAlg_RC4_128)
     {
         *pAlgID = CALG_RC4;
-    }
-    else if (alg == CipherAlg_AES)
-    {
-        *pAlgID = CALG_AES;
     }
     else if (alg == CipherAlg_AES_128)
     {
         *pAlgID = CALG_AES_128;
-    }
-    else if (alg == CipherAlg_AES_192)
-    {
-        *pAlgID = CALG_AES_192;
     }
     else if (alg == CipherAlg_AES_256)
     {

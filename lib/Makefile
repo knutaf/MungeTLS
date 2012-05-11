@@ -3,14 +3,17 @@ C_DEFINES=/DUNICODE
 
 C_FILES=\
     MungeTLS.cpp \
+    MungeCrypto.cpp \
     WindowsCrypto.cpp \
 
 O_FILES=\
     MungeTLS.obj \
+    MungeCrypto.obj \
     WindowsCrypto.obj \
 
 H_FILES=\
     ..\inc\MungeTLS.h \
+    ..\inc\MungeCrypto.h \
     mtls_helper.h  \
     precomp.h  \
 

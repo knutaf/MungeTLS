@@ -8,7 +8,7 @@
 - renegotiation info
 
 Finish message:
-- compute master secret from premaster secret
+DONE - compute master secret from premaster secret
 - generate client write mac, server write mac, client write key, and server write key
 - add Finish message structure
 - translation of TLSCiphertext to TLSPlaintext
