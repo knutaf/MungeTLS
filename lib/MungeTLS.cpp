@@ -62,7 +62,13 @@ TLSConnection::TLSConnection()
       m_vbMasterSecret(),
       m_clientRandom(),
       m_serverRandom(),
-      m_negotiatedVersion()
+      m_negotiatedVersion(),
+      m_vbClientWriteMACKey(),
+      m_vbServerWriteMACKey(),
+      m_vbClientWriteKey(),
+      m_vbServerWriteKey(),
+      m_vbClientWriteIV(),
+      m_vbServerWriteIV()
 {
 } // end ctor TLSConnection
 
@@ -93,6 +99,9 @@ TLSConnection::Initialize()
     }
 
     m_spPubKeyCipherer = spPubKeyCipherer;
+
+    m_spClientSymCipherer.reset(new WindowsSymmetricCipherer());
+    m_spServerSymCipherer.reset(new WindowsSymmetricCipherer());
 
     m_spHasher.reset(new WindowsHasher());
 
@@ -204,6 +213,16 @@ TLSConnection::HandleMessage(
                                     if (hr == S_OK)
                                     {
                                         printf("computed master secret\n");
+
+                                        hr = GenerateKeyMaterial();
+                                        if (hr == S_OK)
+                                        {
+                                            printf("computed key material\n");
+                                        }
+                                        else
+                                        {
+                                            printf("failed to compute key material: %08LX\n", hr);
+                                        }
                                     }
                                     else
                                     {
@@ -448,27 +467,57 @@ TLSConnection::ComputeMasterSecret(
         goto error;
     }
 
-    printf("protocol version for master secret PRF algorithm: %04LX\n", NegotiatedVersion()->Version());
+    hr = ComputePRF(
+             &vbPreMasterSecret,
+             "master secret",
+             &vbRandoms,
+             48,
+             MasterSecret());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ComputeMasterSecret
+
+HRESULT
+TLSConnection::ComputePRF(
+    const vector<BYTE>* pvbSecret,
+    PCSTR szLabel,
+    const vector<BYTE>* pvbSeed,
+    size_t cbMinimumLengthDesired,
+    vector<BYTE>* pvbPRF
+)
+{
+    HRESULT hr = S_OK;
+
+    printf("protocol version for PRF algorithm: %04LX\n", NegotiatedVersion()->Version());
 
     if (NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
     {
         hr = ComputePRF_TLS10(
                  HashInst(),
-                 &vbPreMasterSecret,
-                 "master secret",
-                 &vbRandoms,
-                 48,
-                 MasterSecret());
+                 pvbSecret,
+                 szLabel,
+                 pvbSeed,
+                 cbMinimumLengthDesired,
+                 pvbPRF);
     }
     else if (NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS12)
     {
         hr = ComputePRF_TLS12(
                  HashInst(),
-                 &vbPreMasterSecret,
-                 "master secret",
-                 &vbRandoms,
-                 48,
-                 MasterSecret());
+                 pvbSecret,
+                 szLabel,
+                 pvbSeed,
+                 cbMinimumLengthDesired,
+                 pvbPRF);
     }
     else
     {
@@ -484,8 +533,121 @@ done:
     return hr;
 
 error:
+    pvbPRF->clear();
     goto done;
-} // end function ComputeMasterSecret
+} // end function ComputePRF
+
+HRESULT
+TLSConnection::GenerateKeyMaterial()
+{
+    HRESULT hr = S_OK;
+
+    SymmetricCipherer::CipherInfo cipherInfo;
+    Hasher::HashInfo hashInfo;
+    size_t cbKeyBlock;
+    vector<BYTE> vbRandoms;
+    vector<BYTE> vbKeyBlock;
+
+    assert(!MasterSecret()->empty());
+
+    hr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, &hashInfo);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbKeyBlock = (hashInfo.cbHashKeySize * 2) +
+                 (cipherInfo.cbKeyMaterialSize * 2) +
+                 (cipherInfo.cbIVSize * 2);
+
+    hr = ServerRandom()->SerializeToVect(&vbRandoms);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = ClientRandom()->SerializeAppendToVect(&vbRandoms);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = ComputePRF(
+             MasterSecret(),
+             "key expansion",
+             &vbRandoms,
+             cbKeyBlock,
+             &vbKeyBlock);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    {
+        auto itKeyBlock = vbKeyBlock.begin();
+
+        ClientWriteMACKey()->assign(itKeyBlock, itKeyBlock + hashInfo.cbHashKeySize);
+        itKeyBlock += hashInfo.cbHashKeySize;
+
+        assert(itKeyBlock <= vbKeyBlock.end());
+        ServerWriteMACKey()->assign(itKeyBlock, itKeyBlock + hashInfo.cbHashKeySize);
+        itKeyBlock += hashInfo.cbHashKeySize;
+
+
+        assert(itKeyBlock <= vbKeyBlock.end());
+        ClientWriteKey()->assign(itKeyBlock, itKeyBlock + cipherInfo.cbKeyMaterialSize);
+        itKeyBlock += cipherInfo.cbKeyMaterialSize;
+
+        assert(itKeyBlock <= vbKeyBlock.end());
+        ServerWriteKey()->assign(itKeyBlock, itKeyBlock + cipherInfo.cbKeyMaterialSize);
+        itKeyBlock += cipherInfo.cbKeyMaterialSize;
+
+
+        assert(itKeyBlock <= vbKeyBlock.end());
+        ClientWriteIV()->assign(itKeyBlock, itKeyBlock + cipherInfo.cbIVSize);
+        itKeyBlock += cipherInfo.cbIVSize;
+
+        assert(itKeyBlock <= vbKeyBlock.end());
+        ServerWriteIV()->assign(itKeyBlock, itKeyBlock + cipherInfo.cbIVSize);
+        itKeyBlock += cipherInfo.cbIVSize;
+
+        assert(itKeyBlock == vbKeyBlock.end());
+
+
+
+        // TODO: incorporate IV
+        hr = ClientSymCipherer()->Initialize(
+                 ClientWriteKey(),
+                 cipherInfo.alg);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        hr = ServerSymCipherer()->Initialize(
+                 ServerWriteKey(),
+                 cipherInfo.alg);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+    }
+
+done:
+    return hr;
+
+error:
+    ClientWriteMACKey()->clear();
+    ServerWriteMACKey()->clear();
+    ClientWriteKey()->clear();
+    ServerWriteKey()->clear();
+    ClientWriteIV()->clear();
+    ServerWriteIV()->clear();
+    goto done;
+} // end function GenerateKeyMaterial
 
 
 
@@ -939,6 +1101,91 @@ error:
     goto done;
 } // end function PRF_P_hash
 
+HRESULT
+CryptoInfoFromCipherSuite(
+    const MT_CipherSuite* pCipherSuite,
+    SymmetricCipherer::CipherInfo* pCipherInfo,
+    Hasher::HashInfo* pHashInfo
+)
+{
+    HRESULT hr = S_OK;
+
+    if (pHashInfo == NULL && pCipherInfo == NULL)
+    {
+        hr = E_INVALIDARG;
+        goto error;
+    }
+
+    if (pHashInfo)
+    {
+        Hasher::HashAlg hashAlg;
+
+        if (*pCipherSuite == MTCS_TLS_RSA_WITH_NULL_SHA ||
+            *pCipherSuite == MTCS_TLS_RSA_WITH_RC4_128_SHA ||
+            *pCipherSuite == MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA ||
+            *pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
+            *pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA)
+        {
+            hashAlg = Hasher::HashAlg_SHA1;
+        }
+        else if (*pCipherSuite == MTCS_TLS_RSA_WITH_NULL_SHA256 ||
+                 *pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256 ||
+                 *pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
+        {
+            hashAlg = Hasher::HashAlg_SHA256;
+        }
+        else
+        {
+            hr = MT_E_UNSUPPORTED_HASH;
+            goto error;
+        }
+
+        hr = Hasher::GetHashInfo(hashAlg, pHashInfo);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+    }
+
+    if (pCipherInfo)
+    {
+        SymmetricCipherer::CipherAlg cipherAlg;
+
+        if (*pCipherSuite == MTCS_TLS_RSA_WITH_RC4_128_MD5 ||
+            *pCipherSuite ==  MTCS_TLS_RSA_WITH_RC4_128_SHA)
+        {
+            cipherAlg = SymmetricCipherer::CipherAlg_RC4_128;
+        }
+        else if (*pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
+                 *pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256)
+        {
+            cipherAlg = SymmetricCipherer::CipherAlg_AES_128;
+        }
+        else if (*pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA ||
+                 *pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
+        {
+            cipherAlg = SymmetricCipherer::CipherAlg_AES_256;
+        }
+        else
+        {
+            hr = MT_E_UNSUPPORTED_CIPHER;
+            goto error;
+        }
+
+        hr = SymmetricCipherer::GetCipherInfo(cipherAlg, pCipherInfo);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CryptoInfoFromCipherSuite
+
 /*********** MT_Structure *****************/
 
 HRESULT
@@ -1002,6 +1249,21 @@ MT_Structure::SerializeAppendToVect(
     return Serialize(&(*end), Length());
 } // end function SerializeAppendToVect
 
+
+/*********** MT_SecuredStructure *****************/
+
+MT_SecuredStructure::MT_SecuredStructure()
+    : MT_Structure(),
+      m_pSecurityParameters(nullptr)
+{
+} // end ctor MT_SecuredStructure
+
+HRESULT
+MT_SecuredStructure::CheckSecurity()
+{
+    assert(SecurityParameters() != nullptr);
+    return CheckSecurityPriv();
+} // end function CheckSecurity
 
 /*********** MT_VariableLengthFieldBase *****************/
 
@@ -1671,6 +1933,110 @@ MT_TLSPlaintext::SerializePriv(
 error:
     return hr;
 } // end function SerializePriv
+
+/*********** MT_TLSCiphertext *****************/
+
+MT_TLSCiphertext::MT_TLSCiphertext()
+    : m_contentType(),
+      m_protocolVersion(),
+      m_vbFragment(),
+      m_vbDecryptedFragment()
+{
+} // end ctor MT_TLSCiphertext
+
+HRESULT
+MT_TLSCiphertext::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+    size_t cbFragmentLength = 0;
+
+    hr = ContentType()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = ContentType()->Length();
+    ADVANCE_PARSE();
+
+    hr = ProtocolVersion()->ParseFrom(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = ProtocolVersion()->Length();
+    ADVANCE_PARSE();
+
+
+    cbField = 2;
+    hr = ReadNetworkLong(pv, cb, cbField, &cbFragmentLength);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = cbFragmentLength;
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    Fragment()->assign(pv, pv + cbField);
+
+    ADVANCE_PARSE();
+
+error:
+    return hr;
+} // end function ParseFromPriv
+
+size_t
+MT_TLSCiphertext::Length() const
+{
+    size_t cbLength = ContentType()->Length() +
+                      ProtocolVersion()->Length() +
+                      2 + // sizeof MT_UINT16 payload length
+                      Fragment()->size();
+
+    return cbLength;
+} // end function Length
+
+HRESULT
+MT_TLSCiphertext::Decrypt()
+{
+    HRESULT hr = S_OK;
+
+    assert(SecurityParameters() != nullptr);
+    assert(SecurityParameters()->ClientSymCipherer() != nullptr);
+
+    hr = SecurityParameters()->ClientSymCipherer()->DecryptBuffer(
+             Fragment(),
+             DecryptedFragment());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function Decrypt
+
+HRESULT
+MT_TLSCiphertext::Encrypt()
+{
+    return E_NOTIMPL;
+} // end function Encrypt
 
 /*********** MT_ContentType *****************/
 
@@ -2720,8 +3086,11 @@ MT_Thingy::ParseFromPriv(
     cbField = Thingy()->Length();
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 size_t

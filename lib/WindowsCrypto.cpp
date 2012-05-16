@@ -476,28 +476,44 @@ KeyAndProv::KeyAndProv()
 {
 } // end ctor KeyAndProv
 
+KeyAndProv& KeyAndProv::operator=(const KeyAndProv& rOther)
+{
+    Clear();
+    m_hProv = rOther.m_hProv;
+    m_fCallerFree = rOther.m_fCallerFree;
+    m_hKey = rOther.m_hKey;
+    return *this;
+} // end operator=
+
 void
 KeyAndProv::Init(
     HCRYPTPROV hProv,
     BOOL fCallerFree)
 {
+    Clear();
+
     m_hProv = hProv;
     m_fCallerFree = fCallerFree;
 } // end function Init
 
-KeyAndProv::~KeyAndProv()
+void KeyAndProv::Clear()
 {
-    if (m_fCallerFree && m_hProv != NULL)
-    {
-        CryptReleaseContext(m_hProv, 0);
-        m_hProv = NULL;
-    }
-
     if (m_hKey != NULL)
     {
         CryptDestroyKey(m_hKey);
         m_hKey = NULL;
     }
+
+    if (m_fCallerFree && m_hProv != NULL)
+    {
+        CryptReleaseContext(m_hProv, 0);
+        m_hProv = NULL;
+    }
+} // end function Clear
+
+KeyAndProv::~KeyAndProv()
+{
+    Clear();
 } // end dtor KeyAndProv
 
 void KeyAndProv::Detach()
@@ -892,6 +908,70 @@ done:
 error:
     goto done;
 } // end function WindowsHashAlgFromMTHashAlg
+
+WindowsSymmetricCipherer::WindowsSymmetricCipherer()
+    : m_key()
+{
+} // end ctor WindowsSymmetricCipherer
+
+HRESULT
+WindowsSymmetricCipherer::Initialize(
+    const vector<BYTE>* pvbKey,
+    CipherAlg cipherAlg
+)
+{
+    HRESULT hr = S_OK;
+    ALG_ID algID;
+
+    hr = WindowsCipherAlgFromMTCipherAlg(
+             cipherAlg,
+             &algID);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = ImportSymmetricKey(
+             pvbKey,
+             algID,
+             &m_key);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function Initialize
+
+HRESULT
+WindowsSymmetricCipherer::EncryptBuffer(
+    const vector<BYTE>* pvbCleartext,
+    vector<BYTE>* pvbEncrypted
+) const
+{
+    return MungeTLS::EncryptBuffer(
+               pvbCleartext,
+               Key()->GetKey(),
+               pvbEncrypted);
+} // end function EncryptBuffer
+
+HRESULT
+WindowsSymmetricCipherer::DecryptBuffer(
+    const vector<BYTE>* pvbEncrypted,
+    vector<BYTE>* pvbDecrypted
+) const
+{
+    return MungeTLS::DecryptBuffer(
+               pvbEncrypted,
+               Key()->GetKey(),
+               pvbDecrypted);
+} // end function DecryptBuffer
 
 HRESULT
 WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(

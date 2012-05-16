@@ -40,6 +40,7 @@ extern const BYTE c_abyCert[];
 extern const size_t c_cbCert;
 
 class MT_PreMasterSecret;
+class TLSConnection;
 
 class MT_Structure
 {
@@ -57,6 +58,21 @@ class MT_Structure
     private:
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb) { return E_NOTIMPL; }
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const { return E_NOTIMPL; }
+};
+
+class MT_SecuredStructure : public MT_Structure
+{
+    public:
+    MT_SecuredStructure();
+    virtual ~MT_SecuredStructure() { }
+
+    HRESULT CheckSecurity();
+    ACCESSORS(TLSConnection*, SecurityParameters, m_pSecurityParameters, MT_SecuredStructure*);
+
+    private:
+    virtual HRESULT CheckSecurityPriv() = 0;
+
+    TLSConnection* m_pSecurityParameters;
 };
 
 template <typename F,
@@ -278,16 +294,16 @@ class MT_Random : public MT_Structure
 
 enum MT_CipherSuiteValue
 {
-      MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
-      MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
-      MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
-      MTCS_TLS_RSA_WITH_RC4_128_MD5              = 0x0004,
-      MTCS_TLS_RSA_WITH_RC4_128_SHA              = 0x0005,
-      MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA         = 0x000A,
-      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA          = 0x002F,
-      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA          = 0x0035,
-      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256       = 0x003C,
-      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256       = 0x003D
+    MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
+    MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
+    MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
+    MTCS_TLS_RSA_WITH_RC4_128_MD5              = 0x0004,
+    MTCS_TLS_RSA_WITH_RC4_128_SHA              = 0x0005,
+    MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA         = 0x000A,
+    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA          = 0x002F,
+    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA          = 0x0035,
+    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256       = 0x003C,
+    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256       = 0x003D
 };
 
 const MT_CipherSuiteValue* GetSupportedCipherSuites(size_t* pcCipherSuites);
@@ -370,6 +386,33 @@ class MT_TLSPlaintext : public MT_Structure
     MT_ContentType m_contentType;
     MT_ProtocolVersion m_protocolVersion;
     std::vector<BYTE> m_vbFragment;
+};
+
+class MT_TLSCiphertext : public MT_SecuredStructure
+{
+    public:
+    MT_TLSCiphertext();
+    ~MT_TLSCiphertext() {};
+
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    //HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    size_t Length() const;
+
+    ACCESSORS(MT_ContentType*, ContentType, &m_contentType, MT_TLSCiphertext*);
+    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion, MT_TLSCiphertext*);
+    ACCESSORS(std::vector<BYTE>*, Fragment, &m_vbFragment, MT_TLSCiphertext*);
+    ACCESSORS(std::vector<BYTE>*, DecryptedFragment, &m_vbDecryptedFragment, MT_TLSCiphertext*);
+
+    HRESULT Encrypt();
+    HRESULT Decrypt();
+
+    private:
+    HRESULT CheckSecurityPriv() { return S_OK; }
+
+    MT_ContentType m_contentType;
+    MT_ProtocolVersion m_protocolVersion;
+    std::vector<BYTE> m_vbFragment;
+    std::vector<BYTE> m_vbDecryptedFragment;
 };
 
 class MT_Handshake : public MT_Structure
@@ -482,15 +525,10 @@ class TLSConnection
         size_t cb,
         std::vector<BYTE>* pvbResponse);
 
-    ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext, TLSConnection*);
     ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get(), TLSConnection*);
+    ACCESSORS(SymmetricCipherer*, ClientSymCipherer, m_spClientSymCipherer.get(), TLSConnection*);
+    ACCESSORS(SymmetricCipherer*, ServerSymCipherer, m_spServerSymCipherer.get(), TLSConnection*);
     ACCESSORS(Hasher*, HashInst, m_spHasher.get(), TLSConnection*);
-    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite, TLSConnection*);
-
-    ACCESSORS(std::vector<BYTE>*, MasterSecret, &m_vbMasterSecret, TLSConnection*);
-    ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom, TLSConnection*);
-    ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom, TLSConnection*);
-    ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion, TLSConnection*);
 
     private:
     HRESULT RespondTo(
@@ -499,15 +537,47 @@ class TLSConnection
 
     HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
 
+    HRESULT
+    ComputePRF(
+        const std::vector<BYTE>* pvbSecret,
+        PCSTR szLabel,
+        const std::vector<BYTE>* pvbSeed,
+        size_t cbMinimumLengthDesired,
+        std::vector<BYTE>* pvbPRF);
+
+    HRESULT GenerateKeyMaterial();
+
+    ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext, TLSConnection*);
+    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite, TLSConnection*);
+    ACCESSORS(std::vector<BYTE>*, MasterSecret, &m_vbMasterSecret, TLSConnection*);
+    ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom, TLSConnection*);
+    ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom, TLSConnection*);
+    ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion, TLSConnection*);
+
+    ACCESSORS(std::vector<BYTE>*, ClientWriteMACKey, &m_vbClientWriteMACKey, TLSConnection*);
+    ACCESSORS(std::vector<BYTE>*, ServerWriteMACKey, &m_vbServerWriteMACKey, TLSConnection*);
+    ACCESSORS(std::vector<BYTE>*, ClientWriteKey, &m_vbClientWriteKey, TLSConnection*);
+    ACCESSORS(std::vector<BYTE>*, ServerWriteKey, &m_vbServerWriteKey, TLSConnection*);
+    ACCESSORS(std::vector<BYTE>*, ClientWriteIV, &m_vbClientWriteIV, TLSConnection*);
+    ACCESSORS(std::vector<BYTE>*, ServerWriteIV, &m_vbServerWriteIV, TLSConnection*);
+
     MT_CipherSuite m_cipherSuite;
     PCCERT_CONTEXT m_pCertContext;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
+    std::shared_ptr<SymmetricCipherer> m_spClientSymCipherer;
+    std::shared_ptr<SymmetricCipherer> m_spServerSymCipherer;
     std::shared_ptr<Hasher> m_spHasher;
 
+    MT_ProtocolVersion m_negotiatedVersion;
     std::vector<BYTE> m_vbMasterSecret;
     MT_Random m_clientRandom;
     MT_Random m_serverRandom;
-    MT_ProtocolVersion m_negotiatedVersion;
+    std::vector<BYTE> m_vbClientWriteMACKey;
+    std::vector<BYTE> m_vbServerWriteMACKey;
+    std::vector<BYTE> m_vbClientWriteKey;
+    std::vector<BYTE> m_vbServerWriteKey;
+    std::vector<BYTE> m_vbClientWriteIV;
+    std::vector<BYTE> m_vbServerWriteIV;
 };
 
 // opaque ASN.1Cert<1..2^24-1>;
@@ -684,6 +754,12 @@ ComputePRF_TLS10(
     const std::vector<BYTE>* pvbSeed,
     size_t cbMinimumLengthDesired,
     std::vector<BYTE>* pvbPRF);
+
+HRESULT
+CryptoInfoFromCipherSuite(
+    const MT_CipherSuite* pCipherSuite,
+    SymmetricCipherer::CipherInfo* pCipherInfo,
+    Hasher::HashInfo* pHashInfo);
 
 }
 #pragma warning(pop)

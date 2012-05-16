@@ -34,6 +34,11 @@ class SymmetricCipherer
         size_t cbBlockSize;
     };
 
+    virtual
+    HRESULT
+    Initialize(
+        const std::vector<BYTE>* pvbKey,
+        CipherAlg cipherAlg) = 0;
 
     virtual
     HRESULT

@@ -6,10 +6,13 @@
 - use a state machine for the handle message stuff
 - proper consts for all magic numbers
 - renegotiation info
+- remove the cast operator from MT_CipherSuite to CipherSuiteValue
+- figure out what cipher and hash suites we actually support. there are many places where we seem to support a hash type, but in another place we throw unsupported hash for it
+- can all of the hash and cipher related functions around tlsconnection be made const?
 
 Finish message:
 DONE - compute master secret from premaster secret
-- generate client write mac, server write mac, client write key, and server write key
+DONE - generate client write mac, server write mac, client write key, and server write key
 - add Finish message structure
 - translation of TLSCiphertext to TLSPlaintext
 - translation of TLSPlaintext to TLSCiphertext

@@ -26,6 +26,7 @@ class KeyAndProv
     public:
     KeyAndProv();
     ~KeyAndProv();
+    KeyAndProv& operator=(const KeyAndProv& rOther);
 
     void Init(HCRYPTPROV hProv, BOOL fCallerFree);
     HCRYPTKEY GetKey() const { return m_hKey; }
@@ -34,6 +35,8 @@ class KeyAndProv
     void Detach();
 
     private:
+    void Clear();
+
     HCRYPTPROV m_hProv;
     HCRYPTKEY m_hKey;
     BOOL m_fCallerFree;
@@ -59,11 +62,33 @@ GetPublicKeyFromCertificate(
 class WindowsSymmetricCipherer : public SymmetricCipherer
 {
     public:
+    WindowsSymmetricCipherer();
+    ~WindowsSymmetricCipherer() { }
+
+    HRESULT
+    Initialize(
+        const std::vector<BYTE>* pvbKey,
+        CipherAlg cipherAlg);
+
+    HRESULT
+    EncryptBuffer(
+        const std::vector<BYTE>* pvbCleartext,
+        std::vector<BYTE>* pvbEncrypted) const;
+
+    HRESULT
+    DecryptBuffer(
+        const std::vector<BYTE>* pvbEncrypted,
+        std::vector<BYTE>* pvbDecrypted) const;
+
     static
     HRESULT
     WindowsCipherAlgFromMTCipherAlg(
         SymmetricCipherer::CipherAlg alg,
         ALG_ID* pAlgID);
+
+    private:
+    ACCESSORS(KeyAndProv*, Key, &m_key, WindowsSymmetricCipherer*);
+    KeyAndProv m_key;
 };
 
 class WindowsPublicKeyCipherer : public PublicKeyCipherer
