@@ -9,10 +9,9 @@
 namespace MungeTLS
 {
 
-#define ACCESSORS(returnType, name, member, thisType) \
+#define ACCESSORS(returnType, name, member) \
     const returnType name() const { return member; } \
-    returnType name() { return const_cast<returnType>(static_cast<const thisType>(this)->name()); } \
-
+    returnType name() { return const_cast<returnType>(static_cast<std::remove_pointer<decltype(this)>::type const*>(this)->name()); } \
 
 typedef unsigned long MT_UINT16;
 
@@ -67,7 +66,7 @@ class MT_SecuredStructure : public MT_Structure
     virtual ~MT_SecuredStructure() { }
 
     HRESULT CheckSecurity();
-    ACCESSORS(TLSConnection*, SecurityParameters, m_pSecurityParameters, MT_SecuredStructure*);
+    ACCESSORS(TLSConnection*, SecurityParameters, m_pSecurityParameters);
 
     private:
     virtual HRESULT CheckSecurityPriv() = 0;
@@ -90,7 +89,7 @@ class MT_VariableLengthFieldBase : public MT_Structure
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const = 0;
 
     size_t Length() const;
-    ACCESSORS(std::vector<F>*, Data, &m_vData, MT_VariableLengthFieldBase*);
+    ACCESSORS(std::vector<F>*, Data, &m_vData);
     size_t Count() const { return Data()->size(); }
 
     const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
@@ -144,7 +143,7 @@ class MT_FixedLengthStructureBase : public MT_Structure
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb) = 0;
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const = 0;
 
-    ACCESSORS(std::vector<F>*, Data, &m_vData, MT_FixedLengthStructureBase*);
+    ACCESSORS(std::vector<F>*, Data, &m_vData);
     size_t Count() const { return Data()->size(); }
 
     const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
@@ -187,11 +186,11 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     HRESULT DecryptStructure();
     HRESULT SetCipherer(const PublicKeyCipherer* pCipherer) { m_pCipherer = pCipherer; return S_OK; }
 
-    ACCESSORS(T*, Structure, &m_structure, MT_PublicKeyEncryptedStructure<T>*);
-    ACCESSORS(std::vector<BYTE>*, EncryptedStructure, &m_vbEncryptedStructure, MT_PublicKeyEncryptedStructure<T>*);
+    ACCESSORS(T*, Structure, &m_structure);
+    ACCESSORS(std::vector<BYTE>*, EncryptedStructure, &m_vbEncryptedStructure);
 
     private:
-    ACCESSORS(std::vector<BYTE>*, PlaintextStructure, &m_vbPlaintextStructure, MT_PublicKeyEncryptedStructure<T>*);
+    ACCESSORS(std::vector<BYTE>*, PlaintextStructure, &m_vbPlaintextStructure);
 
     const PublicKeyCipherer* GetCipherer() const { return m_pCipherer; }
 
@@ -281,7 +280,7 @@ class MT_Random : public MT_Structure
     MT_UINT32 GMTUnixTime() const { return m_timestamp; }
     void SetGMTUnixTime(MT_UINT32 timestamp) { m_timestamp = timestamp; }
 
-    ACCESSORS(std::vector<BYTE>*, RandomBytes, &m_vbRandomBytes, MT_Random*);
+    ACCESSORS(std::vector<BYTE>*, RandomBytes, &m_vbRandomBytes);
 
     HRESULT PopulateNow();
 
@@ -376,9 +375,9 @@ class MT_TLSPlaintext : public MT_Structure
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     size_t Length() const;
 
-    ACCESSORS(MT_ContentType*, ContentType, &m_contentType, MT_TLSPlaintext*);
-    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion, MT_TLSPlaintext*);
-    ACCESSORS(std::vector<BYTE>*, Fragment, &m_vbFragment, MT_TLSPlaintext*);
+    ACCESSORS(MT_ContentType*, ContentType, &m_contentType);
+    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
+    ACCESSORS(std::vector<BYTE>*, Fragment, &m_vbFragment);
 
     MT_UINT16 PayloadLength() const;
 
@@ -398,10 +397,10 @@ class MT_TLSCiphertext : public MT_SecuredStructure
     //HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     size_t Length() const;
 
-    ACCESSORS(MT_ContentType*, ContentType, &m_contentType, MT_TLSCiphertext*);
-    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion, MT_TLSCiphertext*);
-    ACCESSORS(std::vector<BYTE>*, Fragment, &m_vbFragment, MT_TLSCiphertext*);
-    ACCESSORS(std::vector<BYTE>*, DecryptedFragment, &m_vbDecryptedFragment, MT_TLSCiphertext*);
+    ACCESSORS(MT_ContentType*, ContentType, &m_contentType);
+    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
+    ACCESSORS(std::vector<BYTE>*, Fragment, &m_vbFragment);
+    ACCESSORS(std::vector<BYTE>*, DecryptedFragment, &m_vbDecryptedFragment);
 
     HRESULT Encrypt();
     HRESULT Decrypt();
@@ -444,7 +443,7 @@ class MT_Handshake : public MT_Structure
     MTH_HandshakeType HandshakeType() const;
     void SetType(MTH_HandshakeType eType) { m_eType = eType; }
 
-    ACCESSORS(std::vector<BYTE>*, Body, &m_vbBody, MT_Handshake*);
+    ACCESSORS(std::vector<BYTE>*, Body, &m_vbBody);
 
     static bool IsKnownType(MTH_HandshakeType eType);
     static bool IsSupportedType(MTH_HandshakeType eType);
@@ -468,12 +467,12 @@ class MT_ClientHello : public MT_Structure
     MT_ClientHello();
     ~MT_ClientHello() { }
 
-    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion, MT_ClientHello*);
-    ACCESSORS(MT_Random*, Random, &m_random, MT_ClientHello*);
-    ACCESSORS(MT_SessionID*, SessionID, &m_sessionID, MT_ClientHello*);
-    ACCESSORS(MT_CipherSuites*, CipherSuites, &m_cipherSuites, MT_ClientHello*);
-    ACCESSORS(MT_CompressionMethods*, CompressionMethods, &m_compressionMethods, MT_ClientHello*);
-    ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions, MT_ClientHello*);
+    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
+    ACCESSORS(MT_Random*, Random, &m_random);
+    ACCESSORS(MT_SessionID*, SessionID, &m_sessionID);
+    ACCESSORS(MT_CipherSuites*, CipherSuites, &m_cipherSuites);
+    ACCESSORS(MT_CompressionMethods*, CompressionMethods, &m_compressionMethods);
+    ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions);
 
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     size_t Length() const;
@@ -496,12 +495,12 @@ class MT_ServerHello : public MT_Structure
     size_t Length() const;
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion, MT_ServerHello*);
-    ACCESSORS(MT_Random*, Random, &m_random, MT_ServerHello*);
-    ACCESSORS(MT_SessionID*, SessionID, &m_sessionID, MT_ServerHello*);
-    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite, MT_ServerHello*);
-    ACCESSORS(MT_CompressionMethod*, CompressionMethod, &m_compressionMethod, MT_ServerHello*);
-    ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions, MT_ServerHello*);
+    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
+    ACCESSORS(MT_Random*, Random, &m_random);
+    ACCESSORS(MT_SessionID*, SessionID, &m_sessionID);
+    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
+    ACCESSORS(MT_CompressionMethod*, CompressionMethod, &m_compressionMethod);
+    ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions);
 
     private:
     MT_ProtocolVersion m_protocolVersion;
@@ -525,10 +524,10 @@ class TLSConnection
         size_t cb,
         std::vector<BYTE>* pvbResponse);
 
-    ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get(), TLSConnection*);
-    ACCESSORS(SymmetricCipherer*, ClientSymCipherer, m_spClientSymCipherer.get(), TLSConnection*);
-    ACCESSORS(SymmetricCipherer*, ServerSymCipherer, m_spServerSymCipherer.get(), TLSConnection*);
-    ACCESSORS(Hasher*, HashInst, m_spHasher.get(), TLSConnection*);
+    ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get());
+    ACCESSORS(SymmetricCipherer*, ClientSymCipherer, m_spClientSymCipherer.get());
+    ACCESSORS(SymmetricCipherer*, ServerSymCipherer, m_spServerSymCipherer.get());
+    ACCESSORS(Hasher*, HashInst, m_spHasher.get());
 
     private:
     HRESULT RespondTo(
@@ -547,19 +546,19 @@ class TLSConnection
 
     HRESULT GenerateKeyMaterial();
 
-    ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext, TLSConnection*);
-    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite, TLSConnection*);
-    ACCESSORS(std::vector<BYTE>*, MasterSecret, &m_vbMasterSecret, TLSConnection*);
-    ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom, TLSConnection*);
-    ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom, TLSConnection*);
-    ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion, TLSConnection*);
+    ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext);
+    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
+    ACCESSORS(std::vector<BYTE>*, MasterSecret, &m_vbMasterSecret);
+    ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
+    ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
+    ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion);
 
-    ACCESSORS(std::vector<BYTE>*, ClientWriteMACKey, &m_vbClientWriteMACKey, TLSConnection*);
-    ACCESSORS(std::vector<BYTE>*, ServerWriteMACKey, &m_vbServerWriteMACKey, TLSConnection*);
-    ACCESSORS(std::vector<BYTE>*, ClientWriteKey, &m_vbClientWriteKey, TLSConnection*);
-    ACCESSORS(std::vector<BYTE>*, ServerWriteKey, &m_vbServerWriteKey, TLSConnection*);
-    ACCESSORS(std::vector<BYTE>*, ClientWriteIV, &m_vbClientWriteIV, TLSConnection*);
-    ACCESSORS(std::vector<BYTE>*, ServerWriteIV, &m_vbServerWriteIV, TLSConnection*);
+    ACCESSORS(std::vector<BYTE>*, ClientWriteMACKey, &m_vbClientWriteMACKey);
+    ACCESSORS(std::vector<BYTE>*, ServerWriteMACKey, &m_vbServerWriteMACKey);
+    ACCESSORS(std::vector<BYTE>*, ClientWriteKey, &m_vbClientWriteKey);
+    ACCESSORS(std::vector<BYTE>*, ServerWriteKey, &m_vbServerWriteKey);
+    ACCESSORS(std::vector<BYTE>*, ClientWriteIV, &m_vbClientWriteIV);
+    ACCESSORS(std::vector<BYTE>*, ServerWriteIV, &m_vbServerWriteIV);
 
     MT_CipherSuite m_cipherSuite;
     PCCERT_CONTEXT m_pCertContext;
@@ -598,7 +597,7 @@ class MT_Certificate : public MT_Structure
     HRESULT PopulateFromFile(PCWSTR wszFilename);
     HRESULT PopulateFromMemory(const BYTE* pvCert, size_t cbCert);
 
-    ACCESSORS(MT_CertificateList*, CertificateList, &m_certificateList, MT_Certificate*);
+    ACCESSORS(MT_CertificateList*, CertificateList, &m_certificateList);
 
     private:
     MT_CertificateList m_certificateList;
@@ -616,8 +615,8 @@ class MT_PreMasterSecret : public MT_Structure
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    ACCESSORS(MT_ProtocolVersion*, ClientVersion, &m_clientVersion, MT_PreMasterSecret*);
-    ACCESSORS(OpaqueRandom*, Random, &m_random, MT_PreMasterSecret*);
+    ACCESSORS(MT_ProtocolVersion*, ClientVersion, &m_clientVersion);
+    ACCESSORS(OpaqueRandom*, Random, &m_random);
 
 
     private:
@@ -639,7 +638,7 @@ class MT_ClientKeyExchange : public MT_Structure
     // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     // TODO: make shared_ptr, I think?
-    ACCESSORS(KeyType*, ExchangeKeys, m_spExchangeKeys.get(), MT_ClientKeyExchange*);
+    ACCESSORS(KeyType*, ExchangeKeys, m_spExchangeKeys.get());
 
     private:
     std::shared_ptr<KeyType> m_spExchangeKeys;
@@ -661,7 +660,7 @@ class MT_ChangeCipherSpec : public MT_Structure
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    ACCESSORS(MTCCS_Type*, Type, &m_type, MT_ChangeCipherSpec*);
+    ACCESSORS(MTCCS_Type*, Type, &m_type);
 
     private:
     MTCCS_Type m_type;
@@ -678,7 +677,7 @@ class MT_Thingy : public MT_Structure
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    ACCESSORS(ThingyType*, Thingy, &m_thingy, MT_Thingy*);
+    ACCESSORS(ThingyType*, Thingy, &m_thingy);
 
     private:
     ThingyType m_thingy;

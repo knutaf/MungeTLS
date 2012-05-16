@@ -87,7 +87,7 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
         ALG_ID* pAlgID);
 
     private:
-    ACCESSORS(KeyAndProv*, Key, &m_key, WindowsSymmetricCipherer*);
+    ACCESSORS(KeyAndProv*, Key, &m_key);
     KeyAndProv m_key;
 };
 
