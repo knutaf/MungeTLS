@@ -761,7 +761,7 @@ wmain(
         wprintf(L"exported fixed key:\n");
         PrintByteVector(&vbExportedKey);
 
-        hr = TestEncryptDecrypt(&vbCleartext, kpRandom.GetKey(), kpRandom.GetKey());
+        hr = TestEncryptDecrypt(&vbCleartext, kpFixed.GetKey(), kpFixed.GetKey());
 
         if (hr != S_OK)
         {
