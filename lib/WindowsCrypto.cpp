@@ -30,8 +30,6 @@ struct PlaintextKey
     BYTE rgbKeyData[1];
 };
 
-HRESULT PrintByteVector(const vector<BYTE>* pvb);
-
 HRESULT
 LookupCertificate(
     DWORD dwCertStoreFlags,
@@ -1101,20 +1099,5 @@ done:
 error:
     goto done;
 } // end function ImportSymmetricKey
-
-HRESULT PrintByteVector(const vector<BYTE>* pvb)
-{
-     HRESULT hr = S_OK;
-
-     for_each(pvb->begin(), pvb->end(),
-     [](BYTE b)
-     {
-         wprintf(L"%02X ", b);
-     });
-
-     wprintf(L"\n");
-
-     return hr;
-} // end function PrintByteVector
 
 }

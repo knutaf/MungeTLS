@@ -166,6 +166,8 @@ DecryptBuffer(
 
 std::vector<BYTE> ReverseByteOrder(const std::vector<BYTE>* pvb);
 
+HRESULT PrintByteVector(const std::vector<BYTE>* pvb);
+
 HRESULT
 ImportSymmetricKey(
     const std::vector<BYTE>* pvbKey,

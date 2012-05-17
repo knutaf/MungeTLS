@@ -68,7 +68,8 @@ TLSConnection::TLSConnection()
       m_vbClientWriteKey(),
       m_vbServerWriteKey(),
       m_vbClientWriteIV(),
-      m_vbServerWriteIV()
+      m_vbServerWriteIV(),
+      m_fSecureMode(false)
 {
 } // end ctor TLSConnection
 
@@ -126,158 +127,190 @@ TLSConnection::HandleMessage(
         return E_UNEXPECTED;
     }
 
-    MT_TLSPlaintext message;
-    hr = message.ParseFrom(pv, cb);
-
-    if (hr == S_OK)
+    if (m_fSecureMode)
     {
-        printf("successfully parsed TLSPlaintext. CT=%d\n", message.ContentType()->Type());
+        MT_TLSCiphertext message;
+        hr = message.ParseFrom(pv, cb);
 
-        if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+        if (hr == S_OK)
         {
-            MT_Handshake handshakeMessage;
-            hr = handshakeMessage.ParseFromVect(message.Fragment());
+            printf("successfully parsed TLSCiphertext. CT=%d\n", message.ContentType()->Type());
+
+            message.SetSecurityParameters(this);
+
+            hr = message.Decrypt();
 
             if (hr == S_OK)
             {
-                printf("successfully parsed Handshake. type=%d\n", handshakeMessage.HandshakeType());
-
-                if (handshakeMessage.HandshakeType() == MT_Handshake::MTH_ClientHello)
-                {
-                    MT_ClientHello clientHello;
-                    hr = clientHello.ParseFromVect(handshakeMessage.Body());
-
-                    if (hr == S_OK)
-                    {
-                        printf("parsed client hello message:\n");
-                        printf("version %04LX\n", clientHello.ProtocolVersion()->Version());
-                        printf("session ID %d\n", clientHello.SessionID()->Data()[0]);
-                        printf("%d crypto suites\n", clientHello.CipherSuites()->Count());
-
-                        printf("crypto suite 0: %02X %02X\n",
-                               *(clientHello.CipherSuites()->at(0)->at(0)),
-                               *(clientHello.CipherSuites()->at(0)->at(1)));
-
-                        printf("%d compression methods: %d\n",
-                               clientHello.CompressionMethods()->Count(),
-                               clientHello.CompressionMethods()->at(0)->Method());
-
-                        printf("%d bytes of extensions\n", clientHello.Extensions()->Length());
-
-                        *NegotiatedVersion() = *(clientHello.ProtocolVersion());
-
-                        vector<MT_TLSPlaintext> responseMessages;
-                        hr = RespondTo(&clientHello, &responseMessages);
-
-                        if (hr == S_OK)
-                        {
-                            printf("got %u messages to respond with\n", responseMessages.size());
-                            hr = SerializeMessagesToVector(&responseMessages, pvbResponse);
-                            //hr = responseMessages[0].SerializeToVect(pvbResponse);
-                        }
-                        else
-                        {
-                            printf("failed RespondTo: %08LX\n", hr);
-                        }
-                    }
-                    else
-                    {
-                        printf("failed to parse client hello: %08LX\n", hr);
-                    }
-                }
-                else if (handshakeMessage.HandshakeType() == MT_Handshake::MTH_ClientKeyExchange)
-                {
-                    MT_KeyExchangeAlgorithm keyExchangeAlg;
-                    hr = CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg);
-
-                    if (hr == S_OK)
-                    {
-                        if (keyExchangeAlg == MTKEA_rsa)
-                        {
-                            MT_ClientKeyExchange<MT_EncryptedPreMasterSecret> keyExchange;
-                            hr = keyExchange.ParseFromVect(handshakeMessage.Body());
-
-                            if (hr == S_OK)
-                            {
-                                MT_EncryptedPreMasterSecret* pExchangeKeys = keyExchange.ExchangeKeys();
-                                pExchangeKeys->SetCipherer(PubKeyCipherer());
-                                hr = pExchangeKeys->DecryptStructure();
-
-                                if (hr == S_OK)
-                                {
-                                    MT_PreMasterSecret* pSecret = pExchangeKeys->Structure();
-                                    printf("version %04LX\n", pSecret->ClientVersion()->Version());
-
-                                    hr = ComputeMasterSecret(pSecret);
-
-                                    if (hr == S_OK)
-                                    {
-                                        printf("computed master secret\n");
-
-                                        hr = GenerateKeyMaterial();
-                                        if (hr == S_OK)
-                                        {
-                                            printf("computed key material\n");
-                                        }
-                                        else
-                                        {
-                                            printf("failed to compute key material: %08LX\n", hr);
-                                        }
-                                    }
-                                    else
-                                    {
-                                        printf("failed to compute master secret: %08LX\n", hr);
-                                    }
-                                }
-                                else
-                                {
-                                    printf("failed to decrypt structure: %08LX\n", hr);
-                                }
-                            }
-                            else
-                            {
-                                printf("failed to parse key exchange message from handshake body: %08LX\n", hr);
-                            }
-                        }
-                        else
-                        {
-                            printf("unsupported key exchange type: %d\n", keyExchangeAlg);
-                            hr = MT_E_UNSUPPORTED_KEY_EXCHANGE;
-                        }
-                    }
-                    else
-                    {
-                        printf("failed to get key exchange algorithm: %08LX\n", hr);
-                    }
-                }
-                else
-                {
-                    printf("not yet supporting handshake type %d\n", handshakeMessage.HandshakeType());
-                }
+                printf("decrypted fragment:\n");
+                PrintByteVector(message.DecryptedFragment());
             }
             else
             {
-                printf("failed to parse handshake: %08LX\n", hr);
+                printf("failed to decrypt ciphertext: %08LX\n", hr);
             }
         }
-        else if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
+        else
         {
-            MT_ChangeCipherSpec changeCipherSpec;
-
-            hr = changeCipherSpec.ParseFromVect(message.Fragment());
-            if (hr == S_OK)
-            {
-                printf("change cipher spec found: %d\n", *(changeCipherSpec.Type()));
-            }
-            else
-            {
-                printf("failed to parse change cipher spec: %08LX\n", hr);
-            }
+            printf("failed to parse ciphered message: %08LX\n", hr);
         }
     }
     else
     {
-        printf("failed to parse message: %08LX\n", hr);
+        MT_TLSPlaintext message;
+        hr = message.ParseFrom(pv, cb);
+
+        if (hr == S_OK)
+        {
+            printf("successfully parsed TLSPlaintext. CT=%d\n", message.ContentType()->Type());
+
+            if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+            {
+                MT_Handshake handshakeMessage;
+                hr = handshakeMessage.ParseFromVect(message.Fragment());
+
+                if (hr == S_OK)
+                {
+                    printf("successfully parsed Handshake. type=%d\n", handshakeMessage.HandshakeType());
+
+                    if (handshakeMessage.HandshakeType() == MT_Handshake::MTH_ClientHello)
+                    {
+                        MT_ClientHello clientHello;
+                        hr = clientHello.ParseFromVect(handshakeMessage.Body());
+
+                        if (hr == S_OK)
+                        {
+                            printf("parsed client hello message:\n");
+                            printf("version %04LX\n", clientHello.ProtocolVersion()->Version());
+                            printf("session ID %d\n", clientHello.SessionID()->Data()[0]);
+                            printf("%d crypto suites\n", clientHello.CipherSuites()->Count());
+
+                            printf("crypto suite 0: %02X %02X\n",
+                                   *(clientHello.CipherSuites()->at(0)->at(0)),
+                                   *(clientHello.CipherSuites()->at(0)->at(1)));
+
+                            printf("%d compression methods: %d\n",
+                                   clientHello.CompressionMethods()->Count(),
+                                   clientHello.CompressionMethods()->at(0)->Method());
+
+                            printf("%d bytes of extensions\n", clientHello.Extensions()->Length());
+
+                            *NegotiatedVersion() = *(clientHello.ProtocolVersion());
+
+                            vector<MT_TLSPlaintext> responseMessages;
+                            hr = RespondTo(&clientHello, &responseMessages);
+
+                            if (hr == S_OK)
+                            {
+                                printf("got %u messages to respond with\n", responseMessages.size());
+                                hr = SerializeMessagesToVector(&responseMessages, pvbResponse);
+                                //hr = responseMessages[0].SerializeToVect(pvbResponse);
+                            }
+                            else
+                            {
+                                printf("failed RespondTo: %08LX\n", hr);
+                            }
+                        }
+                        else
+                        {
+                            printf("failed to parse client hello: %08LX\n", hr);
+                        }
+                    }
+                    else if (handshakeMessage.HandshakeType() == MT_Handshake::MTH_ClientKeyExchange)
+                    {
+                        MT_KeyExchangeAlgorithm keyExchangeAlg;
+                        hr = CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg);
+
+                        if (hr == S_OK)
+                        {
+                            if (keyExchangeAlg == MTKEA_rsa)
+                            {
+                                MT_ClientKeyExchange<MT_EncryptedPreMasterSecret> keyExchange;
+                                hr = keyExchange.ParseFromVect(handshakeMessage.Body());
+
+                                if (hr == S_OK)
+                                {
+                                    MT_EncryptedPreMasterSecret* pExchangeKeys = keyExchange.ExchangeKeys();
+                                    pExchangeKeys->SetCipherer(PubKeyCipherer());
+                                    hr = pExchangeKeys->DecryptStructure();
+
+                                    if (hr == S_OK)
+                                    {
+                                        MT_PreMasterSecret* pSecret = pExchangeKeys->Structure();
+                                        printf("version %04LX\n", pSecret->ClientVersion()->Version());
+
+                                        hr = ComputeMasterSecret(pSecret);
+
+                                        if (hr == S_OK)
+                                        {
+                                            printf("computed master secret\n");
+
+                                            hr = GenerateKeyMaterial();
+                                            if (hr == S_OK)
+                                            {
+                                                printf("computed key material\n");
+                                            }
+                                            else
+                                            {
+                                                printf("failed to compute key material: %08LX\n", hr);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            printf("failed to compute master secret: %08LX\n", hr);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        printf("failed to decrypt structure: %08LX\n", hr);
+                                    }
+                                }
+                                else
+                                {
+                                    printf("failed to parse key exchange message from handshake body: %08LX\n", hr);
+                                }
+                            }
+                            else
+                            {
+                                printf("unsupported key exchange type: %d\n", keyExchangeAlg);
+                                hr = MT_E_UNSUPPORTED_KEY_EXCHANGE;
+                            }
+                        }
+                        else
+                        {
+                            printf("failed to get key exchange algorithm: %08LX\n", hr);
+                        }
+                    }
+                    else
+                    {
+                        printf("not yet supporting handshake type %d\n", handshakeMessage.HandshakeType());
+                    }
+                }
+                else
+                {
+                    printf("failed to parse handshake: %08LX\n", hr);
+                }
+            }
+            else if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
+            {
+                MT_ChangeCipherSpec changeCipherSpec;
+
+                hr = changeCipherSpec.ParseFromVect(message.Fragment());
+                if (hr == S_OK)
+                {
+                    printf("change cipher spec found: %d\n", *(changeCipherSpec.Type()));
+                    m_fSecureMode = true;
+                }
+                else
+                {
+                    printf("failed to parse change cipher spec: %08LX\n", hr);
+                }
+            }
+        }
+        else
+        {
+            printf("failed to parse message: %08LX\n", hr);
+        }
     }
 
     return hr;
@@ -454,6 +487,8 @@ TLSConnection::ComputeMasterSecret(
     {
         goto error;
     }
+
+    printf
 
     hr = ClientRandom()->SerializeToVect(&vbRandoms);
     if (hr != S_OK)
@@ -880,6 +915,21 @@ ReverseByteOrder(
 {
     return vector<BYTE>(pvb->rbegin(), pvb->rend());
 } // end function ReverseByteOrder
+
+HRESULT PrintByteVector(const vector<BYTE>* pvb)
+{
+     HRESULT hr = S_OK;
+
+     for_each(pvb->begin(), pvb->end(),
+     [](BYTE b)
+     {
+         wprintf(L"%02X ", b);
+     });
+
+     wprintf(L"\n");
+
+     return hr;
+} // end function PrintByteVector
 
 /*********** crypto stuff *****************/
 

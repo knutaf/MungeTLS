@@ -66,7 +66,9 @@ class MT_SecuredStructure : public MT_Structure
     virtual ~MT_SecuredStructure() { }
 
     HRESULT CheckSecurity();
-    ACCESSORS(TLSConnection*, SecurityParameters, m_pSecurityParameters);
+
+    const TLSConnection* SecurityParameters() { return m_pSecurityParameters; }
+    void SetSecurityParameters(TLSConnection* pSecurityParameters) { m_pSecurityParameters = pSecurityParameters; }
 
     private:
     virtual HRESULT CheckSecurityPriv() = 0;
@@ -577,6 +579,9 @@ class TLSConnection
     std::vector<BYTE> m_vbServerWriteKey;
     std::vector<BYTE> m_vbClientWriteIV;
     std::vector<BYTE> m_vbServerWriteIV;
+
+    // TODO: absolutely not the right way to do this
+    bool m_fSecureMode;
 };
 
 // opaque ASN.1Cert<1..2^24-1>;
