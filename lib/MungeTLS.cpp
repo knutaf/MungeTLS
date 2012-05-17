@@ -195,7 +195,9 @@ TLSConnection::HandleMessage(
 
                             printf("%d bytes of extensions\n", clientHello.Extensions()->Length());
 
+
                             *NegotiatedVersion() = *(clientHello.ProtocolVersion());
+                            *ClientRandom() = *(clientHello.Random());
 
                             vector<MT_TLSPlaintext> responseMessages;
                             hr = RespondTo(&clientHello, &responseMessages);
@@ -243,7 +245,8 @@ TLSConnection::HandleMessage(
 
                                         if (hr == S_OK)
                                         {
-                                            printf("computed master secret\n");
+                                            printf("computed master secret:\n");
+                                            PrintByteVector(MasterSecret());
 
                                             hr = GenerateKeyMaterial();
                                             if (hr == S_OK)
@@ -345,12 +348,6 @@ TLSConnection::RespondTo(
             goto error;
         }
 
-        hr = sessionID.PopulateWithRandom();
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
         // TODO: setting this on the connection object. feels unclean
         // rsa + sha256 cbc
         //*(CipherSuite()->at(0)) = 0x00;
@@ -376,6 +373,8 @@ TLSConnection::RespondTo(
         *(serverHello.CipherSuite()) = *CipherSuite();
         *(serverHello.CompressionMethod()) = compressionMethod;
         *(serverHello.Extensions()) = extensions;
+
+        *ServerRandom() = *(serverHello.Random());
 
         handshake.SetType(MT_Handshake::MTH_ServerHello);
         hr = serverHello.SerializeToVect(handshake.Body());
@@ -488,7 +487,8 @@ TLSConnection::ComputeMasterSecret(
         goto error;
     }
 
-    printf
+    printf("premaster secret:\n");
+    PrintByteVector(&vbPreMasterSecret);
 
     hr = ClientRandom()->SerializeToVect(&vbRandoms);
     if (hr != S_OK)
@@ -496,11 +496,15 @@ TLSConnection::ComputeMasterSecret(
         goto error;
     }
 
+    assert(vbRandoms.size() == ClientRandom()->Length());
+
     hr = ServerRandom()->SerializeAppendToVect(&vbRandoms);
     if (hr != S_OK)
     {
         goto error;
     }
+
+    assert(vbRandoms.size() == ClientRandom()->Length() + ServerRandom()->Length());
 
     hr = ComputePRF(
              &vbPreMasterSecret,
@@ -513,6 +517,8 @@ TLSConnection::ComputeMasterSecret(
     {
         goto error;
     }
+
+    assert(MasterSecret()->size() == 48);
 
 done:
     return hr;
@@ -583,6 +589,8 @@ TLSConnection::GenerateKeyMaterial()
     vector<BYTE> vbRandoms;
     vector<BYTE> vbKeyBlock;
 
+    printf("gen key material\n");
+
     assert(!MasterSecret()->empty());
 
     hr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, &hashInfo);
@@ -594,6 +602,8 @@ TLSConnection::GenerateKeyMaterial()
     cbKeyBlock = (hashInfo.cbHashKeySize * 2) +
                  (cipherInfo.cbKeyMaterialSize * 2) +
                  (cipherInfo.cbIVSize * 2);
+
+    printf("need %d bytes for key block (%d * 2) + (%d * 2) + (%d * 2)\n", cbKeyBlock, hashInfo.cbHashKeySize, cipherInfo.cbKeyMaterialSize, cipherInfo.cbIVSize);
 
     hr = ServerRandom()->SerializeToVect(&vbRandoms);
     if (hr != S_OK)
@@ -607,6 +617,9 @@ TLSConnection::GenerateKeyMaterial()
         goto error;
     }
 
+    printf("randoms: (%d bytes)\n", vbRandoms.size());
+    PrintByteVector(&vbRandoms);
+
     hr = ComputePRF(
              MasterSecret(),
              "key expansion",
@@ -619,33 +632,62 @@ TLSConnection::GenerateKeyMaterial()
         goto error;
     }
 
+    printf("key block:\n");
+    PrintByteVector(&vbKeyBlock);
+
     {
         auto itKeyBlock = vbKeyBlock.begin();
 
-        ClientWriteMACKey()->assign(itKeyBlock, itKeyBlock + hashInfo.cbHashKeySize);
-        itKeyBlock += hashInfo.cbHashKeySize;
+        size_t cbField = hashInfo.cbHashKeySize;
+        ClientWriteMACKey()->assign(itKeyBlock, itKeyBlock + cbField);
+        itKeyBlock += cbField;
+
+        printf("ClientWriteMACKey\n");
+        PrintByteVector(ClientWriteMACKey());
 
         assert(itKeyBlock <= vbKeyBlock.end());
-        ServerWriteMACKey()->assign(itKeyBlock, itKeyBlock + hashInfo.cbHashKeySize);
-        itKeyBlock += hashInfo.cbHashKeySize;
+        cbField = hashInfo.cbHashKeySize;
+        ServerWriteMACKey()->assign(itKeyBlock, itKeyBlock + cbField);
+        itKeyBlock += cbField;
 
+        printf("ServerWriteMACKey\n");
+        PrintByteVector(ServerWriteMACKey());
 
-        assert(itKeyBlock <= vbKeyBlock.end());
-        ClientWriteKey()->assign(itKeyBlock, itKeyBlock + cipherInfo.cbKeyMaterialSize);
-        itKeyBlock += cipherInfo.cbKeyMaterialSize;
-
-        assert(itKeyBlock <= vbKeyBlock.end());
-        ServerWriteKey()->assign(itKeyBlock, itKeyBlock + cipherInfo.cbKeyMaterialSize);
-        itKeyBlock += cipherInfo.cbKeyMaterialSize;
 
 
         assert(itKeyBlock <= vbKeyBlock.end());
-        ClientWriteIV()->assign(itKeyBlock, itKeyBlock + cipherInfo.cbIVSize);
-        itKeyBlock += cipherInfo.cbIVSize;
+        cbField = cipherInfo.cbKeyMaterialSize;
+        ClientWriteKey()->assign(itKeyBlock, itKeyBlock + cbField);
+        itKeyBlock += cbField;
+
+        printf("ClientWriteKey\n");
+        PrintByteVector(ClientWriteKey());
 
         assert(itKeyBlock <= vbKeyBlock.end());
-        ServerWriteIV()->assign(itKeyBlock, itKeyBlock + cipherInfo.cbIVSize);
-        itKeyBlock += cipherInfo.cbIVSize;
+        cbField = cipherInfo.cbKeyMaterialSize;
+        ServerWriteKey()->assign(itKeyBlock, itKeyBlock + cbField);
+        itKeyBlock += cbField;
+
+        printf("ServerWriteKey\n");
+        PrintByteVector(ServerWriteKey());
+
+
+
+        assert(itKeyBlock <= vbKeyBlock.end());
+        cbField = cipherInfo.cbIVSize;
+        ClientWriteIV()->assign(itKeyBlock, itKeyBlock + cbField);
+        itKeyBlock += cbField;
+
+        printf("ClientWriteIV\n");
+        PrintByteVector(ClientWriteIV());
+
+        assert(itKeyBlock <= vbKeyBlock.end());
+        cbField = cipherInfo.cbIVSize;
+        ServerWriteIV()->assign(itKeyBlock, itKeyBlock + cbField);
+        itKeyBlock += cbField;
+
+        printf("ServerWriteIV\n");
+        PrintByteVector(ServerWriteIV());
 
         assert(itKeyBlock == vbKeyBlock.end());
 
@@ -981,21 +1023,31 @@ ComputePRF_TLS10(
 )
 {
     HRESULT hr = S_OK;
+    printf("PRF 1.0\n");
 
     vector<BYTE> vbLabelAndSeed;
-    vbLabelAndSeed.assign(szLabel, szLabel + strlen(szLabel));
-    vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
-
     vector<BYTE> vbS1;
     vector<BYTE> vbS2;
     vector<BYTE> vbS1_Expanded;
     vector<BYTE> vbS2_Expanded;
 
+    vbLabelAndSeed.assign(szLabel, szLabel + strlen(szLabel));
+    vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
+
+    printf("label + seed = (%d)\n", vbLabelAndSeed.size());
+    PrintByteVector(&vbLabelAndSeed);
+
     // ceil(size / 2)
     size_t cbL_S1 = (pvbSecret->size() + 1) / 2;
+
+    printf("L_S = %d, L_S1 = L_S2 = %d\n", pvbSecret->size(), cbL_S1);
+
     auto itSecretMidpoint = pvbSecret->begin() + cbL_S1;
 
     vbS1.assign(pvbSecret->begin(), itSecretMidpoint);
+
+    printf("S1:\n");
+    PrintByteVector(&vbS1);
 
     // makes the two halves overlap by one byte, as required in RFC
     if ((pvbSecret->size() % 2) != 0)
@@ -1004,6 +1056,9 @@ ComputePRF_TLS10(
     }
 
     vbS2.assign(itSecretMidpoint, pvbSecret->end());
+
+    printf("S2:\n");
+    PrintByteVector(&vbS2);
 
     assert(vbS1.size() == vbS2.size());
 
@@ -1035,15 +1090,11 @@ ComputePRF_TLS10(
 
     assert(vbS1_Expanded.size() >= cbMinimumLengthDesired);
     assert(vbS2_Expanded.size() >= cbMinimumLengthDesired);
-    vbS1_Expanded.resize(cbMinimumLengthDesired);
-    vbS2_Expanded.resize(cbMinimumLengthDesired);
-    assert(vbS1_Expanded.size() == vbS2_Expanded.size());
-
-    pvbPRF->resize(vbS1_Expanded.size());
+    pvbPRF->resize(cbMinimumLengthDesired);
 
     transform(
         vbS1_Expanded.begin(),
-        vbS1_Expanded.end(),
+        vbS1_Expanded.begin() + cbMinimumLengthDesired,
         vbS2_Expanded.begin(),
         pvbPRF->begin(),
         bit_xor<BYTE>());
@@ -1069,10 +1120,13 @@ PRF_A(
     HRESULT hr = S_OK;
     vector<BYTE> vbTemp;
 
-    vbTemp = *pvbSeed;
+    // A(0) = seed
+    *pvbResult = *pvbSeed;
 
     while (i > 0)
     {
+        vbTemp = *pvbResult;
+
         hr = pHasher->HMAC(
                           alg,
                           pvbSecret,
@@ -1084,7 +1138,6 @@ PRF_A(
             goto error;
         }
 
-        vbTemp = *pvbResult;
         i--;
     }
 
@@ -1108,9 +1161,13 @@ PRF_P_hash(
 {
     HRESULT hr = S_OK;
 
+    assert(pvbResult->empty());
+
     // starts from A(1), not A(0)
     for (UINT i = 1; pvbResult->size() < cbMinimumLengthDesired; i++)
     {
+        printf("PRF_P generated %d out of %d bytes\n", pvbResult->size(), cbMinimumLengthDesired);
+
         vector<BYTE> vbIteration;
         vector<BYTE> vbInnerSeed;
 
@@ -2520,12 +2577,14 @@ MT_Random::PopulateNow()
     SetGMTUnixTime(t);
 
     ResizeVector(RandomBytes(), c_cbRandomBytes);
+    /*
     hr = WriteRandomBytes(&RandomBytes()->front(), RandomBytes()->size());
 
     if (hr != S_OK)
     {
         goto error;
     }
+    */
 
 error:
     return hr;

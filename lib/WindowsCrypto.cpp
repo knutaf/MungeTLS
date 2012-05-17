@@ -374,6 +374,9 @@ DecryptBuffer(
 {
     HRESULT hr = S_OK;
     DWORD cb;
+    DWORD fDecryptFlags = 0;
+
+    const bool fOwnPaddingCheck = false;
 
     wprintf(L"decrypting\n");
     wprintf(L"ciphertext:\n");
@@ -388,11 +391,16 @@ DecryptBuffer(
         goto error;
     }
 
+    if (fOwnPaddingCheck)
+    {
+        fDecryptFlags = fDecryptFlags | CRYPT_DECRYPT_RSA_NO_PADDING_CHECK;
+    }
+
     if (!CryptDecrypt(
              hKey,
              0,
              TRUE,
-             CRYPT_DECRYPT_RSA_NO_PADDING_CHECK,
+             fDecryptFlags,
              &pvbDecrypted->front(),
              &cb))
     {
@@ -401,12 +409,21 @@ DecryptBuffer(
     }
 
     wprintf(L"done initial decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
-    assert(pvbDecrypted->size() == cb);
+    if (fOwnPaddingCheck)
+    {
+        assert(pvbDecrypted->size() == cb);
 
-    // CryptDecrypt produces output in little endian
-    *pvbDecrypted = ReverseByteOrder(pvbDecrypted);
+        // CryptDecrypt produces output in little endian
+        *pvbDecrypted = ReverseByteOrder(pvbDecrypted);
+    }
+    else
+    {
+        pvbDecrypted->resize(cb);
+    }
+
     PrintByteVector(pvbDecrypted);
 
+    if (fOwnPaddingCheck)
     {
         auto iter = pvbDecrypted->begin();
         if (*iter != 0x00)
@@ -1023,31 +1040,13 @@ ImportSymmetricKey(
 
     if (!CryptAcquireContextW(
              &hProv,
-             L"symenc_key",
+             NULL,
              MS_ENH_RSA_AES_PROV_W,
              PROV_RSA_AES,
-             0))
+             CRYPT_VERIFYCONTEXT))
     {
-        if (GetLastError() == NTE_BAD_KEYSET)
-        {
-            if (!CryptAcquireContextW(
-                     &hProv,
-                     L"symenc_key",
-                     MS_ENH_RSA_AES_PROV_W,
-                     PROV_RSA_AES,
-                     CRYPT_NEWKEYSET))
-            {
-                hr = HRESULT_FROM_WIN32(GetLastError());
-                goto error;
-            }
-
-            wprintf(L"done acquire creatnew\n");
-        }
-        else
-        {
-            hr = HRESULT_FROM_WIN32(GetLastError());
-            goto error;
-        }
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
     }
 
     kp.Init(hProv, TRUE);
