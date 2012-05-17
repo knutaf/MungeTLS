@@ -68,7 +68,7 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
     HRESULT
     Initialize(
         const std::vector<BYTE>* pvbKey,
-        CipherAlg cipherAlg);
+        const CipherInfo* pCipherInfo);
 
     HRESULT
     EncryptBuffer(
@@ -87,8 +87,11 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
         ALG_ID* pAlgID);
 
     private:
+    ACCESSORS(CipherInfo*, Cipher, &m_cipherInfo);
     ACCESSORS(KeyAndProv*, Key, &m_key);
+
     KeyAndProv m_key;
+    CipherInfo m_cipherInfo;
 };
 
 class WindowsPublicKeyCipherer : public PublicKeyCipherer
@@ -162,6 +165,7 @@ HRESULT
 DecryptBuffer(
     const std::vector<BYTE>* pvbEncrypted,
     HCRYPTKEY hKey,
+    SymmetricCipherer::CipherType cipherType,
     std::vector<BYTE>* pvbDecrypted);
 
 std::vector<BYTE> ReverseByteOrder(const std::vector<BYTE>* pvb);

@@ -696,7 +696,7 @@ TLSConnection::GenerateKeyMaterial()
         // TODO: incorporate IV
         hr = ClientSymCipherer()->Initialize(
                  ClientWriteKey(),
-                 cipherInfo.alg);
+                 &cipherInfo);
 
         if (hr != S_OK)
         {
@@ -705,7 +705,7 @@ TLSConnection::GenerateKeyMaterial()
 
         hr = ServerSymCipherer()->Initialize(
                  ServerWriteKey(),
-                 cipherInfo.alg);
+                 &cipherInfo);
 
         if (hr != S_OK)
         {

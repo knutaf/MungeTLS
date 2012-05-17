@@ -370,20 +370,25 @@ HRESULT
 DecryptBuffer(
     const vector<BYTE>* pvbEncrypted,
     HCRYPTKEY hKey,
+    SymmetricCipherer::CipherType cipherType,
     vector<BYTE>* pvbDecrypted)
 {
     HRESULT hr = S_OK;
     DWORD cb;
-    DWORD fDecryptFlags = 0;
-
-    const bool fOwnPaddingCheck = false;
 
     wprintf(L"decrypting\n");
     wprintf(L"ciphertext:\n");
     PrintByteVector(pvbEncrypted);
 
-    // CryptDecrypt expects input in little endian
-    *pvbDecrypted = ReverseByteOrder(pvbEncrypted);
+    if (cipherType == SymmetricCipherer::CipherType_Block)
+    {
+        // CryptDecrypt expects input in little endian
+        *pvbDecrypted = ReverseByteOrder(pvbEncrypted);
+    }
+    else
+    {
+        *pvbDecrypted = *pvbEncrypted;
+    }
 
     hr = SizeTToDWord(pvbDecrypted->size(), &cb);
     if (hr != S_OK)
@@ -391,16 +396,11 @@ DecryptBuffer(
         goto error;
     }
 
-    if (fOwnPaddingCheck)
-    {
-        fDecryptFlags = fDecryptFlags | CRYPT_DECRYPT_RSA_NO_PADDING_CHECK;
-    }
-
     if (!CryptDecrypt(
              hKey,
              0,
              TRUE,
-             fDecryptFlags,
+             0,
              &pvbDecrypted->front(),
              &cb))
     {
@@ -409,69 +409,9 @@ DecryptBuffer(
     }
 
     wprintf(L"done initial decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
-    if (fOwnPaddingCheck)
-    {
-        assert(pvbDecrypted->size() == cb);
-
-        // CryptDecrypt produces output in little endian
-        *pvbDecrypted = ReverseByteOrder(pvbDecrypted);
-    }
-    else
-    {
-        pvbDecrypted->resize(cb);
-    }
+    pvbDecrypted->resize(cb);
 
     PrintByteVector(pvbDecrypted);
-
-    if (fOwnPaddingCheck)
-    {
-        auto iter = pvbDecrypted->begin();
-        if (*iter != 0x00)
-        {
-            wprintf(L"didn't find initial 0x00 in padding string\n");
-            hr = MT_E_BAD_PADDING;
-            goto error;
-        }
-
-        // skip initial 0x00
-        iter++;
-
-        assert(sizeof(*iter) == sizeof(BYTE)); // needed for following cast
-        if (static_cast<RSAEncryptionBlockType>(*iter) == RSABT_Pub)
-        {
-            vector<BYTE> vbTemp;
-
-            // skip over block type
-            iter++;
-
-            while (*iter != 0x00 && iter != pvbDecrypted->end())
-            {
-                iter++;
-            }
-
-            if (iter == pvbDecrypted->end())
-            {
-                wprintf(L"end of padding not found\n");
-                hr = MT_E_BAD_PADDING;
-                goto error;
-            }
-
-            // skip over 0x00 at end of padding
-            iter++;
-
-            vbTemp.assign(iter, pvbDecrypted->end());
-            *pvbDecrypted = vbTemp;
-
-            wprintf(L"final decrypted (%d bytes):\n", pvbDecrypted->size());
-            PrintByteVector(pvbDecrypted);
-        }
-        else
-        {
-            wprintf(L"unsupported block type %02X\n", *iter);
-            hr = MT_E_BAD_PADDING;
-            goto error;
-        }
-    }
 
 done:
     return hr;
@@ -625,6 +565,7 @@ WindowsPublicKeyCipherer::DecryptBufferWithPrivateKey(
     return MungeTLS::DecryptBuffer(
                pvbEncrypted,
                PrivateKey(),
+               SymmetricCipherer::CipherType_Block,
                pvbDecrypted);
 } // end function DecryptBufferWithPrivateKey
 
@@ -925,21 +866,22 @@ error:
 } // end function WindowsHashAlgFromMTHashAlg
 
 WindowsSymmetricCipherer::WindowsSymmetricCipherer()
-    : m_key()
+    : m_key(),
+      m_cipherInfo()
 {
 } // end ctor WindowsSymmetricCipherer
 
 HRESULT
 WindowsSymmetricCipherer::Initialize(
     const vector<BYTE>* pvbKey,
-    CipherAlg cipherAlg
+    const CipherInfo* pCipherInfo
 )
 {
     HRESULT hr = S_OK;
     ALG_ID algID;
 
     hr = WindowsCipherAlgFromMTCipherAlg(
-             cipherAlg,
+             pCipherInfo->alg,
              &algID);
 
     if (hr != S_OK)
@@ -956,6 +898,8 @@ WindowsSymmetricCipherer::Initialize(
     {
         goto error;
     }
+
+    *Cipher() = *pCipherInfo;
 
 done:
     return hr;
@@ -985,6 +929,7 @@ WindowsSymmetricCipherer::DecryptBuffer(
     return MungeTLS::DecryptBuffer(
                pvbEncrypted,
                Key()->GetKey(),
+               Cipher()->type,
                pvbDecrypted);
 } // end function DecryptBuffer
 

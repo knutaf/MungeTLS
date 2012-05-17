@@ -38,7 +38,7 @@ class SymmetricCipherer
     HRESULT
     Initialize(
         const std::vector<BYTE>* pvbKey,
-        CipherAlg cipherAlg) = 0;
+        const CipherInfo* pCipherInfo) = 0;
 
     virtual
     HRESULT
