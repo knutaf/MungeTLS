@@ -8,6 +8,7 @@
 #include <sstream>
 #include <algorithm>
 #include <string>
+#include <vector>
 #include "MungeTLS.h"
 
 
@@ -36,7 +37,7 @@ wstring StringFromInt(N n)
     return s.str();
 } // end function StringFromInt
 
-HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const vector<BYTE>* pvb)
+HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const ByteVector* pvb)
 {
     HRESULT hr = S_OK;
     wstring wsFilename(L"out\\");
@@ -106,13 +107,13 @@ error:
     return hr;
 } // end function LogTraffic
 
-HRESULT LogWrite(ULONG nFile, const vector<BYTE>* pvb)
+HRESULT LogWrite(ULONG nFile, const ByteVector* pvb)
 {
     static const wstring wsWrite(L"w");
     return LogTraffic(nFile, &wsWrite, pvb);
 } // end function LogWrite
 
-HRESULT LogRead(ULONG nFile, const vector<BYTE>* pvb)
+HRESULT LogRead(ULONG nFile, const ByteVector* pvb)
 {
     static const wstring wsRead(L"r");
     return LogTraffic(nFile, &wsRead, pvb);
@@ -195,8 +196,8 @@ HRESULT ProcessConnections()
     {
         TLSConnection con;
         char c = 0;
-        vector<BYTE> vbData;
-        vector<BYTE> vbResponse;
+        ByteVector vbData;
+        ByteVector vbResponse;
         int cb;
         HRESULT hr = S_OK;
         ULONG cMessages = 0;

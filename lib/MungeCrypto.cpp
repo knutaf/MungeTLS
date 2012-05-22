@@ -1,7 +1,6 @@
 #include "precomp.h"
 
 #include <windows.h>
-#include <vector>
 #include <assert.h>
 
 #include "MungeCrypto.h"

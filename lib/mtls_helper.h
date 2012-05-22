@@ -3,6 +3,7 @@
 #include <intsafe.h>
 #include <wincrypt.h>
 #include <memory>
+#include <vector>
 #include "MungeTLS.h"
 #include "MungeCrypto.h"
 
@@ -67,18 +68,18 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
 
     HRESULT
     Initialize(
-        const std::vector<BYTE>* pvbKey,
+        const ByteVector* pvbKey,
         const CipherInfo* pCipherInfo);
 
     HRESULT
     EncryptBuffer(
-        const std::vector<BYTE>* pvbCleartext,
-        std::vector<BYTE>* pvbEncrypted) const;
+        const ByteVector* pvbCleartext,
+        ByteVector* pvbEncrypted) const;
 
     HRESULT
     DecryptBuffer(
-        const std::vector<BYTE>* pvbEncrypted,
-        std::vector<BYTE>* pvbDecrypted) const;
+        const ByteVector* pvbEncrypted,
+        ByteVector* pvbDecrypted) const;
 
     static
     HRESULT
@@ -108,18 +109,18 @@ class WindowsPublicKeyCipherer : public PublicKeyCipherer
 
     HRESULT
     EncryptBufferWithPublicKey(
-        const std::vector<BYTE>* pvbCleartext,
-        std::vector<BYTE>* pvbEncrypted) const;
+        const ByteVector* pvbCleartext,
+        ByteVector* pvbEncrypted) const;
 
     HRESULT
     DecryptBufferWithPrivateKey(
-        const std::vector<BYTE>* pvbEncrypted,
-        std::vector<BYTE>* pvbDecrypted) const;
+        const ByteVector* pvbEncrypted,
+        ByteVector* pvbDecrypted) const;
 
     HRESULT
     EncryptBufferWithPrivateKey(
-        const std::vector<BYTE>* pvbCleartext,
-        std::vector<BYTE>* pvbEncrypted) const;
+        const ByteVector* pvbCleartext,
+        ByteVector* pvbEncrypted) const;
 
     private:
     HCRYPTKEY PublicKey() const { return PublicKeyAndProv()->GetKey(); }
@@ -138,15 +139,15 @@ class WindowsHasher : public Hasher
     HRESULT
     Hash(
         Hasher::HashAlg alg,
-        const std::vector<BYTE>* pvbText,
-        std::vector<BYTE>* pvbHash);
+        const ByteVector* pvbText,
+        ByteVector* pvbHash);
 
     HRESULT
     HMAC(
         Hasher::HashAlg alg,
-        const std::vector<BYTE>* pvbKey,
-        const std::vector<BYTE>* pvbText,
-        std::vector<BYTE>* pvbHMAC);
+        const ByteVector* pvbKey,
+        const ByteVector* pvbText,
+        ByteVector* pvbHMAC);
 
     private:
     static
@@ -157,24 +158,24 @@ class WindowsHasher : public Hasher
 
 HRESULT
 EncryptBuffer(
-    const std::vector<BYTE>* pvbCleartext,
+    const ByteVector* pvbCleartext,
     HCRYPTKEY hKey,
-    std::vector<BYTE>* pvbEncrypted);
+    ByteVector* pvbEncrypted);
 
 HRESULT
 DecryptBuffer(
-    const std::vector<BYTE>* pvbEncrypted,
+    const ByteVector* pvbEncrypted,
     HCRYPTKEY hKey,
     SymmetricCipherer::CipherType cipherType,
-    std::vector<BYTE>* pvbDecrypted);
+    ByteVector* pvbDecrypted);
 
-std::vector<BYTE> ReverseByteOrder(const std::vector<BYTE>* pvb);
+ByteVector ReverseByteOrder(const ByteVector* pvb);
 
-HRESULT PrintByteVector(const std::vector<BYTE>* pvb);
+HRESULT PrintByteVector(const ByteVector* pvb);
 
 HRESULT
 ImportSymmetricKey(
-    const std::vector<BYTE>* pvbKey,
+    const ByteVector* pvbKey,
     ALG_ID algID,
     KeyAndProv* pKey);
 

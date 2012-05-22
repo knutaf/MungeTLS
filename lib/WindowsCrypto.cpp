@@ -162,7 +162,7 @@ GetPublicKeyFromCertificate(
     HCRYPTPROV hPubProv = NULL;
     BOOL fCallerFree = FALSE;
     HCRYPTKEY hPubKey = NULL;
-    vector<BYTE> vbPublicKeyInfo;
+    ByteVector vbPublicKeyInfo;
     KeyAndProv kp;
 
     wprintf(L"get public\n");
@@ -290,9 +290,9 @@ error:
 
 HRESULT
 EncryptBuffer(
-    const vector<BYTE>* pvbCleartext,
+    const ByteVector* pvbCleartext,
     HCRYPTKEY hKey,
-    vector<BYTE>* pvbEncrypted)
+    ByteVector* pvbEncrypted)
 {
     HRESULT hr = S_OK;
     DWORD cb = 0;
@@ -368,10 +368,10 @@ error:
 
 HRESULT
 DecryptBuffer(
-    const vector<BYTE>* pvbEncrypted,
+    const ByteVector* pvbEncrypted,
     HCRYPTKEY hKey,
     SymmetricCipherer::CipherType cipherType,
-    vector<BYTE>* pvbDecrypted)
+    ByteVector* pvbDecrypted)
 {
     HRESULT hr = S_OK;
     DWORD cb;
@@ -546,8 +546,8 @@ error:
 
 HRESULT
 WindowsPublicKeyCipherer::EncryptBufferWithPublicKey(
-    const vector<BYTE>* pvbCleartext,
-    vector<BYTE>* pvbEncrypted
+    const ByteVector* pvbCleartext,
+    ByteVector* pvbEncrypted
 ) const
 {
     return MungeTLS::EncryptBuffer(
@@ -558,8 +558,8 @@ WindowsPublicKeyCipherer::EncryptBufferWithPublicKey(
 
 HRESULT
 WindowsPublicKeyCipherer::DecryptBufferWithPrivateKey(
-    const vector<BYTE>* pvbEncrypted,
-    vector<BYTE>* pvbDecrypted
+    const ByteVector* pvbEncrypted,
+    ByteVector* pvbDecrypted
 ) const
 {
     return MungeTLS::DecryptBuffer(
@@ -571,8 +571,8 @@ WindowsPublicKeyCipherer::DecryptBufferWithPrivateKey(
 
 HRESULT
 WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
-    const vector<BYTE>* pvbCleartext,
-    vector<BYTE>* pvbEncrypted
+    const ByteVector* pvbCleartext,
+    ByteVector* pvbEncrypted
 ) const
 {
     return MungeTLS::EncryptBuffer(
@@ -586,8 +586,8 @@ WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
 HRESULT
 WindowsHasher::Hash(
     Hasher::HashAlg alg,
-    const vector<BYTE>* pvbText,
-    vector<BYTE>* pvbHash
+    const ByteVector* pvbText,
+    ByteVector* pvbHash
 )
 {
     HRESULT hr = S_OK;
@@ -707,9 +707,9 @@ error:
 HRESULT
 WindowsHasher::HMAC(
     Hasher::HashAlg alg,
-    const vector<BYTE>* pvbKey,
-    const vector<BYTE>* pvbText,
-    vector<BYTE>* pvbHMAC
+    const ByteVector* pvbKey,
+    const ByteVector* pvbText,
+    ByteVector* pvbHMAC
 )
 {
     HRESULT hr = S_OK;
@@ -873,7 +873,7 @@ WindowsSymmetricCipherer::WindowsSymmetricCipherer()
 
 HRESULT
 WindowsSymmetricCipherer::Initialize(
-    const vector<BYTE>* pvbKey,
+    const ByteVector* pvbKey,
     const CipherInfo* pCipherInfo
 )
 {
@@ -910,8 +910,8 @@ error:
 
 HRESULT
 WindowsSymmetricCipherer::EncryptBuffer(
-    const vector<BYTE>* pvbCleartext,
-    vector<BYTE>* pvbEncrypted
+    const ByteVector* pvbCleartext,
+    ByteVector* pvbEncrypted
 ) const
 {
     return MungeTLS::EncryptBuffer(
@@ -922,8 +922,8 @@ WindowsSymmetricCipherer::EncryptBuffer(
 
 HRESULT
 WindowsSymmetricCipherer::DecryptBuffer(
-    const vector<BYTE>* pvbEncrypted,
-    vector<BYTE>* pvbDecrypted
+    const ByteVector* pvbEncrypted,
+    ByteVector* pvbDecrypted
 ) const
 {
     return MungeTLS::DecryptBuffer(
@@ -968,7 +968,7 @@ error:
 
 HRESULT
 ImportSymmetricKey(
-    const vector<BYTE>* pvbKey,
+    const ByteVector* pvbKey,
     ALG_ID algID,
     KeyAndProv* pKey
 )
@@ -977,7 +977,7 @@ ImportSymmetricKey(
     HCRYPTPROV hProv = NULL;
     HCRYPTKEY hKey = NULL;
     KeyAndProv kp;
-    vector<BYTE> vbPlaintextKey;
+    ByteVector vbPlaintextKey;
     PlaintextKey* pPlaintextKey;
     DWORD cbKeySize = 0;
 

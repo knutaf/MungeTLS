@@ -8,6 +8,7 @@
 #include <intsafe.h>
 #include <functional>
 
+#include "mtls_defs.h"
 #include "MungeTLS.h"
 #include "mtls_helper.h"
 
@@ -19,38 +20,38 @@ using namespace std;
 HRESULT
 ComputePRF_TLS12(
     Hasher* pHasher,
-    const std::vector<BYTE>* pvbSecret,
+    const ByteVector* pvbSecret,
     PCSTR szLabel,
-    const std::vector<BYTE>* pvbSeed,
+    const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
-    std::vector<BYTE>* pvbPRF);
+    ByteVector* pvbPRF);
 
 HRESULT
 ComputePRF_TLS10(
     Hasher* pHasher,
-    const std::vector<BYTE>* pvbSecret,
+    const ByteVector* pvbSecret,
     PCSTR szLabel,
-    const std::vector<BYTE>* pvbSeed,
+    const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
-    std::vector<BYTE>* pvbPRF);
+    ByteVector* pvbPRF);
 
 HRESULT
 PRF_P_hash(
     Hasher* pHasher,
     Hasher::HashAlg alg,
-    const std::vector<BYTE>* pvbSecret,
-    const std::vector<BYTE>* pvbSeed,
+    const ByteVector* pvbSecret,
+    const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
-    std::vector<BYTE>* pvbResult);
+    ByteVector* pvbResult);
 
 HRESULT
 PRF_A(
     Hasher* pHasher,
     Hasher::HashAlg alg,
     UINT i,
-    const std::vector<BYTE>* pvbSecret,
-    const std::vector<BYTE>* pvbSeed,
-    std::vector<BYTE>* pvbResult);
+    const ByteVector* pvbSecret,
+    const ByteVector* pvbSeed,
+    ByteVector* pvbResult);
 
 /*********** TLSConnection *****************/
 
@@ -117,7 +118,7 @@ HRESULT
 TLSConnection::HandleMessage(
     const BYTE* pv,
     size_t cb,
-    vector<BYTE>* pvbResponse
+    ByteVector* pvbResponse
 )
 {
     HRESULT hr = S_OK;
@@ -472,8 +473,8 @@ TLSConnection::ComputeMasterSecret(
 {
     HRESULT hr = S_OK;
 
-    vector<BYTE> vbPreMasterSecret;
-    vector<BYTE> vbRandoms;
+    ByteVector vbPreMasterSecret;
+    ByteVector vbRandoms;
 
     hr = pPreMasterSecret->SerializeToVect(&vbPreMasterSecret);
     if (hr != S_OK)
@@ -523,11 +524,11 @@ error:
 
 HRESULT
 TLSConnection::ComputePRF(
-    const vector<BYTE>* pvbSecret,
+    const ByteVector* pvbSecret,
     PCSTR szLabel,
-    const vector<BYTE>* pvbSeed,
+    const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
-    vector<BYTE>* pvbPRF
+    ByteVector* pvbPRF
 )
 {
     HRESULT hr = S_OK;
@@ -580,8 +581,8 @@ TLSConnection::GenerateKeyMaterial()
     SymmetricCipherer::CipherInfo cipherInfo;
     Hasher::HashInfo hashInfo;
     size_t cbKeyBlock;
-    vector<BYTE> vbRandoms;
-    vector<BYTE> vbKeyBlock;
+    ByteVector vbRandoms;
+    ByteVector vbKeyBlock;
 
     printf("gen key material\n");
 
@@ -885,7 +886,7 @@ template <typename T>
 HRESULT
 SerializeMessagesToVector(
     const std::vector<T>* pvMessages,
-    std::vector<BYTE>* pvb
+    ByteVector* pvb
 )
 {
     HRESULT hr = S_OK;
@@ -924,8 +925,8 @@ ResizeVector<T>(
 template <>
 void
 ResizeVector<BYTE>(
-    std::vector<BYTE>* pv,
-    typename std::vector<BYTE>::size_type siz
+    ByteVector* pv,
+    typename ByteVector::size_type siz
 )
 {
     pv->resize(siz, 0x23);
@@ -944,15 +945,15 @@ EnsureVectorSize<T>(
     }
 } // end function EnsureVectorSize
 
-vector<BYTE>
+ByteVector
 ReverseByteOrder(
-    const vector<BYTE>* pvb
+    const ByteVector* pvb
 )
 {
-    return vector<BYTE>(pvb->rbegin(), pvb->rend());
+    return ByteVector(pvb->rbegin(), pvb->rend());
 } // end function ReverseByteOrder
 
-HRESULT PrintByteVector(const vector<BYTE>* pvb)
+HRESULT PrintByteVector(const ByteVector* pvb)
 {
      HRESULT hr = S_OK;
 
@@ -972,16 +973,16 @@ HRESULT PrintByteVector(const vector<BYTE>* pvb)
 HRESULT
 ComputePRF_TLS12(
     Hasher* pHasher,
-    const vector<BYTE>* pvbSecret,
+    const ByteVector* pvbSecret,
     PCSTR szLabel,
-    const vector<BYTE>* pvbSeed,
+    const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
-    vector<BYTE>* pvbPRF
+    ByteVector* pvbPRF
 )
 {
     HRESULT hr = S_OK;
 
-    vector<BYTE> vbLabelAndSeed;
+    ByteVector vbLabelAndSeed;
     vbLabelAndSeed.assign(szLabel, szLabel + strlen(szLabel));
     vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
 
@@ -1009,21 +1010,21 @@ error:
 HRESULT
 ComputePRF_TLS10(
     Hasher* pHasher,
-    const vector<BYTE>* pvbSecret,
+    const ByteVector* pvbSecret,
     PCSTR szLabel,
-    const vector<BYTE>* pvbSeed,
+    const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
-    vector<BYTE>* pvbPRF
+    ByteVector* pvbPRF
 )
 {
     HRESULT hr = S_OK;
     printf("PRF 1.0\n");
 
-    vector<BYTE> vbLabelAndSeed;
-    vector<BYTE> vbS1;
-    vector<BYTE> vbS2;
-    vector<BYTE> vbS1_Expanded;
-    vector<BYTE> vbS2_Expanded;
+    ByteVector vbLabelAndSeed;
+    ByteVector vbS1;
+    ByteVector vbS2;
+    ByteVector vbS1_Expanded;
+    ByteVector vbS2_Expanded;
 
     vbLabelAndSeed.assign(szLabel, szLabel + strlen(szLabel));
     vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
@@ -1106,13 +1107,13 @@ PRF_A(
     Hasher* pHasher,
     Hasher::HashAlg alg,
     UINT i,
-    const vector<BYTE>* pvbSecret,
-    const vector<BYTE>* pvbSeed,
-    vector<BYTE>* pvbResult
+    const ByteVector* pvbSecret,
+    const ByteVector* pvbSeed,
+    ByteVector* pvbResult
 )
 {
     HRESULT hr = S_OK;
-    vector<BYTE> vbTemp;
+    ByteVector vbTemp;
 
     // A(0) = seed
     *pvbResult = *pvbSeed;
@@ -1147,10 +1148,10 @@ HRESULT
 PRF_P_hash(
     Hasher* pHasher,
     Hasher::HashAlg alg,
-    const vector<BYTE>* pvbSecret,
-    const vector<BYTE>* pvbSeed,
+    const ByteVector* pvbSecret,
+    const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
-    vector<BYTE>* pvbResult
+    ByteVector* pvbResult
 )
 {
     HRESULT hr = S_OK;
@@ -1162,8 +1163,8 @@ PRF_P_hash(
     {
         printf("PRF_P generated %d out of %d bytes\n", pvbResult->size(), cbMinimumLengthDesired);
 
-        vector<BYTE> vbIteration;
-        vector<BYTE> vbInnerSeed;
+        ByteVector vbIteration;
+        ByteVector vbInnerSeed;
 
         hr = PRF_A(
                  pHasher,
@@ -1312,7 +1313,7 @@ error:
 
 HRESULT
 MT_Structure::ParseFromVect(
-    const vector<BYTE>* pvb
+    const ByteVector* pvb
 )
 {
     return ParseFrom(&(pvb->front()), pvb->size());
@@ -1329,7 +1330,7 @@ MT_Structure::Serialize(
 
 HRESULT
 MT_Structure::SerializeToVect(
-    vector<BYTE>* pvb
+    ByteVector* pvb
 ) const
 {
     pvb->clear();
@@ -1338,13 +1339,13 @@ MT_Structure::SerializeToVect(
 
 HRESULT
 MT_Structure::SerializeAppendToVect(
-    vector<BYTE>* pvb
+    ByteVector* pvb
 ) const
 {
     size_t cSize = pvb->size();
     ResizeVector(pvb, cSize + Length());
 
-    vector<BYTE>::iterator end = pvb->begin() + cSize;
+    ByteVector::iterator end = pvb->begin() + cSize;
 
     assert(pvb->end() - (end + Length()) >= 0);
     return Serialize(&(*end), Length());

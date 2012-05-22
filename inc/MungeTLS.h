@@ -2,18 +2,13 @@
 #include <windows.h>
 #include <vector>
 #include <memory>
+#include "mtls_defs.h"
 #include "MungeCrypto.h"
 
 #pragma warning(push)
 #pragma warning(disable : 4100)
 namespace MungeTLS
 {
-
-#define ACCESSORS(returnType, name, member) \
-    const returnType name() const { return member; } \
-    returnType name() { return const_cast<returnType>(static_cast<std::remove_pointer<decltype(this)>::type const*>(this)->name()); } \
-
-typedef unsigned long MT_UINT16;
 
 const HRESULT MT_E_INCOMPLETE_MESSAGE                       = 0x80230001;
 const HRESULT MT_E_UNKNOWN_CONTENT_TYPE                     = 0x80230002;
@@ -29,12 +24,6 @@ const HRESULT MT_E_UNSUPPORTED_HASH                         = 0x8023000b;
 const HRESULT MT_E_UNSUPPORTED_CIPHER                       = 0x8023000c;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
-typedef ULONG MT_UINT8;
-typedef ULONG MT_UINT16;
-typedef ULONG MT_UINT32;
-
-#define MAXFORBYTES(b) ((1 << ((b) * 8)) - 1)
-
 extern const BYTE c_abyCert[];
 extern const size_t c_cbCert;
 
@@ -48,10 +37,10 @@ class MT_Structure
     virtual ~MT_Structure() { }
 
     HRESULT ParseFrom(const BYTE* pv, size_t cb);
-    HRESULT ParseFromVect(const std::vector<BYTE>* pvb);
+    HRESULT ParseFromVect(const ByteVector* pvb);
     HRESULT Serialize(BYTE* pv, size_t cb) const;
-    HRESULT SerializeToVect(std::vector<BYTE>* pvb) const;
-    HRESULT SerializeAppendToVect(std::vector<BYTE>* pvb) const;
+    HRESULT SerializeToVect(ByteVector* pvb) const;
+    HRESULT SerializeAppendToVect(ByteVector* pvb) const;
     virtual size_t Length() const = 0;
 
     private:
@@ -189,16 +178,16 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     HRESULT SetCipherer(const PublicKeyCipherer* pCipherer) { m_pCipherer = pCipherer; return S_OK; }
 
     ACCESSORS(T*, Structure, &m_structure);
-    ACCESSORS(std::vector<BYTE>*, EncryptedStructure, &m_vbEncryptedStructure);
+    ACCESSORS(ByteVector*, EncryptedStructure, &m_vbEncryptedStructure);
 
     private:
-    ACCESSORS(std::vector<BYTE>*, PlaintextStructure, &m_vbPlaintextStructure);
+    ACCESSORS(ByteVector*, PlaintextStructure, &m_vbPlaintextStructure);
 
     const PublicKeyCipherer* GetCipherer() const { return m_pCipherer; }
 
     T m_structure;
-    std::vector<BYTE> m_vbPlaintextStructure;
-    std::vector<BYTE> m_vbEncryptedStructure;
+    ByteVector m_vbPlaintextStructure;
+    ByteVector m_vbEncryptedStructure;
     const PublicKeyCipherer* m_pCipherer;
 };
 
@@ -282,7 +271,7 @@ class MT_Random : public MT_Structure
     MT_UINT32 GMTUnixTime() const { return m_timestamp; }
     void SetGMTUnixTime(MT_UINT32 timestamp) { m_timestamp = timestamp; }
 
-    ACCESSORS(std::vector<BYTE>*, RandomBytes, &m_vbRandomBytes);
+    ACCESSORS(ByteVector*, RandomBytes, &m_vbRandomBytes);
 
     HRESULT PopulateNow();
 
@@ -290,7 +279,7 @@ class MT_Random : public MT_Structure
     static const size_t c_cbRandomBytes;
 
     MT_UINT32 m_timestamp;
-    std::vector<BYTE> m_vbRandomBytes;
+    ByteVector m_vbRandomBytes;
 };
 
 enum MT_CipherSuiteValue
@@ -379,14 +368,14 @@ class MT_TLSPlaintext : public MT_Structure
 
     ACCESSORS(MT_ContentType*, ContentType, &m_contentType);
     ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
-    ACCESSORS(std::vector<BYTE>*, Fragment, &m_vbFragment);
+    ACCESSORS(ByteVector*, Fragment, &m_vbFragment);
 
     MT_UINT16 PayloadLength() const;
 
     private:
     MT_ContentType m_contentType;
     MT_ProtocolVersion m_protocolVersion;
-    std::vector<BYTE> m_vbFragment;
+    ByteVector m_vbFragment;
 };
 
 class MT_TLSCiphertext : public MT_SecuredStructure
@@ -401,8 +390,8 @@ class MT_TLSCiphertext : public MT_SecuredStructure
 
     ACCESSORS(MT_ContentType*, ContentType, &m_contentType);
     ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
-    ACCESSORS(std::vector<BYTE>*, Fragment, &m_vbFragment);
-    ACCESSORS(std::vector<BYTE>*, DecryptedFragment, &m_vbDecryptedFragment);
+    ACCESSORS(ByteVector*, Fragment, &m_vbFragment);
+    ACCESSORS(ByteVector*, DecryptedFragment, &m_vbDecryptedFragment);
 
     HRESULT Encrypt();
     HRESULT Decrypt();
@@ -412,8 +401,8 @@ class MT_TLSCiphertext : public MT_SecuredStructure
 
     MT_ContentType m_contentType;
     MT_ProtocolVersion m_protocolVersion;
-    std::vector<BYTE> m_vbFragment;
-    std::vector<BYTE> m_vbDecryptedFragment;
+    ByteVector m_vbFragment;
+    ByteVector m_vbDecryptedFragment;
 };
 
 class MT_Handshake : public MT_Structure
@@ -445,7 +434,7 @@ class MT_Handshake : public MT_Structure
     MTH_HandshakeType HandshakeType() const;
     void SetType(MTH_HandshakeType eType) { m_eType = eType; }
 
-    ACCESSORS(std::vector<BYTE>*, Body, &m_vbBody);
+    ACCESSORS(ByteVector*, Body, &m_vbBody);
 
     static bool IsKnownType(MTH_HandshakeType eType);
     static bool IsSupportedType(MTH_HandshakeType eType);
@@ -460,7 +449,7 @@ class MT_Handshake : public MT_Structure
     size_t LengthFieldLength() const { return 3; }
 
     MTH_HandshakeType m_eType;
-    std::vector<BYTE> m_vbBody;
+    ByteVector m_vbBody;
 };
 
 class MT_ClientHello : public MT_Structure
@@ -524,7 +513,7 @@ class TLSConnection
     HRESULT HandleMessage(
         const BYTE* pv,
         size_t cb,
-        std::vector<BYTE>* pvbResponse);
+        ByteVector* pvbResponse);
 
     ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get());
     ACCESSORS(SymmetricCipherer*, ClientSymCipherer, m_spClientSymCipherer.get());
@@ -540,27 +529,27 @@ class TLSConnection
 
     HRESULT
     ComputePRF(
-        const std::vector<BYTE>* pvbSecret,
+        const ByteVector* pvbSecret,
         PCSTR szLabel,
-        const std::vector<BYTE>* pvbSeed,
+        const ByteVector* pvbSeed,
         size_t cbMinimumLengthDesired,
-        std::vector<BYTE>* pvbPRF);
+        ByteVector* pvbPRF);
 
     HRESULT GenerateKeyMaterial();
 
     ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext);
     ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
-    ACCESSORS(std::vector<BYTE>*, MasterSecret, &m_vbMasterSecret);
+    ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
     ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
     ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
     ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion);
 
-    ACCESSORS(std::vector<BYTE>*, ClientWriteMACKey, &m_vbClientWriteMACKey);
-    ACCESSORS(std::vector<BYTE>*, ServerWriteMACKey, &m_vbServerWriteMACKey);
-    ACCESSORS(std::vector<BYTE>*, ClientWriteKey, &m_vbClientWriteKey);
-    ACCESSORS(std::vector<BYTE>*, ServerWriteKey, &m_vbServerWriteKey);
-    ACCESSORS(std::vector<BYTE>*, ClientWriteIV, &m_vbClientWriteIV);
-    ACCESSORS(std::vector<BYTE>*, ServerWriteIV, &m_vbServerWriteIV);
+    ACCESSORS(ByteVector*, ClientWriteMACKey, &m_vbClientWriteMACKey);
+    ACCESSORS(ByteVector*, ServerWriteMACKey, &m_vbServerWriteMACKey);
+    ACCESSORS(ByteVector*, ClientWriteKey, &m_vbClientWriteKey);
+    ACCESSORS(ByteVector*, ServerWriteKey, &m_vbServerWriteKey);
+    ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
+    ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
 
     MT_CipherSuite m_cipherSuite;
     PCCERT_CONTEXT m_pCertContext;
@@ -570,15 +559,15 @@ class TLSConnection
     std::shared_ptr<Hasher> m_spHasher;
 
     MT_ProtocolVersion m_negotiatedVersion;
-    std::vector<BYTE> m_vbMasterSecret;
+    ByteVector m_vbMasterSecret;
     MT_Random m_clientRandom;
     MT_Random m_serverRandom;
-    std::vector<BYTE> m_vbClientWriteMACKey;
-    std::vector<BYTE> m_vbServerWriteMACKey;
-    std::vector<BYTE> m_vbClientWriteKey;
-    std::vector<BYTE> m_vbServerWriteKey;
-    std::vector<BYTE> m_vbClientWriteIV;
-    std::vector<BYTE> m_vbServerWriteIV;
+    ByteVector m_vbClientWriteMACKey;
+    ByteVector m_vbServerWriteMACKey;
+    ByteVector m_vbClientWriteKey;
+    ByteVector m_vbServerWriteKey;
+    ByteVector m_vbClientWriteIV;
+    ByteVector m_vbServerWriteIV;
 
     // TODO: absolutely not the right way to do this
     bool m_fSecureMode;
@@ -729,14 +718,14 @@ template <typename T>
 HRESULT
 SerializeMessagesToVector(
     const std::vector<T>* pvMessages,
-    std::vector<BYTE>* pvb
+    ByteVector* pvb
 );
 
 template <typename T>
 void ResizeVector(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
 
 template <>
-void ResizeVector(std::vector<BYTE>* pv, typename std::vector<BYTE>::size_type siz);
+void ResizeVector(ByteVector* pv, typename ByteVector::size_type siz);
 
 template <typename T>
 void EnsureVectorSize(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
@@ -744,20 +733,20 @@ void EnsureVectorSize(std::vector<T>* pVect, typename std::vector<T>::size_type 
 HRESULT
 ComputePRF_TLS12(
     Hasher* pHasher,
-    const std::vector<BYTE>* pvbSecret,
+    const ByteVector* pvbSecret,
     PCSTR szLabel,
-    const std::vector<BYTE>* pvbSeed,
+    const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
-    std::vector<BYTE>* pvbPRF);
+    ByteVector* pvbPRF);
 
 HRESULT
 ComputePRF_TLS10(
     Hasher* pHasher,
-    const std::vector<BYTE>* pvbSecret,
+    const ByteVector* pvbSecret,
     PCSTR szLabel,
-    const std::vector<BYTE>* pvbSeed,
+    const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
-    std::vector<BYTE>* pvbPRF);
+    ByteVector* pvbPRF);
 
 HRESULT
 CryptoInfoFromCipherSuite(

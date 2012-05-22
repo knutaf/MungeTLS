@@ -12,8 +12,7 @@ O_FILES=\
     WindowsCrypto.obj \
 
 H_FILES=\
-    ..\inc\MungeTLS.h \
-    ..\inc\MungeCrypto.h \
+    $(H_FILES) \
     mtls_helper.h  \
     precomp.h  \
 

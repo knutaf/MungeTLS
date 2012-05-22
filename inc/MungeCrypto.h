@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <vector>
+#include "mtls_defs.h"
 #include "MungeTLS.h"
 
 namespace MungeTLS
@@ -37,20 +38,20 @@ class SymmetricCipherer
     virtual
     HRESULT
     Initialize(
-        const std::vector<BYTE>* pvbKey,
+        const ByteVector* pvbKey,
         const CipherInfo* pCipherInfo) = 0;
 
     virtual
     HRESULT
     EncryptBuffer(
-        const std::vector<BYTE>* pvbCleartext,
-        std::vector<BYTE>* pvbEncrypted) const = 0;
+        const ByteVector* pvbCleartext,
+        ByteVector* pvbEncrypted) const = 0;
 
     virtual
     HRESULT
     DecryptBuffer(
-        const std::vector<BYTE>* pvbEncrypted,
-        std::vector<BYTE>* pvbDecrypted) const = 0;
+        const ByteVector* pvbEncrypted,
+        ByteVector* pvbDecrypted) const = 0;
 
     static
     HRESULT
@@ -68,20 +69,20 @@ class PublicKeyCipherer
     virtual
     HRESULT
     EncryptBufferWithPublicKey(
-        const std::vector<BYTE>* pvbCleartext,
-        std::vector<BYTE>* pvbEncrypted) const = 0;
+        const ByteVector* pvbCleartext,
+        ByteVector* pvbEncrypted) const = 0;
 
     virtual
     HRESULT
     DecryptBufferWithPrivateKey(
-        const std::vector<BYTE>* pvbEncrypted,
-        std::vector<BYTE>* pvbDecrypted) const = 0;
+        const ByteVector* pvbEncrypted,
+        ByteVector* pvbDecrypted) const = 0;
 
     virtual
     HRESULT
     EncryptBufferWithPrivateKey(
-        const std::vector<BYTE>* pvbCleartext,
-        std::vector<BYTE>* pvbEncrypted) const = 0;
+        const ByteVector* pvbCleartext,
+        ByteVector* pvbEncrypted) const = 0;
 };
 
 class Hasher
@@ -105,16 +106,16 @@ class Hasher
     HRESULT
     Hash(
         HashAlg alg,
-        const std::vector<BYTE>* pvbText,
-        std::vector<BYTE>* pvbHash) = 0;
+        const ByteVector* pvbText,
+        ByteVector* pvbHash) = 0;
 
     virtual
     HRESULT
     HMAC(
         Hasher::HashAlg alg,
-        const std::vector<BYTE>* pvbKey,
-        const std::vector<BYTE>* pvbText,
-        std::vector<BYTE>* pvbHMAC) = 0;
+        const ByteVector* pvbKey,
+        const ByteVector* pvbText,
+        ByteVector* pvbHMAC) = 0;
 
     static
     HRESULT
