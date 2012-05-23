@@ -23,7 +23,7 @@ ComputePRF_TLS12(
     const ByteVector* pvbSecret,
     PCSTR szLabel,
     const ByteVector* pvbSeed,
-    size_t cbMinimumLengthDesired,
+    size_t cbLengthDesired,
     ByteVector* pvbPRF);
 
 HRESULT
@@ -32,7 +32,7 @@ ComputePRF_TLS10(
     const ByteVector* pvbSecret,
     PCSTR szLabel,
     const ByteVector* pvbSeed,
-    size_t cbMinimumLengthDesired,
+    size_t cbLengthDesired,
     ByteVector* pvbPRF);
 
 HRESULT
@@ -199,7 +199,7 @@ TLSConnection::HandleMessage(
                        clientHello.CompressionMethods()->Count(),
                        clientHello.CompressionMethods()->at(0)->Method());
 
-                printf("%d bytes of extensions\n", clientHello.Extensions()->Length());
+                printf("%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
 
 
                 *NegotiatedVersion() = *(clientHello.ProtocolVersion());
@@ -300,6 +300,10 @@ TLSConnection::HandleMessage(
             printf("change cipher spec found: %d\n", *(changeCipherSpec.Type()));
             m_fSecureMode = true;
         }
+        else if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_Alert)
+        {
+            printf("got alert message - not yet supported\n");
+        }
         else
         {
             // TLSPlaintext.ParseFrom should filter out unknown content types
@@ -335,7 +339,7 @@ TLSConnection::RespondTo(
         MT_ContentType contentType;
         MT_TLSPlaintext plaintext;
 
-        protocolVersion.SetVersion(MT_ProtocolVersion::MTPV_TLS10);
+        protocolVersion.SetVersion(pClientHello->ProtocolVersion()->Version());
 
         hr = random.PopulateNow();
         if (hr != S_OK)
@@ -354,13 +358,16 @@ TLSConnection::RespondTo(
 
         compressionMethod.SetMethod(MT_CompressionMethod::MTCM_Null);
 
-        /* renegotation info
-        *(extensions.at(0)) = 0xff;
-        *(extensions.at(1)) = 0x01;
-        *(extensions.at(2)) = 0x00;
-        *(extensions.at(3)) = 0x01;
-        *(extensions.at(4)) = 0x00;
-        */
+        {
+            MT_Extension renegotiationExtension;
+
+            // a single byte, with value 0
+            *renegotiationExtension.ExtensionType() = MT_Extension::MTEE_RenegotiationInfo;
+            renegotiationExtension.ExtensionData()->clear();
+            renegotiationExtension.ExtensionData()->push_back(0);
+
+            extensions.Data()->push_back(renegotiationExtension);
+        }
 
         *(serverHello.ProtocolVersion()) = protocolVersion;
         *(serverHello.Random()) = random;
@@ -527,7 +534,7 @@ TLSConnection::ComputePRF(
     const ByteVector* pvbSecret,
     PCSTR szLabel,
     const ByteVector* pvbSeed,
-    size_t cbMinimumLengthDesired,
+    size_t cbLengthDesired,
     ByteVector* pvbPRF
 )
 {
@@ -542,7 +549,7 @@ TLSConnection::ComputePRF(
                  pvbSecret,
                  szLabel,
                  pvbSeed,
-                 cbMinimumLengthDesired,
+                 cbLengthDesired,
                  pvbPRF);
     }
     else if (NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS12)
@@ -552,7 +559,7 @@ TLSConnection::ComputePRF(
                  pvbSecret,
                  szLabel,
                  pvbSeed,
-                 cbMinimumLengthDesired,
+                 cbLengthDesired,
                  pvbPRF);
     }
     else
@@ -564,6 +571,8 @@ TLSConnection::ComputePRF(
     {
         goto error;
     }
+
+    assert(pvbPRF->size() == cbLengthDesired);
 
 done:
     return hr;
@@ -976,7 +985,7 @@ ComputePRF_TLS12(
     const ByteVector* pvbSecret,
     PCSTR szLabel,
     const ByteVector* pvbSeed,
-    size_t cbMinimumLengthDesired,
+    size_t cbLengthDesired,
     ByteVector* pvbPRF
 )
 {
@@ -991,13 +1000,16 @@ ComputePRF_TLS12(
              Hasher::HashAlg_SHA256,
              pvbSecret,
              &vbLabelAndSeed,
-             cbMinimumLengthDesired,
+             cbLengthDesired,
              pvbPRF);
 
     if (hr != S_OK)
     {
         goto error;
     }
+
+    assert(pvbPRF->size() >= cbLengthDesired);
+    ResizeVector(pvbPRF, cbLengthDesired);
 
 done:
     return hr;
@@ -1013,7 +1025,7 @@ ComputePRF_TLS10(
     const ByteVector* pvbSecret,
     PCSTR szLabel,
     const ByteVector* pvbSeed,
-    size_t cbMinimumLengthDesired,
+    size_t cbLengthDesired,
     ByteVector* pvbPRF
 )
 {
@@ -1062,7 +1074,7 @@ ComputePRF_TLS10(
              Hasher::HashAlg_MD5,
              &vbS1,
              &vbLabelAndSeed,
-             cbMinimumLengthDesired,
+             cbLengthDesired,
              &vbS1_Expanded);
 
     if (hr != S_OK)
@@ -1075,7 +1087,7 @@ ComputePRF_TLS10(
              Hasher::HashAlg_SHA1,
              &vbS2,
              &vbLabelAndSeed,
-             cbMinimumLengthDesired,
+             cbLengthDesired,
              &vbS2_Expanded);
 
     if (hr != S_OK)
@@ -1083,13 +1095,13 @@ ComputePRF_TLS10(
         goto error;
     }
 
-    assert(vbS1_Expanded.size() >= cbMinimumLengthDesired);
-    assert(vbS2_Expanded.size() >= cbMinimumLengthDesired);
-    pvbPRF->resize(cbMinimumLengthDesired);
+    assert(vbS1_Expanded.size() >= cbLengthDesired);
+    assert(vbS2_Expanded.size() >= cbLengthDesired);
+    ResizeVector(pvbPRF, cbLengthDesired);
 
     transform(
         vbS1_Expanded.begin(),
-        vbS1_Expanded.begin() + cbMinimumLengthDesired,
+        vbS1_Expanded.begin() + cbLengthDesired,
         vbS2_Expanded.begin(),
         pvbPRF->begin(),
         bit_xor<BYTE>());
@@ -3162,6 +3174,116 @@ MT_ChangeCipherSpec::SerializePriv(
 
 error:
     return hr;
+} // end function SerializePriv
+
+/*********** MT_Extension *****************/
+
+MT_Extension::MT_Extension()
+    : m_extensionType(MTEE_Unknown),
+      m_vbExtensionData()
+{
+} // end ctor MT_Extension
+
+HRESULT
+MT_Extension::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 2;
+    size_t cbExtensionLength = 0;
+
+    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(ExtensionType()));
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = 2;
+    hr = ReadNetworkLong(pv, cb, cbField, &cbExtensionLength);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = cbExtensionLength;
+
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    ExtensionData()->assign(pv, pv + cbField);
+    assert(ExtensionData()->size() == cbExtensionLength);
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+size_t
+MT_Extension::Length() const
+{
+    size_t cbLength = 2 + // extension type
+                      2 + // extension length field
+                      ExtensionData()->size();
+    return cbLength;
+} // end function Length
+
+HRESULT
+MT_Extension::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    if (Length() > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    cbField = 2;
+    hr = WriteNetworkLong(static_cast<ULONG>(*ExtensionType()), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = 2;
+    hr = WriteNetworkLong(ExtensionData()->size(), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = ExtensionData()->size();
+    assert(cbField <= cb);
+    std::copy(ExtensionData()->begin(), ExtensionData()->end(), pv);
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 /*********** MT_Thingy *****************/

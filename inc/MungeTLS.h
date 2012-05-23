@@ -349,9 +349,6 @@ class MT_CompressionMethod : public MT_Structure
 typedef MT_VariableLengthField<MT_CompressionMethod, 1, 1, MAXFORBYTES(1)>
         MT_CompressionMethods;
 
-typedef MT_VariableLengthByteField<2, 0, MAXFORBYTES(2)> MT_HelloExtensions;
-
-
 
 
 
@@ -451,6 +448,33 @@ class MT_Handshake : public MT_Structure
     MTH_HandshakeType m_eType;
     ByteVector m_vbBody;
 };
+
+class MT_Extension : public MT_Structure
+{
+    public:
+    enum MTE_ExtensionType
+    {
+        MTEE_RenegotiationInfo = 0xff01,
+        MTEE_Unknown = 65535
+    };
+
+    MT_Extension();
+    ~MT_Extension() { }
+
+    size_t Length() const;
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    ACCESSORS(MTE_ExtensionType*, ExtensionType, &m_extensionType);
+    ACCESSORS(ByteVector*, ExtensionData, &m_vbExtensionData);
+
+    private:
+    MTE_ExtensionType m_extensionType;
+    ByteVector m_vbExtensionData;
+};
+
+// Extension extensions<0..2^16-1>;
+typedef MT_VariableLengthField<MT_Extension, 2, 0, MAXFORBYTES(2)> MT_HelloExtensions;
 
 class MT_ClientHello : public MT_Structure
 {

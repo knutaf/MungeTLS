@@ -9,6 +9,7 @@
 - remove the cast operator from MT_CipherSuite to CipherSuiteValue
 - figure out what cipher and hash suites we actually support. there are many places where we seem to support a hash type, but in another place we throw unsupported hash for it
 - can all of the hash and cipher related functions around tlsconnection be made const?
+- don't access MT_VariableLengthField::Data. surface common operations
 
 Finish message:
 DONE - compute master secret from premaster secret

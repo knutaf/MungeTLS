@@ -208,7 +208,7 @@ GetPublicKeyFromCertificate(
 
     wprintf(L"found we need %d bytes for public key info\n", cbPublicKeyInfo);
 
-    vbPublicKeyInfo.resize(cbPublicKeyInfo, 0x24);
+    ResizeVector(&vbPublicKeyInfo, cbPublicKeyInfo);
     if (!CryptExportPublicKeyInfoEx(
              hProv,
              AT_KEYEXCHANGE,
@@ -324,7 +324,7 @@ EncryptBuffer(
     }
 
     *pvbEncrypted = *pvbCleartext;
-    pvbEncrypted->resize(cb, 0x23);
+    ResizeVector(pvbEncrypted, cb);
 
     hr = SizeTToDWord(pvbCleartext->size(), &cb);
     if (hr != S_OK)
@@ -409,7 +409,7 @@ DecryptBuffer(
     }
 
     wprintf(L"done initial decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
-    pvbDecrypted->resize(cb);
+    ResizeVector(pvbDecrypted, cb);
 
     PrintByteVector(pvbDecrypted);
 
@@ -674,7 +674,7 @@ WindowsHasher::Hash(
             goto error;
         }
 
-        pvbHash->resize(cbHashValue, 0x30);
+        ResizeVector(pvbHash, cbHashValue);
 
         if (!CryptGetHashParam(
                  hHash,
@@ -788,7 +788,7 @@ WindowsHasher::HMAC(
         goto error;
     }
 
-    pvbHMAC->resize(cbHashValue, 0x30);
+    ResizeVector(pvbHMAC, cbHashValue);
 
     if (!CryptGetHashParam(
              hHash,
@@ -996,7 +996,7 @@ ImportSymmetricKey(
 
     kp.Init(hProv, TRUE);
 
-    vbPlaintextKey.resize(sizeof(PlaintextKey) + pvbKey->size());
+    ResizeVector(&vbPlaintextKey, sizeof(PlaintextKey) + pvbKey->size());
 
     pPlaintextKey = reinterpret_cast<PlaintextKey*>(&vbPlaintextKey.front());
     pPlaintextKey->hdr.bType = PLAINTEXTKEYBLOB;
