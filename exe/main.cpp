@@ -274,6 +274,8 @@ HRESULT ProcessConnections()
                 printf("failed HandleMessage: %08LX\n", hr);
             }
 
+            _fflush_nolock(stdout);
+
             cb = recv(sockAccept, &c, 1, 0);
         }
     }
