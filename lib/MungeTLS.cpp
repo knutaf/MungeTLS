@@ -123,8 +123,11 @@ TLSConnection::HandleMessage(
 )
 {
     HRESULT hr = S_OK;
+    vector<shared_ptr<MT_RecordLayerMessage>> responseMessages;
 
     assert(cb >= 0);
+
+    MT_TLSPlaintext record;
 
     if (m_fSecureMode)
     {
@@ -150,51 +153,10 @@ TLSConnection::HandleMessage(
         printf("decrypted fragment:\n");
         PrintByteVector(message.DecryptedFragment());
 
-        if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+        hr = message.ToTLSPlaintext(&record);
+        if (hr != S_OK)
         {
-            shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
-            hr = spHandshakeMessage->ParseFromVect(message.DecryptedFragment());
-
-            if (hr != S_OK)
-            {
-                printf("failed to parse handshake: %08LX\n", hr);
-                goto error;
-            }
-
-            printf("successfully parsed Handshake. type=%d\n", spHandshakeMessage->HandshakeType());
-
-            if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_Finished)
-            {
-                MT_Finished finishedMessage;
-                hr = finishedMessage.ParseFromVect(spHandshakeMessage->Body());
-                if (hr != S_OK)
-                {
-                    printf("failed to parse finished message: %08LX\n", hr);
-                    goto error;
-                }
-
-                finishedMessage.SetSecurityParameters(this);
-
-                hr = finishedMessage.CheckSecurity();
-                if (hr != S_OK)
-                {
-                    printf("security failed on finished message: %08LX\n", hr);
-                    goto error;
-                }
-            }
-            else
-            {
-                printf("not yet supporting handshake type %d\n", spHandshakeMessage->HandshakeType());
-                hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
-                goto error;
-            }
-
-            HandshakeMessages()->push_back(spHandshakeMessage);
-        }
-        else
-        {
-            printf("unsupported tlsciphertext message: %d\n", message.ContentType()->Type());
-            hr = MT_E_UNKNOWN_CONTENT_TYPE;
+            printf("failed to assign ciphertext to plaintext: %08LX\n", hr);
             goto error;
         }
     }
@@ -210,184 +172,209 @@ TLSConnection::HandleMessage(
 
         printf("successfully parsed TLSPlaintext. CT=%d\n", message.ContentType()->Type());
 
-        if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
-        {
-            shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
-            vector<MT_TLSPlaintext> responseMessages;
+        record = message;
+    }
 
-            hr = spHandshakeMessage->ParseFromVect(message.Fragment());
+
+    if (record.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+    {
+        shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
+
+        hr = spHandshakeMessage->ParseFromVect(record.Fragment());
+        if (hr != S_OK)
+        {
+            printf("failed to parse handshake: %08LX\n", hr);
+            goto error;
+        }
+
+        printf("successfully parsed Handshake. type=%d\n", spHandshakeMessage->HandshakeType());
+
+        if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_ClientHello)
+        {
+            MT_ClientHello clientHello;
+
+            hr = clientHello.ParseFromVect(spHandshakeMessage->Body());
             if (hr != S_OK)
             {
-                printf("failed to parse handshake: %08LX\n", hr);
+                printf("failed to parse client hello: %08LX\n", hr);
                 goto error;
             }
 
-            printf("successfully parsed Handshake. type=%d\n", spHandshakeMessage->HandshakeType());
+            printf("parsed client hello message:\n");
+            printf("version %04LX\n", clientHello.ProtocolVersion()->Version());
+            printf("session ID %d\n", clientHello.SessionID()->Data()[0]);
+            printf("%d crypto suites\n", clientHello.CipherSuites()->Count());
 
-            if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_ClientHello)
+            printf("crypto suite 0: %02X %02X\n",
+                   *(clientHello.CipherSuites()->at(0)->at(0)),
+                   *(clientHello.CipherSuites()->at(0)->at(1)));
+
+            printf("%d compression methods: %d\n",
+                   clientHello.CompressionMethods()->Count(),
+                   clientHello.CompressionMethods()->at(0)->Method());
+
+            printf("%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
+
+            HandshakeMessages()->push_back(spHandshakeMessage);
+
+
+            *NegotiatedVersion() = *(clientHello.ProtocolVersion());
+            *ClientRandom() = *(clientHello.Random());
+
+            hr = RespondTo(&clientHello, &responseMessages);
+            if (hr != S_OK)
             {
-                MT_ClientHello clientHello;
+                printf("failed RespondTo: %08LX\n", hr);
+                goto error;
 
-                hr = clientHello.ParseFromVect(spHandshakeMessage->Body());
-                if (hr != S_OK)
-                {
-                    printf("failed to parse client hello: %08LX\n", hr);
-                    goto error;
-                }
-
-                printf("parsed client hello message:\n");
-                printf("version %04LX\n", clientHello.ProtocolVersion()->Version());
-                printf("session ID %d\n", clientHello.SessionID()->Data()[0]);
-                printf("%d crypto suites\n", clientHello.CipherSuites()->Count());
-
-                printf("crypto suite 0: %02X %02X\n",
-                       *(clientHello.CipherSuites()->at(0)->at(0)),
-                       *(clientHello.CipherSuites()->at(0)->at(1)));
-
-                printf("%d compression methods: %d\n",
-                       clientHello.CompressionMethods()->Count(),
-                       clientHello.CompressionMethods()->at(0)->Method());
-
-                printf("%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
-
-
-                *NegotiatedVersion() = *(clientHello.ProtocolVersion());
-                *ClientRandom() = *(clientHello.Random());
-
-                hr = RespondTo(&clientHello, &responseMessages);
-                if (hr != S_OK)
-                {
-                    printf("failed RespondTo: %08LX\n", hr);
-                    goto error;
-
-                }
             }
-            else if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_ClientKeyExchange)
+        }
+        else if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_ClientKeyExchange)
+        {
+            MT_KeyExchangeAlgorithm keyExchangeAlg;
+            MT_ClientKeyExchange<MT_EncryptedPreMasterSecret> keyExchange;
+            MT_EncryptedPreMasterSecret* pExchangeKeys = nullptr;
+            MT_PreMasterSecret* pSecret = nullptr;
+
+            hr = CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg);
+            if (hr != S_OK)
             {
-                MT_KeyExchangeAlgorithm keyExchangeAlg;
-                MT_ClientKeyExchange<MT_EncryptedPreMasterSecret> keyExchange;
-                MT_EncryptedPreMasterSecret* pExchangeKeys = nullptr;
-                MT_PreMasterSecret* pSecret = nullptr;
-
-                hr = CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg);
-                if (hr != S_OK)
-                {
-                    printf("failed to get key exchange algorithm: %08LX\n", hr);
-                    goto error;
-                }
-
-                if (keyExchangeAlg != MTKEA_rsa)
-                {
-                    printf("unsupported key exchange type: %d\n", keyExchangeAlg);
-                    hr = MT_E_UNSUPPORTED_KEY_EXCHANGE;
-                    goto error;
-                }
-
-                hr = keyExchange.ParseFromVect(spHandshakeMessage->Body());
-
-                if (hr != S_OK)
-                {
-                    printf("failed to parse key exchange message from handshake body: %08LX\n", hr);
-                    goto error;
-                }
-
-                pExchangeKeys = keyExchange.ExchangeKeys();
-                pExchangeKeys->SetCipherer(PubKeyCipherer());
-                hr = pExchangeKeys->DecryptStructure();
-                if (hr != S_OK)
-                {
-                    printf("failed to decrypt structure: %08LX\n", hr);
-                    goto error;
-                }
-
-                pSecret = pExchangeKeys->Structure();
-                printf("version %04LX\n", pSecret->ClientVersion()->Version());
-
-                hr = ComputeMasterSecret(pSecret);
-                if (hr != S_OK)
-                {
-                    printf("failed to compute master secret: %08LX\n", hr);
-                    goto error;
-                }
-
-                printf("computed master secret:\n");
-                PrintByteVector(MasterSecret());
-
-                hr = GenerateKeyMaterial();
-                if (hr != S_OK)
-                {
-                    printf("failed to compute key material: %08LX\n", hr);
-                    goto error;
-                }
-
-                printf("computed key material\n");
+                printf("failed to get key exchange algorithm: %08LX\n", hr);
+                goto error;
             }
-            else
+
+            if (keyExchangeAlg != MTKEA_rsa)
             {
-                printf("not yet supporting handshake type %d\n", spHandshakeMessage->HandshakeType());
-                hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
+                printf("unsupported key exchange type: %d\n", keyExchangeAlg);
+                hr = MT_E_UNSUPPORTED_KEY_EXCHANGE;
+                goto error;
+            }
+
+            hr = keyExchange.ParseFromVect(spHandshakeMessage->Body());
+
+            if (hr != S_OK)
+            {
+                printf("failed to parse key exchange message from handshake body: %08LX\n", hr);
+                goto error;
+            }
+
+            pExchangeKeys = keyExchange.ExchangeKeys();
+            pExchangeKeys->SetCipherer(PubKeyCipherer());
+            hr = pExchangeKeys->DecryptStructure();
+            if (hr != S_OK)
+            {
+                printf("failed to decrypt structure: %08LX\n", hr);
                 goto error;
             }
 
             HandshakeMessages()->push_back(spHandshakeMessage);
 
-            if (!responseMessages.empty())
-            {
-                printf("got %u messages to respond with\n", responseMessages.size());
-                hr = SerializeMessagesToVector<MT_TLSPlaintext>(
-                         responseMessages.begin(),
-                         responseMessages.end(),
-                         pvbResponse);
+            pSecret = pExchangeKeys->Structure();
+            printf("version %04LX\n", pSecret->ClientVersion()->Version());
 
-                if (hr != S_OK)
-                {
-                    printf("failed to serialize response messages: %08LX\n", hr);
-                    goto error;
-                }
-
-                for_each(responseMessages.begin(), responseMessages.end(),
-                    [&hr, this](const MT_TLSPlaintext& rStructure)
-                    {
-                        if (hr == S_OK)
-                        {
-                            shared_ptr<MT_Structure> spHS(new MT_Handshake());
-
-                            assert(rStructure.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake);
-
-                            hr = spHS->ParseFromVect(rStructure.Fragment());
-                            if (hr != S_OK)
-                            {
-                                return;
-                            }
-
-                            HandshakeMessages()->push_back(spHS);
-                        }
-                    }
-                );
-            }
-        }
-        else if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
-        {
-            MT_ChangeCipherSpec changeCipherSpec;
-            hr = changeCipherSpec.ParseFromVect(message.Fragment());
+            hr = ComputeMasterSecret(pSecret);
             if (hr != S_OK)
             {
-                printf("failed to parse change cipher spec: %08LX\n", hr);
+                printf("failed to compute master secret: %08LX\n", hr);
                 goto error;
             }
 
-            printf("change cipher spec found: %d\n", *(changeCipherSpec.Type()));
-            m_fSecureMode = true;
+            printf("computed master secret:\n");
+            PrintByteVector(MasterSecret());
+
+            hr = GenerateKeyMaterial();
+            if (hr != S_OK)
+            {
+                printf("failed to compute key material: %08LX\n", hr);
+                goto error;
+            }
+
+            printf("computed key material\n");
         }
-        else if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_Alert)
+        else if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_Finished)
         {
-            printf("got alert message - not yet supported\n");
+            MT_Finished finishedMessage;
+            hr = finishedMessage.ParseFromVect(spHandshakeMessage->Body());
+            if (hr != S_OK)
+            {
+                printf("failed to parse finished message: %08LX\n", hr);
+                goto error;
+            }
+
+            finishedMessage.SetSecurityParameters(this);
+
+            hr = finishedMessage.CheckSecurity();
+            if (hr != S_OK)
+            {
+                printf("security failed on finished message: %08LX\n", hr);
+                goto error;
+            }
+
+            HandshakeMessages()->push_back(spHandshakeMessage);
         }
         else
         {
-            // TLSPlaintext.ParseFrom should filter out unknown content types
-            assert(false);
+            printf("not yet supporting handshake type %d\n", spHandshakeMessage->HandshakeType());
+            hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
+            goto error;
         }
+    }
+    else if (record.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
+    {
+        MT_ChangeCipherSpec changeCipherSpec;
+        hr = changeCipherSpec.ParseFromVect(record.Fragment());
+        if (hr != S_OK)
+        {
+            printf("failed to parse change cipher spec: %08LX\n", hr);
+            goto error;
+        }
+
+        printf("change cipher spec found: %d\n", *(changeCipherSpec.Type()));
+        m_fSecureMode = true;
+    }
+    else if (record.ContentType()->Type() == MT_ContentType::MTCT_Type_Alert)
+    {
+        printf("got alert message - not yet supported\n");
+    }
+    else
+    {
+        // TLSPlaintext.ParseFrom should filter out unknown content types
+        assert(false);
+    }
+
+    if (!responseMessages.empty())
+    {
+        printf("got %u messages to respond with\n", responseMessages.size());
+        hr = SerializeMessagesToVector<MT_RecordLayerMessage>(
+                 responseMessages.begin(),
+                 responseMessages.end(),
+                 pvbResponse);
+
+        if (hr != S_OK)
+        {
+            printf("failed to serialize response messages: %08LX\n", hr);
+            goto error;
+        }
+
+        for_each(responseMessages.begin(), responseMessages.end(),
+            [&hr, this](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
+            {
+                if (hr == S_OK)
+                {
+                    shared_ptr<MT_Structure> spHS(new MT_Handshake());
+
+                    assert(rspStructure->ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake);
+
+                    hr = spHS->ParseFromVect(rspStructure->Fragment());
+                    if (hr != S_OK)
+                    {
+                        return;
+                    }
+
+                    HandshakeMessages()->push_back(spHS);
+                }
+            }
+        );
     }
 
 done:
@@ -400,7 +387,7 @@ error:
 HRESULT
 TLSConnection::RespondTo(
     const MT_ClientHello* pClientHello,
-    vector<MT_TLSPlaintext>* pResponses
+    vector<shared_ptr<MT_RecordLayerMessage>>* pResponses
 )
 {
     HRESULT hr = S_OK;
@@ -416,7 +403,7 @@ TLSConnection::RespondTo(
         MT_ServerHello serverHello;
         MT_Handshake handshake;
         MT_ContentType contentType;
-        MT_TLSPlaintext plaintext;
+        shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
         protocolVersion.SetVersion(pClientHello->ProtocolVersion()->Version());
 
@@ -466,16 +453,16 @@ TLSConnection::RespondTo(
 
         contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
 
-        *(plaintext.ContentType()) = contentType;
-        *(plaintext.ProtocolVersion()) = protocolVersion;
+        *(spPlaintext->ContentType()) = contentType;
+        *(spPlaintext->ProtocolVersion()) = protocolVersion;
 
-        hr = handshake.SerializeToVect(plaintext.Fragment());
+        hr = handshake.SerializeToVect(spPlaintext->Fragment());
         if (hr != S_OK)
         {
             goto error;
         }
 
-        pResponses->push_back(plaintext);
+        pResponses->push_back(spPlaintext);
     }
 
     assert(hr == S_OK);
@@ -485,8 +472,8 @@ TLSConnection::RespondTo(
         MT_Certificate certificate;
         MT_Handshake handshake;
         MT_ContentType contentType;
-        MT_TLSPlaintext plaintext;
         MT_ProtocolVersion protocolVersion;
+        shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
         if (hr != S_OK)
         {
@@ -509,16 +496,16 @@ TLSConnection::RespondTo(
         protocolVersion.SetVersion(MT_ProtocolVersion::MTPV_TLS10);
         contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
 
-        *(plaintext.ContentType()) = contentType;
-        *(plaintext.ProtocolVersion()) = protocolVersion;
+        *(spPlaintext->ContentType()) = contentType;
+        *(spPlaintext->ProtocolVersion()) = protocolVersion;
 
-        hr = handshake.SerializeToVect(plaintext.Fragment());
+        hr = handshake.SerializeToVect(spPlaintext->Fragment());
         if (hr != S_OK)
         {
             goto error;
         }
 
-        pResponses->push_back(plaintext);
+        pResponses->push_back(spPlaintext);
     }
 
     assert(hr == S_OK);
@@ -527,23 +514,23 @@ TLSConnection::RespondTo(
     {
         MT_Handshake handshake;
         MT_ContentType contentType;
-        MT_TLSPlaintext plaintext;
         MT_ProtocolVersion protocolVersion;
+        shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
         protocolVersion.SetVersion(MT_ProtocolVersion::MTPV_TLS10);
         handshake.SetType(MT_Handshake::MTH_ServerHelloDone);
         contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
 
-        *(plaintext.ContentType()) = contentType;
-        *(plaintext.ProtocolVersion()) = protocolVersion;
+        *(spPlaintext->ContentType()) = contentType;
+        *(spPlaintext->ProtocolVersion()) = protocolVersion;
 
-        hr = handshake.SerializeToVect(plaintext.Fragment());
+        hr = handshake.SerializeToVect(spPlaintext->Fragment());
         if (hr != S_OK)
         {
             goto error;
         }
 
-        pResponses->push_back(plaintext);
+        pResponses->push_back(spPlaintext);
     }
 
     assert(hr == S_OK);
@@ -1475,16 +1462,15 @@ MT_Structure::SerializeAppendToVect(
 } // end function SerializeAppendToVect
 
 
-/*********** MT_SecuredStructure *****************/
+/*********** MT_Securable *****************/
 
-MT_SecuredStructure::MT_SecuredStructure()
-    : MT_Structure(),
-      m_pSecurityParameters(nullptr)
+MT_Securable::MT_Securable()
+    : m_pSecurityParameters(nullptr)
 {
-} // end ctor MT_SecuredStructure
+} // end ctor MT_Securable
 
 HRESULT
-MT_SecuredStructure::CheckSecurity()
+MT_Securable::CheckSecurity()
 {
     assert(SecurityParameters() != nullptr);
     return CheckSecurityPriv();
@@ -1499,6 +1485,7 @@ template <typename F,
 MT_VariableLengthFieldBase
 <F, LengthFieldSize, MinSize, MaxSize>
 ::MT_VariableLengthFieldBase()
+    : MT_Structure()
 {
     assert(LengthFieldSize <= sizeof(size_t));
     assert((1UL << (LengthFieldSize * 8)) - 1 >= MaxSize);
@@ -1777,7 +1764,8 @@ error:
 
 template <typename F, size_t Size>
 MT_FixedLengthStructureBase<F, Size>::MT_FixedLengthStructureBase()
-    : m_vData()
+    : MT_Structure(),
+      m_vData()
 {
     assert(Size > 0);
 }
@@ -1948,7 +1936,8 @@ MT_FixedLengthByteStructure<Size>::Length() const
 
 template <typename T>
 MT_PublicKeyEncryptedStructure<T>::MT_PublicKeyEncryptedStructure()
-    : m_structure(),
+    : MT_Structure(),
+      m_structure(),
       m_vbEncryptedStructure(),
       m_vbPlaintextStructure(),
       m_pCipherer(nullptr)
@@ -2027,17 +2016,18 @@ error:
     goto done;
 } // end function DecryptStructure
 
-/*********** MT_TLSPlaintext *****************/
+/*********** MT_RecordLayerMessage *****************/
 
-MT_TLSPlaintext::MT_TLSPlaintext()
-    : m_contentType(),
+MT_RecordLayerMessage::MT_RecordLayerMessage()
+    : MT_Structure(),
+      m_contentType(),
       m_protocolVersion(),
       m_vbFragment()
 {
-} // end ctor MT_TLSPlaintext
+} // end ctor MT_RecordLayerMessage
 
 HRESULT
-MT_TLSPlaintext::ParseFromPriv(
+MT_RecordLayerMessage::ParseFromPriv(
     const BYTE* pv,
     size_t cb
 )
@@ -2090,7 +2080,7 @@ error:
 } // end function ParseFromPriv
 
 MT_UINT16
-MT_TLSPlaintext::PayloadLength() const
+MT_RecordLayerMessage::PayloadLength() const
 {
     size_t cbLength = Fragment()->size();
     assert(cbLength <= UINT16_MAX);
@@ -2098,7 +2088,7 @@ MT_TLSPlaintext::PayloadLength() const
 } // end function PayloadLength
 
 size_t
-MT_TLSPlaintext::Length() const
+MT_RecordLayerMessage::Length() const
 {
     size_t cbLength = ContentType()->Length() +
                       ProtocolVersion()->Length() +
@@ -2109,7 +2099,7 @@ MT_TLSPlaintext::Length() const
 } // end function Length
 
 HRESULT
-MT_TLSPlaintext::SerializePriv(
+MT_RecordLayerMessage::SerializePriv(
     BYTE* pv,
     size_t cb
 ) const
@@ -2162,76 +2152,12 @@ error:
 /*********** MT_TLSCiphertext *****************/
 
 MT_TLSCiphertext::MT_TLSCiphertext()
-    : m_contentType(),
-      m_protocolVersion(),
-      m_vbFragment(),
+    : MT_RecordLayerMessage(),
+      MT_Securable(),
       m_vbDecryptedFragment()
 {
 } // end ctor MT_TLSCiphertext
 
-HRESULT
-MT_TLSCiphertext::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-    size_t cbField = 0;
-    size_t cbFragmentLength = 0;
-
-    hr = ContentType()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    cbField = ContentType()->Length();
-    ADVANCE_PARSE();
-
-    hr = ProtocolVersion()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    cbField = ProtocolVersion()->Length();
-    ADVANCE_PARSE();
-
-
-    cbField = 2;
-    hr = ReadNetworkLong(pv, cb, cbField, &cbFragmentLength);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    ADVANCE_PARSE();
-
-    cbField = cbFragmentLength;
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    Fragment()->assign(pv, pv + cbField);
-
-    ADVANCE_PARSE();
-
-error:
-    return hr;
-} // end function ParseFromPriv
-
-size_t
-MT_TLSCiphertext::Length() const
-{
-    size_t cbLength = ContentType()->Length() +
-                      ProtocolVersion()->Length() +
-                      2 + // sizeof MT_UINT16 payload length
-                      Fragment()->size();
-
-    return cbLength;
-} // end function Length
 
 HRESULT
 MT_TLSCiphertext::Decrypt()
@@ -2263,10 +2189,25 @@ MT_TLSCiphertext::Encrypt()
     return E_NOTIMPL;
 } // end function Encrypt
 
+HRESULT
+MT_TLSCiphertext::ToTLSPlaintext(
+    MT_TLSPlaintext* pPlaintext
+) const
+{
+    *(pPlaintext->ContentType()) = *ContentType();
+    *(pPlaintext->ProtocolVersion()) = *ProtocolVersion();
+
+    // assumes it has already been decrypted
+    *(pPlaintext->Fragment()) = *DecryptedFragment();
+
+    return S_OK;
+} // end function ToTLSPlaintext
+
 /*********** MT_ContentType *****************/
 
 MT_ContentType::MT_ContentType()
-    : m_eType(MTCT_Type_Unknown)
+    : MT_Structure(),
+      m_eType(MTCT_Type_Unknown)
 {
 }
 
@@ -2352,7 +2293,8 @@ MT_ContentType::Type() const
 /*********** MT_ProtocolVersion *****************/
 
 MT_ProtocolVersion::MT_ProtocolVersion()
-    : m_version(0)
+    : MT_Structure(),
+      m_version(0)
 {
 } // end ctor MT_ProtocolVersion
 
@@ -2456,7 +2398,8 @@ const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeSupportedTypes[] =
 const ULONG MT_Handshake::c_cSupportedTypes = ARRAYSIZE(c_rgeSupportedTypes);
 
 MT_Handshake::MT_Handshake()
-    : m_eType(MTH_Unknown),
+    : MT_Structure(),
+      m_eType(MTH_Unknown),
       m_vbBody()
 {
 } // end ctor MT_Handshake
@@ -2654,7 +2597,8 @@ wstring MT_Handshake::HandshakeTypeString() const
 const size_t MT_Random::c_cbRandomBytes = 28;
 
 MT_Random::MT_Random()
-    : m_timestamp(0),
+    : MT_Structure(),
+      m_timestamp(0),
       m_vbRandomBytes()
 {
 } // end ctor MT_Random
@@ -2769,7 +2713,8 @@ error:
 /*********** MT_ClientHello *****************/
 
 MT_ClientHello::MT_ClientHello()
-    : m_protocolVersion(),
+    : MT_Structure(),
+      m_protocolVersion(),
       m_random(),
       m_sessionID(),
       m_cipherSuites(),
@@ -2861,7 +2806,8 @@ MT_ClientHello::Length() const
 /*********** MT_CompressionMethod *****************/
 
 MT_CompressionMethod::MT_CompressionMethod()
-    : m_compressionMethod(MTCM_Unknown)
+    : MT_Structure(),
+      m_compressionMethod(MTCM_Unknown)
 {
 }
 
@@ -2927,7 +2873,8 @@ MT_CompressionMethod::Method() const
 /*********** MT_ServerHello *****************/
 
 MT_ServerHello::MT_ServerHello()
-    : m_protocolVersion(),
+    : MT_Structure(),
+      m_protocolVersion(),
       m_random(),
       m_sessionID(),
       m_cipherSuite(),
@@ -3025,7 +2972,8 @@ error:
 /*********** MT_Certificate *****************/
 
 MT_Certificate::MT_Certificate()
-    : m_certificateList()
+    : MT_Structure(),
+      m_certificateList()
 {
 } // end ctor MT_Certificate
 
@@ -3089,7 +3037,8 @@ error:
 /*********** MT_PreMasterSecret *****************/
 
 MT_PreMasterSecret::MT_PreMasterSecret()
-    : m_clientVersion(),
+    : MT_Structure(),
+      m_clientVersion(),
       m_random()
 {
 } // end ctor MT_PreMasterSecret
@@ -3289,7 +3238,8 @@ error:
 /*********** MT_ChangeCipherSpec *****************/
 
 MT_ChangeCipherSpec::MT_ChangeCipherSpec()
-    : m_type(MTCCS_ChangeCipherSpc)
+    : MT_Structure(),
+      m_type(MTCCS_ChangeCipherSpc)
 {
 } // end ctor MT_ChangeCipherSpec
 
@@ -3347,7 +3297,8 @@ error:
 /*********** MT_Extension *****************/
 
 MT_Extension::MT_Extension()
-    : m_extensionType(MTEE_Unknown),
+    : MT_Structure(),
+      m_extensionType(MTEE_Unknown),
       m_vbExtensionData()
 {
 } // end ctor MT_Extension
@@ -3457,7 +3408,8 @@ error:
 /*********** MT_Finished *****************/
 
 MT_Finished::MT_Finished()
-    : MT_SecuredStructure(),
+    : MT_Structure(),
+      MT_Securable(),
       m_verifyData()
 {
 } // end ctor MT_Finished
@@ -3600,7 +3552,8 @@ error:
 
 /*
 MT_Thingy::MT_Thingy()
-    : m_thingy()
+    : MT_Structure(),
+      m_thingy()
 {
 } // end ctor MT_Thingy
 

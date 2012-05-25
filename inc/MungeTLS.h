@@ -49,12 +49,11 @@ class MT_Structure
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const { return E_NOTIMPL; }
 };
 
-class MT_SecuredStructure : public MT_Structure
+class MT_Securable
 {
     public:
-    MT_SecuredStructure();
-    virtual ~MT_SecuredStructure() { }
-
+    MT_Securable();
+    virtual ~MT_Securable() { }
     HRESULT CheckSecurity();
 
     TLSConnection* SecurityParameters() { return m_pSecurityParameters; }
@@ -351,14 +350,11 @@ typedef MT_VariableLengthField<MT_CompressionMethod, 1, 1, MAXFORBYTES(1)>
         MT_CompressionMethods;
 
 
-
-
-
-class MT_TLSPlaintext : public MT_Structure
+class MT_RecordLayerMessage : public MT_Structure
 {
     public:
-    MT_TLSPlaintext();
-    ~MT_TLSPlaintext() {};
+    MT_RecordLayerMessage();
+    virtual ~MT_RecordLayerMessage() {};
 
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
@@ -376,30 +372,28 @@ class MT_TLSPlaintext : public MT_Structure
     ByteVector m_vbFragment;
 };
 
-class MT_TLSCiphertext : public MT_SecuredStructure
+
+
+class MT_TLSPlaintext : public MT_RecordLayerMessage
+{
+};
+
+class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
 {
     public:
     MT_TLSCiphertext();
     ~MT_TLSCiphertext() {};
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    //HRESULT SerializePriv(BYTE* pv, size_t cb) const;
-    size_t Length() const;
-
-    ACCESSORS(MT_ContentType*, ContentType, &m_contentType);
-    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
-    ACCESSORS(ByteVector*, Fragment, &m_vbFragment);
     ACCESSORS(ByteVector*, DecryptedFragment, &m_vbDecryptedFragment);
 
     HRESULT Encrypt();
     HRESULT Decrypt();
 
+    HRESULT ToTLSPlaintext(MT_TLSPlaintext* pPlaintext) const;
+
     private:
     HRESULT CheckSecurityPriv() { return S_OK; }
 
-    MT_ContentType m_contentType;
-    MT_ProtocolVersion m_protocolVersion;
-    ByteVector m_vbFragment;
     ByteVector m_vbDecryptedFragment;
 };
 
@@ -563,7 +557,7 @@ class TLSConnection
     private:
     HRESULT RespondTo(
         const MT_ClientHello* pClientHello,
-        std::vector<MT_TLSPlaintext>* pResponses);
+        std::vector<std::shared_ptr<MT_RecordLayerMessage>>* pResponses);
 
     HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
 
@@ -691,7 +685,7 @@ class MT_ChangeCipherSpec : public MT_Structure
     MTCCS_Type m_type;
 };
 
-class MT_Finished : public MT_SecuredStructure
+class MT_Finished : public MT_Structure, public MT_Securable
 {
     typedef MT_FixedLengthByteStructure<12> MTF_VerifyData;
 
