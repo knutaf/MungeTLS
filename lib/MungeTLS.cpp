@@ -70,7 +70,8 @@ TLSConnection::TLSConnection()
       m_vbServerWriteKey(),
       m_vbClientWriteIV(),
       m_vbServerWriteIV(),
-      m_fSecureMode(false)
+      m_fSecureMode(false),
+      m_vHandshakeMessages()
 {
 } // end ctor TLSConnection
 
@@ -148,6 +149,54 @@ TLSConnection::HandleMessage(
 
         printf("decrypted fragment:\n");
         PrintByteVector(message.DecryptedFragment());
+
+        if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+        {
+            shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
+            hr = spHandshakeMessage->ParseFromVect(message.DecryptedFragment());
+
+            if (hr != S_OK)
+            {
+                printf("failed to parse handshake: %08LX\n", hr);
+                goto error;
+            }
+
+            printf("successfully parsed Handshake. type=%d\n", spHandshakeMessage->HandshakeType());
+
+            if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_Finished)
+            {
+                MT_Finished finishedMessage;
+                hr = finishedMessage.ParseFromVect(spHandshakeMessage->Body());
+                if (hr != S_OK)
+                {
+                    printf("failed to parse finished message: %08LX\n", hr);
+                    goto error;
+                }
+
+                finishedMessage.SetSecurityParameters(this);
+
+                hr = finishedMessage.CheckSecurity();
+                if (hr != S_OK)
+                {
+                    printf("security failed on finished message: %08LX\n", hr);
+                    goto error;
+                }
+            }
+            else
+            {
+                printf("not yet supporting handshake type %d\n", spHandshakeMessage->HandshakeType());
+                hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
+                goto error;
+            }
+
+            HandshakeMessages()->push_back(spHandshakeMessage);
+        }
+        else
+        {
+            printf("unsupported tlsciphertext message: %d\n", message.ContentType()->Type());
+            hr = MT_E_UNKNOWN_CONTENT_TYPE;
+            goto error;
+        }
     }
     else
     {
@@ -163,23 +212,23 @@ TLSConnection::HandleMessage(
 
         if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
         {
-            MT_Handshake handshakeMessage;
-            hr = handshakeMessage.ParseFromVect(message.Fragment());
+            shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
+            vector<MT_TLSPlaintext> responseMessages;
 
+            hr = spHandshakeMessage->ParseFromVect(message.Fragment());
             if (hr != S_OK)
             {
                 printf("failed to parse handshake: %08LX\n", hr);
                 goto error;
             }
 
-            printf("successfully parsed Handshake. type=%d\n", handshakeMessage.HandshakeType());
+            printf("successfully parsed Handshake. type=%d\n", spHandshakeMessage->HandshakeType());
 
-            if (handshakeMessage.HandshakeType() == MT_Handshake::MTH_ClientHello)
+            if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_ClientHello)
             {
                 MT_ClientHello clientHello;
-                vector<MT_TLSPlaintext> responseMessages;
 
-                hr = clientHello.ParseFromVect(handshakeMessage.Body());
+                hr = clientHello.ParseFromVect(spHandshakeMessage->Body());
                 if (hr != S_OK)
                 {
                     printf("failed to parse client hello: %08LX\n", hr);
@@ -212,16 +261,8 @@ TLSConnection::HandleMessage(
                     goto error;
 
                 }
-
-                printf("got %u messages to respond with\n", responseMessages.size());
-                hr = SerializeMessagesToVector(&responseMessages, pvbResponse);
-                if (hr != S_OK)
-                {
-                    printf("failed to serialize response messages: %08LX\n", hr);
-                    goto error;
-                }
             }
-            else if (handshakeMessage.HandshakeType() == MT_Handshake::MTH_ClientKeyExchange)
+            else if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_ClientKeyExchange)
             {
                 MT_KeyExchangeAlgorithm keyExchangeAlg;
                 MT_ClientKeyExchange<MT_EncryptedPreMasterSecret> keyExchange;
@@ -242,7 +283,7 @@ TLSConnection::HandleMessage(
                     goto error;
                 }
 
-                hr = keyExchange.ParseFromVect(handshakeMessage.Body());
+                hr = keyExchange.ParseFromVect(spHandshakeMessage->Body());
 
                 if (hr != S_OK)
                 {
@@ -283,8 +324,46 @@ TLSConnection::HandleMessage(
             }
             else
             {
-                printf("not yet supporting handshake type %d\n", handshakeMessage.HandshakeType());
+                printf("not yet supporting handshake type %d\n", spHandshakeMessage->HandshakeType());
+                hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
                 goto error;
+            }
+
+            HandshakeMessages()->push_back(spHandshakeMessage);
+
+            if (!responseMessages.empty())
+            {
+                printf("got %u messages to respond with\n", responseMessages.size());
+                hr = SerializeMessagesToVector<MT_TLSPlaintext>(
+                         responseMessages.begin(),
+                         responseMessages.end(),
+                         pvbResponse);
+
+                if (hr != S_OK)
+                {
+                    printf("failed to serialize response messages: %08LX\n", hr);
+                    goto error;
+                }
+
+                for_each(responseMessages.begin(), responseMessages.end(),
+                    [&hr, this](const MT_TLSPlaintext& rStructure)
+                    {
+                        if (hr == S_OK)
+                        {
+                            shared_ptr<MT_Structure> spHS(new MT_Handshake());
+
+                            assert(rStructure.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake);
+
+                            hr = spHS->ParseFromVect(rStructure.Fragment());
+                            if (hr != S_OK)
+                            {
+                                return;
+                            }
+
+                            HandshakeMessages()->push_back(spHS);
+                        }
+                    }
+                );
             }
         }
         else if (message.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
@@ -894,7 +973,8 @@ error:
 template <typename T>
 HRESULT
 SerializeMessagesToVector(
-    const std::vector<T>* pvMessages,
+    typename std::vector<T>::const_iterator itBegin,
+    typename std::vector<T>::const_iterator itEnd,
     ByteVector* pvb
 )
 {
@@ -902,13 +982,44 @@ SerializeMessagesToVector(
     size_t cbTotal = 0;
 
     pvb->clear();
-    for_each(pvMessages->begin(), pvMessages->end(),
-        [&hr, &cbTotal, pvb](const T& pStructure)
+    for_each(itBegin, itEnd,
+        [&hr, &cbTotal, pvb](const T& rStructure)
         {
             if (hr == S_OK)
             {
-                cbTotal += pStructure.Length();
-                hr = pStructure.SerializeAppendToVect(pvb);
+                cbTotal += rStructure.Length();
+                hr = rStructure.SerializeAppendToVect(pvb);
+            }
+        }
+    );
+
+    if (hr == S_OK)
+    {
+        assert(cbTotal == pvb->size());
+    }
+
+    return hr;
+} // end function SerializeMessagesToVector
+
+template <typename T>
+HRESULT
+SerializeMessagesToVector(
+    typename vector<shared_ptr<T>>::const_iterator itBegin,
+    typename vector<shared_ptr<T>>::const_iterator itEnd,
+    ByteVector* pvb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbTotal = 0;
+
+    pvb->clear();
+    for_each(itBegin, itEnd,
+        [&hr, &cbTotal, pvb](const shared_ptr<T>& rspStructure)
+        {
+            if (hr == S_OK)
+            {
+                cbTotal += rspStructure->Length();
+                hr = rspStructure->SerializeAppendToVect(pvb);
             }
         }
     );
@@ -2481,6 +2592,63 @@ error:
     return hr;
 } // end function SerializePriv
 
+wstring MT_Handshake::HandshakeTypeString() const
+{
+    PCWSTR wszType = nullptr;
+
+    if (HandshakeType() == MTH_HelloRequest)
+    {
+        wszType = L"HelloRequest";
+    }
+    else if (HandshakeType() == MTH_ClientHello)
+    {
+        wszType = L"ClientHello";
+    }
+    else if (HandshakeType() == MTH_ServerHello)
+    {
+        wszType = L"ServerHello";
+    }
+    else if (HandshakeType() == MTH_Certificate)
+    {
+        wszType = L"Certificate";
+    }
+    else if (HandshakeType() == MTH_ServerKeyExchange)
+    {
+        wszType = L"ServerKeyExchange";
+    }
+    else if (HandshakeType() == MTH_CertificateRequest)
+    {
+        wszType = L"CertificateRequest";
+    }
+    else if (HandshakeType() == MTH_ServerHelloDone)
+    {
+        wszType = L"ServerHelloDone";
+    }
+    else if (HandshakeType() == MTH_CertificateVerify)
+    {
+        wszType = L"CertificateVerify";
+    }
+    else if (HandshakeType() == MTH_ClientKeyExchange)
+    {
+        wszType = L"ClientKeyExchange";
+    }
+    else if (HandshakeType() == MTH_Finished)
+    {
+        wszType = L"Finished";
+    }
+    else if (HandshakeType() == MTH_Unknown)
+    {
+        wszType = L"Unknown";
+    }
+    else
+    {
+        // shouldn't see another type, I think
+        assert(false);
+    }
+
+    return wstring(wszType);
+} // end function HandshakeTypeString
+
 /*********** MT_Random *****************/
 
 const size_t MT_Random::c_cbRandomBytes = 28;
@@ -3285,6 +3453,141 @@ done:
 error:
     goto done;
 } // end function SerializePriv
+
+/*********** MT_Finished *****************/
+
+MT_Finished::MT_Finished()
+    : MT_SecuredStructure(),
+      m_verifyData()
+{
+} // end ctor MT_Finished
+
+HRESULT
+MT_Finished::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    return VerifyData()->ParseFrom(pv, cb);
+} // end function ParseFromPriv
+
+/*
+HRESULT
+MT_Finished::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    return VerifyData()->Serialize(pv, cb);
+} // end function SerializePriv
+*/
+
+HRESULT
+MT_Finished::CheckSecurityPriv()
+{
+    HRESULT hr = S_OK;
+
+    ByteVector vbComputedVerifyData;
+    ByteVector vbHandshakeMessages;
+
+    {
+        wprintf(L"working on the following handshake messages:\n");
+        for_each(
+            SecurityParameters()->HandshakeMessages()->begin(),
+            SecurityParameters()->HandshakeMessages()->end(),
+            [] (const shared_ptr<MT_Structure> spStructure)
+            {
+                MT_Handshake* pHandshakeMessage = static_cast<MT_Handshake*>(spStructure.get());
+                wprintf(L"    %s\n", pHandshakeMessage->HandshakeTypeString().c_str());
+            }
+        );
+    }
+
+    hr = SerializeMessagesToVector<MT_Structure>(
+             SecurityParameters()->HandshakeMessages()->begin(),
+             SecurityParameters()->HandshakeMessages()->end(),
+             &vbHandshakeMessages);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    if (SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+    {
+        ByteVector vbHashedHandshakeMessages;
+        ByteVector vbMD5HandshakeHash;
+        ByteVector vbSHA1HandshakeHash;
+        ByteVector vbHandshakeHash;
+
+        hr = SecurityParameters()->HashInst()->Hash(
+                 Hasher::HashAlg_MD5,
+                 &vbHandshakeMessages,
+                 &vbMD5HandshakeHash);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        hr = SecurityParameters()->HashInst()->Hash(
+                 Hasher::HashAlg_SHA1,
+                 &vbHandshakeMessages,
+                 &vbSHA1HandshakeHash);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        vbHashedHandshakeMessages = vbMD5HandshakeHash;
+        vbHashedHandshakeMessages.insert(
+            vbHashedHandshakeMessages.end(),
+            vbSHA1HandshakeHash.begin(),
+            vbSHA1HandshakeHash.end());
+
+        hr = SecurityParameters()->ComputePRF(
+                 SecurityParameters()->MasterSecret(),
+                 "client finished",
+                 &vbHashedHandshakeMessages,
+                 12,
+                 &vbComputedVerifyData);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        printf("Received Finished hash:\n");
+        PrintByteVector(VerifyData()->Data());
+
+        printf("Computed Finished hash:\n");
+        PrintByteVector(&vbComputedVerifyData);
+
+        if (vbComputedVerifyData != *VerifyData()->Data())
+        {
+            hr = MT_E_BAD_FINISHED_HASH;
+            goto error;
+        }
+    }
+    else if (SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+    {
+        // TODO: fill in
+        hr = E_NOTIMPL;
+    }
+    else
+    {
+        printf("unrecognized version: %04LX\n", SecurityParameters()->NegotiatedVersion()->Version());
+        hr = MT_E_UNKNOWN_PROTOCOL_VERSION;
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CheckSecurityPriv
 
 /*********** MT_Thingy *****************/
 

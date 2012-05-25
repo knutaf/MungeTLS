@@ -22,6 +22,7 @@ const HRESULT MT_E_UNSUPPORTED_KEY_EXCHANGE                 = 0x80230009;
 const HRESULT MT_E_BAD_PADDING                              = 0x8023000a;
 const HRESULT MT_E_UNSUPPORTED_HASH                         = 0x8023000b;
 const HRESULT MT_E_UNSUPPORTED_CIPHER                       = 0x8023000c;
+const HRESULT MT_E_BAD_FINISHED_HASH                        = 0x8023000d;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
 extern const BYTE c_abyCert[];
@@ -56,7 +57,7 @@ class MT_SecuredStructure : public MT_Structure
 
     HRESULT CheckSecurity();
 
-    const TLSConnection* SecurityParameters() { return m_pSecurityParameters; }
+    TLSConnection* SecurityParameters() { return m_pSecurityParameters; }
     void SetSecurityParameters(TLSConnection* pSecurityParameters) { m_pSecurityParameters = pSecurityParameters; }
 
     private:
@@ -436,6 +437,8 @@ class MT_Handshake : public MT_Structure
     static bool IsKnownType(MTH_HandshakeType eType);
     static bool IsSupportedType(MTH_HandshakeType eType);
 
+    std::wstring HandshakeTypeString() const;
+
     private:
     static const MTH_HandshakeType c_rgeKnownTypes[];
     static const ULONG c_cKnownTypes;
@@ -544,12 +547,10 @@ class TLSConnection
     ACCESSORS(SymmetricCipherer*, ServerSymCipherer, m_spServerSymCipherer.get());
     ACCESSORS(Hasher*, HashInst, m_spHasher.get());
 
-    private:
-    HRESULT RespondTo(
-        const MT_ClientHello* pClientHello,
-        std::vector<MT_TLSPlaintext>* pResponses);
-
-    HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
+    ACCESSORS(std::vector<std::shared_ptr<MT_Structure>>*, HandshakeMessages, &m_vHandshakeMessages);
+    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
+    ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
+    ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion);
 
     HRESULT
     ComputePRF(
@@ -559,14 +560,18 @@ class TLSConnection
         size_t cbMinimumLengthDesired,
         ByteVector* pvbPRF);
 
+    private:
+    HRESULT RespondTo(
+        const MT_ClientHello* pClientHello,
+        std::vector<MT_TLSPlaintext>* pResponses);
+
+    HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
+
     HRESULT GenerateKeyMaterial();
 
     ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext);
-    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
-    ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
     ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
     ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
-    ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion);
 
     ACCESSORS(ByteVector*, ClientWriteMACKey, &m_vbClientWriteMACKey);
     ACCESSORS(ByteVector*, ServerWriteMACKey, &m_vbServerWriteMACKey);
@@ -592,6 +597,8 @@ class TLSConnection
     ByteVector m_vbServerWriteKey;
     ByteVector m_vbClientWriteIV;
     ByteVector m_vbServerWriteIV;
+
+    std::vector<std::shared_ptr<MT_Structure>> m_vHandshakeMessages;
 
     // TODO: absolutely not the right way to do this
     bool m_fSecureMode;
@@ -684,6 +691,25 @@ class MT_ChangeCipherSpec : public MT_Structure
     MTCCS_Type m_type;
 };
 
+class MT_Finished : public MT_SecuredStructure
+{
+    typedef MT_FixedLengthByteStructure<12> MTF_VerifyData;
+
+    public:
+    MT_Finished();
+    ~MT_Finished() { }
+
+    size_t Length() const { return VerifyData()->Length(); }
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    ACCESSORS(MTF_VerifyData*, VerifyData, &m_verifyData);
+
+    private:
+    HRESULT CheckSecurityPriv();
+    MTF_VerifyData m_verifyData;
+};
+
 /*
 class MT_Thingy : public MT_Structure
 {
@@ -691,7 +717,7 @@ class MT_Thingy : public MT_Structure
     MT_Thingy();
     ~MT_Thingy() { }
 
-    size_t Length() const { return Thingy->Length(); }
+    size_t Length() const { return Thingy()->Length(); }
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
@@ -741,7 +767,16 @@ EpochTimeFromSystemTime(
 template <typename T>
 HRESULT
 SerializeMessagesToVector(
-    const std::vector<T>* pvMessages,
+    typename std::vector<T>::const_iterator itBegin,
+    typename std::vector<T>::const_iterator itEnd,
+    ByteVector* pvb
+);
+
+template <typename T>
+HRESULT
+SerializeMessagesToVector(
+    typename std::vector<std::shared_ptr<T>>::const_iterator itBegin,
+    typename std::vector<std::shared_ptr<T>>::const_iterator itEnd,
     ByteVector* pvb
 );
 

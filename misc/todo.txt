@@ -5,11 +5,13 @@
 - HandshakeType should be a regular accessor
 - use a state machine for the handle message stuff
 - proper consts for all magic numbers
-- renegotiation info
+DONE - renegotiation info
 - remove the cast operator from MT_CipherSuite to CipherSuiteValue
 - figure out what cipher and hash suites we actually support. there are many places where we seem to support a hash type, but in another place we throw unsupported hash for it
 - can all of the hash and cipher related functions around tlsconnection be made const?
 - don't access MT_VariableLengthField::Data. surface common operations
+- RespondTo should use MT_Structure, not TLSPlaintext
+- some kind of abstraction for MT_TLSPlaintext and MT_TLSCiphertext, since they have essentially the same structure
 
 Finish message:
 DONE - compute master secret from premaster secret

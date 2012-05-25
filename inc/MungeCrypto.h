@@ -112,7 +112,7 @@ class Hasher
     virtual
     HRESULT
     HMAC(
-        Hasher::HashAlg alg,
+        HashAlg alg,
         const ByteVector* pvbKey,
         const ByteVector* pvbText,
         ByteVector* pvbHMAC) = 0;
