@@ -3489,6 +3489,7 @@ MT_Finished::CheckSecurityPriv()
 
     ByteVector vbComputedVerifyData;
     ByteVector vbHandshakeMessages;
+    ByteVector vbHashedHandshakeMessages;
 
     {
         wprintf(L"working on the following handshake messages:\n");
@@ -3515,7 +3516,6 @@ MT_Finished::CheckSecurityPriv()
 
     if (SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
     {
-        ByteVector vbHashedHandshakeMessages;
         ByteVector vbMD5HandshakeHash;
         ByteVector vbSHA1HandshakeHash;
         ByteVector vbHandshakeHash;
@@ -3545,40 +3545,47 @@ MT_Finished::CheckSecurityPriv()
             vbHashedHandshakeMessages.end(),
             vbSHA1HandshakeHash.begin(),
             vbSHA1HandshakeHash.end());
-
-        hr = SecurityParameters()->ComputePRF(
-                 SecurityParameters()->MasterSecret(),
-                 "client finished",
-                 &vbHashedHandshakeMessages,
-                 12,
-                 &vbComputedVerifyData);
+    }
+    else if (SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+    {
+        hr = SecurityParameters()->HashInst()->Hash(
+                 Hasher::HashAlg_SHA256,
+                 &vbHandshakeMessages,
+                 &vbHashedHandshakeMessages);
 
         if (hr != S_OK)
         {
             goto error;
         }
-
-        printf("Received Finished hash:\n");
-        PrintByteVector(VerifyData()->Data());
-
-        printf("Computed Finished hash:\n");
-        PrintByteVector(&vbComputedVerifyData);
-
-        if (vbComputedVerifyData != *VerifyData()->Data())
-        {
-            hr = MT_E_BAD_FINISHED_HASH;
-            goto error;
-        }
-    }
-    else if (SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS12)
-    {
-        // TODO: fill in
-        hr = E_NOTIMPL;
     }
     else
     {
         printf("unrecognized version: %04LX\n", SecurityParameters()->NegotiatedVersion()->Version());
         hr = MT_E_UNKNOWN_PROTOCOL_VERSION;
+        goto error;
+    }
+
+    hr = SecurityParameters()->ComputePRF(
+             SecurityParameters()->MasterSecret(),
+             "client finished",
+             &vbHashedHandshakeMessages,
+             12,
+             &vbComputedVerifyData);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    printf("Received Finished hash:\n");
+    PrintByteVector(VerifyData()->Data());
+
+    printf("Computed Finished hash:\n");
+    PrintByteVector(&vbComputedVerifyData);
+
+    if (vbComputedVerifyData != *VerifyData()->Data())
+    {
+        hr = MT_E_BAD_FINISHED_HASH;
         goto error;
     }
 
