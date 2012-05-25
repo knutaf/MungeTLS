@@ -221,10 +221,10 @@ TLSConnection::HandleMessage(
             *NegotiatedVersion() = *(clientHello.ProtocolVersion());
             *ClientRandom() = *(clientHello.Random());
 
-            hr = RespondTo(&clientHello, &responseMessages);
+            hr = RespondToClientHello(&clientHello, &responseMessages);
             if (hr != S_OK)
             {
-                printf("failed RespondTo: %08LX\n", hr);
+                printf("failed RespondToClientHello: %08LX\n", hr);
                 goto error;
 
             }
@@ -311,6 +311,14 @@ TLSConnection::HandleMessage(
             }
 
             HandshakeMessages()->push_back(spHandshakeMessage);
+
+            hr = RespondToFinished(&responseMessages);
+            if (hr != S_OK)
+            {
+                printf("failed RespondToFinished: %08LX\n", hr);
+                goto error;
+
+            }
         }
         else
         {
@@ -361,17 +369,21 @@ TLSConnection::HandleMessage(
             {
                 if (hr == S_OK)
                 {
-                    shared_ptr<MT_Structure> spHS(new MT_Handshake());
-
-                    assert(rspStructure->ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake);
-
-                    hr = spHS->ParseFromVect(rspStructure->Fragment());
-                    if (hr != S_OK)
+                    if (rspStructure->ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
                     {
-                        return;
-                    }
+                        shared_ptr<MT_Structure> spHS(new MT_Handshake());
 
-                    HandshakeMessages()->push_back(spHS);
+                        hr = spHS->ParseFromVect(rspStructure->Fragment());
+                        if (hr != S_OK)
+                        {
+                            // TODO: ought to just store raw bytes for this, probably
+                            printf("squashing error parsing handshake message: %08LX\n", hr);
+                            hr = S_OK;
+                            return;
+                        }
+
+                        HandshakeMessages()->push_back(spHS);
+                    }
                 }
             }
         );
@@ -385,13 +397,12 @@ error:
 } // end function ParseMessage
 
 HRESULT
-TLSConnection::RespondTo(
+TLSConnection::RespondToClientHello(
     const MT_ClientHello* pClientHello,
     vector<shared_ptr<MT_RecordLayerMessage>>* pResponses
 )
 {
     HRESULT hr = S_OK;
-    UNREFERENCED_PARAMETER(pClientHello);
 
     // Server Hello
     {
@@ -537,7 +548,83 @@ TLSConnection::RespondTo(
 
 error:
     return hr;
-} // end function RespondTo
+} // end function RespondToClientHello
+
+HRESULT
+TLSConnection::RespondToFinished(
+    vector<shared_ptr<MT_RecordLayerMessage>>* pResponses
+)
+{
+    HRESULT hr = S_OK;
+
+    // ChangeCipherSpec
+    {
+        MT_ContentType contentType;
+        MT_ProtocolVersion protocolVersion;
+        MT_ChangeCipherSpec changeCipherSpec;
+        shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
+
+        *(changeCipherSpec.Type()) = MT_ChangeCipherSpec::MTCCS_ChangeCipherSpec;
+
+        contentType.SetType(MT_ContentType::MTCT_Type_ChangeCipherSpec);
+
+        *(spPlaintext->ContentType()) = contentType;
+        *(spPlaintext->ProtocolVersion()) = *NegotiatedVersion();
+
+        hr = changeCipherSpec.SerializeToVect(spPlaintext->Fragment());
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        pResponses->push_back(spPlaintext);
+    }
+
+    // Finished
+    {
+        MT_Handshake handshake;
+        MT_Finished finished;
+        MT_ContentType contentType;
+        shared_ptr<MT_TLSCiphertext> spCiphertext(new MT_TLSCiphertext());
+
+        // TODO: set finished verify data
+        finished.VerifyData()->Data()->assign(12, 0x23);
+
+        handshake.SetType(MT_Handshake::MTH_Finished);
+        hr = finished.SerializeToVect(handshake.Body());
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
+
+        *(spCiphertext->ContentType()) = contentType;
+        *(spCiphertext->ProtocolVersion()) = *NegotiatedVersion();
+
+        hr = handshake.SerializeToVect(spCiphertext->DecryptedFragment());
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        spCiphertext->SetSecurityParameters(this);
+
+        hr = spCiphertext->Encrypt();
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        pResponses->push_back(spCiphertext);
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function RespondToFinished
 
 HRESULT
 TLSConnection::ComputeMasterSecret(
@@ -2186,7 +2273,25 @@ error:
 HRESULT
 MT_TLSCiphertext::Encrypt()
 {
-    return E_NOTIMPL;
+    HRESULT hr = S_OK;
+
+    assert(SecurityParameters() != nullptr);
+    assert(SecurityParameters()->ServerSymCipherer() != nullptr);
+
+    hr = SecurityParameters()->ServerSymCipherer()->EncryptBuffer(
+             DecryptedFragment(),
+             Fragment());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
 } // end function Encrypt
 
 HRESULT
@@ -3239,7 +3344,7 @@ error:
 
 MT_ChangeCipherSpec::MT_ChangeCipherSpec()
     : MT_Structure(),
-      m_type(MTCCS_ChangeCipherSpc)
+      m_type(MTCCS_ChangeCipherSpec)
 {
 } // end ctor MT_ChangeCipherSpec
 
@@ -3258,7 +3363,7 @@ MT_ChangeCipherSpec::ParseFromPriv(
         goto error;
     }
 
-    if (*Type() != MTCCS_ChangeCipherSpc)
+    if (*Type() != MTCCS_ChangeCipherSpec)
     {
         wprintf(L"unrecognized change cipher spec type: %d\n", *Type());
     }
@@ -3423,7 +3528,6 @@ MT_Finished::ParseFromPriv(
     return VerifyData()->ParseFrom(pv, cb);
 } // end function ParseFromPriv
 
-/*
 HRESULT
 MT_Finished::SerializePriv(
     BYTE* pv,
@@ -3432,7 +3536,6 @@ MT_Finished::SerializePriv(
 {
     return VerifyData()->Serialize(pv, cb);
 } // end function SerializePriv
-*/
 
 HRESULT
 MT_Finished::CheckSecurityPriv()

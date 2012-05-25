@@ -555,8 +555,11 @@ class TLSConnection
         ByteVector* pvbPRF);
 
     private:
-    HRESULT RespondTo(
+    HRESULT RespondToClientHello(
         const MT_ClientHello* pClientHello,
+        std::vector<std::shared_ptr<MT_RecordLayerMessage>>* pResponses);
+
+    HRESULT RespondToFinished(
         std::vector<std::shared_ptr<MT_RecordLayerMessage>>* pResponses);
 
     HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
@@ -665,13 +668,13 @@ class MT_ClientKeyExchange : public MT_Structure
 
 class MT_ChangeCipherSpec : public MT_Structure
 {
+    public:
     enum MTCCS_Type
     {
-        MTCCS_ChangeCipherSpc = 1,
+        MTCCS_ChangeCipherSpec = 1,
         MTCCS_Unknown = 255
     };
 
-    public:
     MT_ChangeCipherSpec();
     ~MT_ChangeCipherSpec() { }
 
@@ -695,7 +698,7 @@ class MT_Finished : public MT_Structure, public MT_Securable
 
     size_t Length() const { return VerifyData()->Length(); }
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     ACCESSORS(MTF_VerifyData*, VerifyData, &m_verifyData);
 
