@@ -361,6 +361,12 @@ TLSConnection::HandleMessage(
         printf("got alert message - not yet supported\n");
         (*ReadSequenceNumber())++;
     }
+    else if (record.ContentType()->Type() == MT_ContentType::MTCT_Type_ApplicationData)
+    {
+        printf("application data:\n");
+        PrintByteVector(record.Fragment());
+        (*ReadSequenceNumber())++;
+    }
     else
     {
         // TLSPlaintext.ParseFrom should filter out unknown content types
