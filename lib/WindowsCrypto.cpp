@@ -292,13 +292,24 @@ HRESULT
 EncryptBuffer(
     const ByteVector* pvbCleartext,
     HCRYPTKEY hKey,
+    SymmetricCipherer::CipherType cipherType,
     ByteVector* pvbEncrypted)
 {
     HRESULT hr = S_OK;
     DWORD cb = 0;
     DWORD dwBufLen = 0;
+    BOOL fFinal;
 
     wprintf(L"encrypting\n");
+
+    if (cipherType == SymmetricCipherer::CipherType_Block)
+    {
+        fFinal = TRUE;
+    }
+    else
+    {
+        fFinal = FALSE;
+    }
 
     hr = SizeTToDWord(pvbCleartext->size(), &cb);
     if (hr != S_OK)
@@ -309,7 +320,7 @@ EncryptBuffer(
     CryptEncrypt(
              hKey,
              NULL,
-             TRUE,
+             fFinal,
              0,
              NULL, // to get size
              &cb,
@@ -341,7 +352,7 @@ EncryptBuffer(
     if (!CryptEncrypt(
              hKey,
              NULL,
-             TRUE,
+             fFinal,
              0,
              &pvbEncrypted->front(),
              &cb,
@@ -355,8 +366,11 @@ EncryptBuffer(
 
     assert(cb == pvbEncrypted->size());
 
-    // CryptEncrypt returns in little-endian
-    *pvbEncrypted = ReverseByteOrder(pvbEncrypted);
+    if (cipherType == SymmetricCipherer::CipherType_Block)
+    {
+        // CryptEncrypt returns in little-endian
+        *pvbEncrypted = ReverseByteOrder(pvbEncrypted);
+    }
 
 done:
     return hr;
@@ -375,19 +389,21 @@ DecryptBuffer(
 {
     HRESULT hr = S_OK;
     DWORD cb;
+    BOOL fFinal;
 
-    wprintf(L"decrypting\n");
-    wprintf(L"ciphertext:\n");
+    wprintf(L"decrypting. ciphertext:\n");
     PrintByteVector(pvbEncrypted);
 
     if (cipherType == SymmetricCipherer::CipherType_Block)
     {
         // CryptDecrypt expects input in little endian
         *pvbDecrypted = ReverseByteOrder(pvbEncrypted);
+        fFinal = TRUE;
     }
     else
     {
         *pvbDecrypted = *pvbEncrypted;
+        fFinal = FALSE;
     }
 
     hr = SizeTToDWord(pvbDecrypted->size(), &cb);
@@ -399,7 +415,7 @@ DecryptBuffer(
     if (!CryptDecrypt(
              hKey,
              0,
-             TRUE,
+             fFinal,
              0,
              &pvbDecrypted->front(),
              &cb))
@@ -553,6 +569,7 @@ WindowsPublicKeyCipherer::EncryptBufferWithPublicKey(
     return MungeTLS::EncryptBuffer(
                pvbCleartext,
                PublicKey(),
+               SymmetricCipherer::CipherType_Block,
                pvbEncrypted);
 } // end function EncryptBufferWithPublicKey
 
@@ -578,6 +595,7 @@ WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
     return MungeTLS::EncryptBuffer(
                pvbCleartext,
                PrivateKey(),
+               SymmetricCipherer::CipherType_Block,
                pvbEncrypted);
 } // end function EncryptBufferWithPrivateKey
 
@@ -917,6 +935,7 @@ WindowsSymmetricCipherer::EncryptBuffer(
     return MungeTLS::EncryptBuffer(
                pvbCleartext,
                Key()->GetKey(),
+               Cipher()->type,
                pvbEncrypted);
 } // end function EncryptBuffer
 

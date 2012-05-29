@@ -87,8 +87,9 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
         SymmetricCipherer::CipherAlg alg,
         ALG_ID* pAlgID);
 
-    private:
     ACCESSORS(CipherInfo*, Cipher, &m_cipherInfo);
+
+    private:
     ACCESSORS(KeyAndProv*, Key, &m_key);
 
     KeyAndProv m_key;
@@ -160,6 +161,7 @@ HRESULT
 EncryptBuffer(
     const ByteVector* pvbCleartext,
     HCRYPTKEY hKey,
+    SymmetricCipherer::CipherType cipherType,
     ByteVector* pvbEncrypted);
 
 HRESULT

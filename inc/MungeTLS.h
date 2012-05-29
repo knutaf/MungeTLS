@@ -23,6 +23,7 @@ const HRESULT MT_E_BAD_PADDING                              = 0x8023000a;
 const HRESULT MT_E_UNSUPPORTED_HASH                         = 0x8023000b;
 const HRESULT MT_E_UNSUPPORTED_CIPHER                       = 0x8023000c;
 const HRESULT MT_E_BAD_FINISHED_HASH                        = 0x8023000d;
+const HRESULT MT_E_BAD_RECORD_MAC                           = 0x8023000e;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
 extern const BYTE c_abyCert[];
@@ -57,12 +58,24 @@ class MT_Securable
     HRESULT CheckSecurity();
 
     TLSConnection* SecurityParameters() { return m_pSecurityParameters; }
-    void SetSecurityParameters(TLSConnection* pSecurityParameters) { m_pSecurityParameters = pSecurityParameters; }
+    virtual void SetSecurityParameters(TLSConnection* pSecurityParameters) { m_pSecurityParameters = pSecurityParameters; }
 
     private:
     virtual HRESULT CheckSecurityPriv() = 0;
 
     TLSConnection* m_pSecurityParameters;
+};
+
+class MT_CipherFragment : public MT_Structure, public MT_Securable
+{
+    public:
+    MT_CipherFragment();
+    virtual ~MT_CipherFragment() { }
+
+    ACCESSORS(ByteVector*, Content, &m_content);
+
+    private:
+    ByteVector m_content;
 };
 
 template <typename F,
@@ -384,17 +397,24 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     MT_TLSCiphertext();
     ~MT_TLSCiphertext() {};
 
-    ACCESSORS(ByteVector*, DecryptedFragment, &m_vbDecryptedFragment);
+    ACCESSORS(MT_CipherFragment*, DecryptedFragment, m_spCipherFragment.get());
 
     HRESULT Encrypt();
     HRESULT Decrypt();
 
     HRESULT ToTLSPlaintext(MT_TLSPlaintext* pPlaintext) const;
+    void SetSecurityParameters(TLSConnection* pSecurityParameters);
+
+    HRESULT UpdateFragmentSecurity();
+    HRESULT ComputeSecurityInfo_Stream(
+        MT_UINT64 sequenceNumber,
+        const ByteVector* pvbMACKey,
+        ByteVector* pvbMAC);
 
     private:
-    HRESULT CheckSecurityPriv() { return S_OK; }
+    HRESULT CheckSecurityPriv();
 
-    ByteVector m_vbDecryptedFragment;
+    std::shared_ptr<MT_CipherFragment> m_spCipherFragment;
 };
 
 class MT_Handshake : public MT_Structure
@@ -545,6 +565,16 @@ class TLSConnection
     ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
     ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
     ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion);
+    ACCESSORS(MT_UINT64*, ReadSequenceNumber, &m_seqNumRead);
+    ACCESSORS(MT_UINT64*, WriteSequenceNumber, &m_seqNumWrite);
+
+    ACCESSORS(ByteVector*, ClientWriteMACKey, &m_vbClientWriteMACKey);
+    ACCESSORS(ByteVector*, ServerWriteMACKey, &m_vbServerWriteMACKey);
+    ACCESSORS(ByteVector*, ClientWriteKey, &m_vbClientWriteKey);
+    ACCESSORS(ByteVector*, ServerWriteKey, &m_vbServerWriteKey);
+    ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
+    ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
+
 
     HRESULT
     ComputePRF(
@@ -570,13 +600,6 @@ class TLSConnection
     ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
     ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
 
-    ACCESSORS(ByteVector*, ClientWriteMACKey, &m_vbClientWriteMACKey);
-    ACCESSORS(ByteVector*, ServerWriteMACKey, &m_vbServerWriteMACKey);
-    ACCESSORS(ByteVector*, ClientWriteKey, &m_vbClientWriteKey);
-    ACCESSORS(ByteVector*, ServerWriteKey, &m_vbServerWriteKey);
-    ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
-    ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
-
     MT_CipherSuite m_cipherSuite;
     PCCERT_CONTEXT m_pCertContext;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
@@ -594,6 +617,8 @@ class TLSConnection
     ByteVector m_vbServerWriteKey;
     ByteVector m_vbClientWriteIV;
     ByteVector m_vbServerWriteIV;
+    MT_UINT64 m_seqNumRead;
+    MT_UINT64 m_seqNumWrite;
 
     std::vector<std::shared_ptr<MT_Structure>> m_vHandshakeMessages;
 
@@ -701,10 +726,29 @@ class MT_Finished : public MT_Structure, public MT_Securable
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     ACCESSORS(MTF_VerifyData*, VerifyData, &m_verifyData);
+    HRESULT ComputeVerifyData(PCSTR szLabel, ByteVector* pvbVerifyData);
 
     private:
     HRESULT CheckSecurityPriv();
     MTF_VerifyData m_verifyData;
+};
+
+class MT_GenericStreamCipher : public MT_CipherFragment
+{
+    public:
+    MT_GenericStreamCipher();
+    ~MT_GenericStreamCipher() { }
+
+    size_t Length() const;
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    ACCESSORS(ByteVector*, MAC, &m_mac);
+
+    private:
+    HRESULT CheckSecurityPriv() { return S_OK; }
+
+    ByteVector m_mac;
 };
 
 /*
