@@ -23,7 +23,8 @@ class SymmetricCipherer
     enum CipherType
     {
         CipherType_Stream,
-        CipherType_Block
+        CipherType_Block,
+        CipherType_Asymmetric_Block
     };
 
     struct CipherInfo
@@ -45,12 +46,14 @@ class SymmetricCipherer
     HRESULT
     EncryptBuffer(
         const ByteVector* pvbCleartext,
+        const ByteVector* pvbIV,
         ByteVector* pvbEncrypted) const = 0;
 
     virtual
     HRESULT
     DecryptBuffer(
         const ByteVector* pvbEncrypted,
+        const ByteVector* pvbIV,
         ByteVector* pvbDecrypted) const = 0;
 
     static

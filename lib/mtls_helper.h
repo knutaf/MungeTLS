@@ -74,11 +74,13 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
     HRESULT
     EncryptBuffer(
         const ByteVector* pvbCleartext,
+        const ByteVector* pvbIV,
         ByteVector* pvbEncrypted) const;
 
     HRESULT
     DecryptBuffer(
         const ByteVector* pvbEncrypted,
+        const ByteVector* pvbIV,
         ByteVector* pvbDecrypted) const;
 
     static

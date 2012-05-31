@@ -24,6 +24,7 @@ const HRESULT MT_E_UNSUPPORTED_HASH                         = 0x8023000b;
 const HRESULT MT_E_UNSUPPORTED_CIPHER                       = 0x8023000c;
 const HRESULT MT_E_BAD_FINISHED_HASH                        = 0x8023000d;
 const HRESULT MT_E_BAD_RECORD_MAC                           = 0x8023000e;
+const HRESULT MT_E_BAD_RECORD_PADDING                       = 0x8023000f;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
 extern const BYTE c_abyCert[];
@@ -57,8 +58,9 @@ class MT_Securable
     virtual ~MT_Securable() { }
     HRESULT CheckSecurity();
 
-    TLSConnection* SecurityParameters() { return m_pSecurityParameters; }
-    virtual void SetSecurityParameters(TLSConnection* pSecurityParameters) { m_pSecurityParameters = pSecurityParameters; }
+    const TLSConnection* SecurityParameters() const { return m_pSecurityParameters; }
+    TLSConnection* SecurityParameters() { return const_cast<TLSConnection*>(static_cast<const MT_Securable*>(this)->SecurityParameters()); }
+    virtual HRESULT SetSecurityParameters(TLSConnection* pSecurityParameters) { m_pSecurityParameters = pSecurityParameters; return S_OK; }
 
     private:
     virtual HRESULT CheckSecurityPriv() = 0;
@@ -403,9 +405,10 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     HRESULT Decrypt();
 
     HRESULT ToTLSPlaintext(MT_TLSPlaintext* pPlaintext) const;
-    void SetSecurityParameters(TLSConnection* pSecurityParameters);
+    HRESULT SetSecurityParameters(TLSConnection* pSecurityParameters);
 
     HRESULT UpdateFragmentSecurity();
+
     HRESULT ComputeSecurityInfo_Stream(
         MT_UINT64 sequenceNumber,
         const ByteVector* pvbMACKey,
@@ -575,6 +578,9 @@ class TLSConnection
     ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
     ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
 
+    SymmetricCipherer::CipherInfo Cipher() const;
+    Hasher::HashInfo Hash() const;
+
 
     HRESULT
     ComputePRF(
@@ -743,12 +749,45 @@ class MT_GenericStreamCipher : public MT_CipherFragment
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    ACCESSORS(ByteVector*, MAC, &m_mac);
+    ACCESSORS(ByteVector*, MAC, &m_vbMAC);
 
     private:
     HRESULT CheckSecurityPriv() { return S_OK; }
 
-    ByteVector m_mac;
+    ByteVector m_vbMAC;
+};
+
+class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
+{
+    public:
+    MT_GenericBlockCipher_TLS10();
+    ~MT_GenericBlockCipher_TLS10() { }
+
+    size_t Length() const;
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    ACCESSORS(ByteVector*, MAC, &m_vbMAC);
+    ACCESSORS(ByteVector*, Padding, &m_vbPadding);
+    MT_UINT8 PaddingLength() const;
+
+    HRESULT ComputeSecurityInfo(
+        MT_UINT64 sequenceNumber,
+        const ByteVector* pvbMACKey,
+        const MT_ContentType* pContentType,
+        const MT_ProtocolVersion* pProtocolVersion,
+        ByteVector* pvbMAC,
+        ByteVector* pvbPadding);
+
+    HRESULT UpdateSecurity(
+        MT_UINT64 sequenceNumber,
+        const ByteVector* pvbMACKey);
+
+    private:
+    HRESULT CheckSecurityPriv() { return S_OK; }
+
+    ByteVector m_vbMAC;
+    ByteVector m_vbPadding;
 };
 
 /*

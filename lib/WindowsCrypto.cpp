@@ -293,22 +293,56 @@ EncryptBuffer(
     const ByteVector* pvbCleartext,
     HCRYPTKEY hKey,
     SymmetricCipherer::CipherType cipherType,
+    const ByteVector* pvbIV,
     ByteVector* pvbEncrypted)
 {
     HRESULT hr = S_OK;
     DWORD cb = 0;
     DWORD dwBufLen = 0;
     BOOL fFinal;
+    HCRYPTKEY hKeyNew = hKey;
 
     wprintf(L"encrypting\n");
 
-    if (cipherType == SymmetricCipherer::CipherType_Block)
+    if (cipherType == SymmetricCipherer::CipherType_Asymmetric_Block)
     {
         fFinal = TRUE;
     }
-    else
+    else if (cipherType == SymmetricCipherer::CipherType_Block)
     {
         fFinal = FALSE;
+
+        wprintf(L"setting IV to:\n");
+        PrintByteVector(pvbIV);
+
+        if (!CryptSetKeyParam(
+                 hKey,
+                 KP_IV,
+                 &pvbIV->front(),
+                 0))
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            goto error;
+        }
+
+        wprintf(L"duplicating key\n");
+        if (!CryptDuplicateKey(
+                 hKey,
+                 NULL,
+                 0,
+                 &hKeyNew))
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            goto error;
+        }
+    }
+    else if (cipherType == SymmetricCipherer::CipherType_Stream)
+    {
+        fFinal = FALSE;
+    }
+    else
+    {
+        assert(false);
     }
 
     hr = SizeTToDWord(pvbCleartext->size(), &cb);
@@ -318,7 +352,7 @@ EncryptBuffer(
     }
 
     CryptEncrypt(
-             hKey,
+             hKeyNew,
              NULL,
              fFinal,
              0,
@@ -350,7 +384,7 @@ EncryptBuffer(
     }
 
     if (!CryptEncrypt(
-             hKey,
+             hKeyNew,
              NULL,
              fFinal,
              0,
@@ -366,7 +400,7 @@ EncryptBuffer(
 
     assert(cb == pvbEncrypted->size());
 
-    if (cipherType == SymmetricCipherer::CipherType_Block)
+    if (cipherType == SymmetricCipherer::CipherType_Asymmetric_Block)
     {
         // CryptEncrypt returns in little-endian
         *pvbEncrypted = ReverseByteOrder(pvbEncrypted);
@@ -384,24 +418,61 @@ HRESULT
 DecryptBuffer(
     const ByteVector* pvbEncrypted,
     HCRYPTKEY hKey,
-    SymmetricCipherer::CipherType cipherType,
+    SymmetricCipherer::CipherInfo cipherInfo,
+    const ByteVector* pvbIV,
     ByteVector* pvbDecrypted)
 {
     HRESULT hr = S_OK;
     DWORD cb;
     BOOL fFinal;
+    HCRYPTKEY hKeyNew = hKey;
 
-    wprintf(L"decrypting. ciphertext:\n");
+    wprintf(L"decrypting. ciphertext (%d bytes):\n", pvbEncrypted->size());
     PrintByteVector(pvbEncrypted);
 
-    if (cipherType == SymmetricCipherer::CipherType_Block)
+    if (cipherInfo.type == SymmetricCipherer::CipherType_Asymmetric_Block)
     {
+        assert(pvbIV == nullptr);
+
         // CryptDecrypt expects input in little endian
         *pvbDecrypted = ReverseByteOrder(pvbEncrypted);
         fFinal = TRUE;
     }
+    else if (cipherInfo.type == SymmetricCipherer::CipherType_Block)
+    {
+        fFinal = TRUE;
+        *pvbDecrypted = *pvbEncrypted;
+
+        assert(pvbIV != nullptr);
+
+        wprintf(L"setting IV to:\n");
+        PrintByteVector(pvbIV);
+
+        if (!CryptSetKeyParam(
+                 hKey,
+                 KP_IV,
+                 &pvbIV->front(),
+                 0))
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            goto error;
+        }
+
+        wprintf(L"duplicating key\n");
+        if (!CryptDuplicateKey(
+                 hKey,
+                 NULL,
+                 0,
+                 &hKeyNew))
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            goto error;
+        }
+    }
     else
     {
+        assert(cipherInfo.type == SymmetricCipherer::CipherType_Stream);
+
         *pvbDecrypted = *pvbEncrypted;
         fFinal = FALSE;
     }
@@ -412,8 +483,10 @@ DecryptBuffer(
         goto error;
     }
 
+    wprintf(L"actual decrypt\n");
+
     if (!CryptDecrypt(
-             hKey,
+             hKeyNew,
              0,
              fFinal,
              0,
@@ -429,7 +502,38 @@ DecryptBuffer(
 
     PrintByteVector(pvbDecrypted);
 
+    /*
+    ** for some reason, CryptDecrypt will return the correct plaintext block,
+    ** but truncate the padding bytes to a single byte at the end. To expose
+    ** a consistent view to our TLS protocol implementation that calls into
+    ** this, we'll manually reconstruct the padding bytes here.
+    */
+    if (cipherInfo.type == SymmetricCipherer::CipherType_Block)
+    {
+        BYTE cbPaddingLength = 0;
+        hr = SizeTToByte(cipherInfo.cbBlockSize - (cb % cipherInfo.cbBlockSize), &cbPaddingLength);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        assert(pvbDecrypted->back() == cbPaddingLength);
+
+        pvbDecrypted->insert(pvbDecrypted->end(), cbPaddingLength, cbPaddingLength);
+
+        assert((pvbDecrypted->size() % cipherInfo.cbBlockSize) == 0);
+
+        wprintf(L"after padding fix: (%d)\n", pvbDecrypted->size());
+        PrintByteVector(pvbDecrypted);
+    }
+
 done:
+    if (hKeyNew != hKey)
+    {
+        CryptDestroyKey(hKeyNew);
+        hKeyNew = NULL;
+    }
+
     return hr;
 
 error:
@@ -569,7 +673,8 @@ WindowsPublicKeyCipherer::EncryptBufferWithPublicKey(
     return MungeTLS::EncryptBuffer(
                pvbCleartext,
                PublicKey(),
-               SymmetricCipherer::CipherType_Block,
+               SymmetricCipherer::CipherType_Asymmetric_Block,
+               nullptr,
                pvbEncrypted);
 } // end function EncryptBufferWithPublicKey
 
@@ -582,7 +687,8 @@ WindowsPublicKeyCipherer::DecryptBufferWithPrivateKey(
     return MungeTLS::DecryptBuffer(
                pvbEncrypted,
                PrivateKey(),
-               SymmetricCipherer::CipherType_Block,
+               SymmetricCipherer::CipherType_Asymmetric_Block,
+               nullptr,
                pvbDecrypted);
 } // end function DecryptBufferWithPrivateKey
 
@@ -595,7 +701,8 @@ WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
     return MungeTLS::EncryptBuffer(
                pvbCleartext,
                PrivateKey(),
-               SymmetricCipherer::CipherType_Block,
+               SymmetricCipherer::CipherType_Asymmetric_Block,
+               nullptr,
                pvbEncrypted);
 } // end function EncryptBufferWithPrivateKey
 
@@ -929,6 +1036,7 @@ error:
 HRESULT
 WindowsSymmetricCipherer::EncryptBuffer(
     const ByteVector* pvbCleartext,
+    const ByteVector* pvbIV,
     ByteVector* pvbEncrypted
 ) const
 {
@@ -936,12 +1044,14 @@ WindowsSymmetricCipherer::EncryptBuffer(
                pvbCleartext,
                Key()->GetKey(),
                Cipher()->type,
+               pvbIV,
                pvbEncrypted);
 } // end function EncryptBuffer
 
 HRESULT
 WindowsSymmetricCipherer::DecryptBuffer(
     const ByteVector* pvbEncrypted,
+    const ByteVector* pvbIV,
     ByteVector* pvbDecrypted
 ) const
 {
@@ -949,6 +1059,7 @@ WindowsSymmetricCipherer::DecryptBuffer(
                pvbEncrypted,
                Key()->GetKey(),
                Cipher()->type,
+               pvbIV,
                pvbDecrypted);
 } // end function DecryptBuffer
 
