@@ -13,6 +13,13 @@ using namespace std;
 const SymmetricCipherer::CipherInfo SymmetricCipherer::c_rgCiphers[] =
 {
     {
+        SymmetricCipherer::CipherAlg_RSA,
+        SymmetricCipherer::CipherType_Asymmetric_Block,
+        16,
+        0,
+        0
+    },
+    {
         SymmetricCipherer::CipherAlg_RC4_128,
         SymmetricCipherer::CipherType_Stream,
         16,

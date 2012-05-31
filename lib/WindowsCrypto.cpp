@@ -418,7 +418,7 @@ HRESULT
 DecryptBuffer(
     const ByteVector* pvbEncrypted,
     HCRYPTKEY hKey,
-    SymmetricCipherer::CipherInfo cipherInfo,
+    const SymmetricCipherer::CipherInfo* pCipherInfo,
     const ByteVector* pvbIV,
     ByteVector* pvbDecrypted)
 {
@@ -430,7 +430,7 @@ DecryptBuffer(
     wprintf(L"decrypting. ciphertext (%d bytes):\n", pvbEncrypted->size());
     PrintByteVector(pvbEncrypted);
 
-    if (cipherInfo.type == SymmetricCipherer::CipherType_Asymmetric_Block)
+    if (pCipherInfo->type == SymmetricCipherer::CipherType_Asymmetric_Block)
     {
         assert(pvbIV == nullptr);
 
@@ -438,7 +438,7 @@ DecryptBuffer(
         *pvbDecrypted = ReverseByteOrder(pvbEncrypted);
         fFinal = TRUE;
     }
-    else if (cipherInfo.type == SymmetricCipherer::CipherType_Block)
+    else if (pCipherInfo->type == SymmetricCipherer::CipherType_Block)
     {
         fFinal = TRUE;
         *pvbDecrypted = *pvbEncrypted;
@@ -471,7 +471,7 @@ DecryptBuffer(
     }
     else
     {
-        assert(cipherInfo.type == SymmetricCipherer::CipherType_Stream);
+        assert(pCipherInfo->type == SymmetricCipherer::CipherType_Stream);
 
         *pvbDecrypted = *pvbEncrypted;
         fFinal = FALSE;
@@ -508,10 +508,10 @@ DecryptBuffer(
     ** a consistent view to our TLS protocol implementation that calls into
     ** this, we'll manually reconstruct the padding bytes here.
     */
-    if (cipherInfo.type == SymmetricCipherer::CipherType_Block)
+    if (pCipherInfo->type == SymmetricCipherer::CipherType_Block)
     {
         BYTE cbPaddingLength = 0;
-        hr = SizeTToByte(cipherInfo.cbBlockSize - (cb % cipherInfo.cbBlockSize), &cbPaddingLength);
+        hr = SizeTToByte(pCipherInfo->cbBlockSize - (cb % pCipherInfo->cbBlockSize), &cbPaddingLength);
         if (hr != S_OK)
         {
             goto error;
@@ -519,9 +519,10 @@ DecryptBuffer(
 
         assert(pvbDecrypted->back() == cbPaddingLength);
 
+        // repeat "padding length" number of bytes filled with padding length
         pvbDecrypted->insert(pvbDecrypted->end(), cbPaddingLength, cbPaddingLength);
 
-        assert((pvbDecrypted->size() % cipherInfo.cbBlockSize) == 0);
+        assert((pvbDecrypted->size() % pCipherInfo->cbBlockSize) == 0);
 
         wprintf(L"after padding fix: (%d)\n", pvbDecrypted->size());
         PrintByteVector(pvbDecrypted);
@@ -684,12 +685,32 @@ WindowsPublicKeyCipherer::DecryptBufferWithPrivateKey(
     ByteVector* pvbDecrypted
 ) const
 {
-    return MungeTLS::DecryptBuffer(
-               pvbEncrypted,
-               PrivateKey(),
-               SymmetricCipherer::CipherType_Asymmetric_Block,
-               nullptr,
-               pvbDecrypted);
+    HRESULT hr = S_OK;
+    SymmetricCipherer::CipherInfo cipherInfo;
+
+    hr = SymmetricCipherer::GetCipherInfo(SymmetricCipherer::CipherAlg_RSA, &cipherInfo);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = MungeTLS::DecryptBuffer(
+             pvbEncrypted,
+             PrivateKey(),
+             &cipherInfo,
+             nullptr,
+             pvbDecrypted);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
 } // end function DecryptBufferWithPrivateKey
 
 HRESULT
@@ -1058,7 +1079,7 @@ WindowsSymmetricCipherer::DecryptBuffer(
     return MungeTLS::DecryptBuffer(
                pvbEncrypted,
                Key()->GetKey(),
-               Cipher()->type,
+               Cipher(),
                pvbIV,
                pvbDecrypted);
 } // end function DecryptBuffer

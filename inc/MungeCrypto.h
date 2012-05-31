@@ -15,9 +15,10 @@ class SymmetricCipherer
 
     enum CipherAlg
     {
-        CipherAlg_RC4_128 = 0,
-        CipherAlg_AES_128 = 1,
-        CipherAlg_AES_256 = 2
+        CipherAlg_RSA = 0,
+        CipherAlg_RC4_128 = 1,
+        CipherAlg_AES_128 = 2,
+        CipherAlg_AES_256 = 3,
     };
 
     enum CipherType
