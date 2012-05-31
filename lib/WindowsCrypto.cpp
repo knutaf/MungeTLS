@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "MungeTLS.h"
+#include "MungeCrypto.h"
 #include "mtls_helper.h"
 
 namespace MungeTLS
@@ -292,15 +293,16 @@ HRESULT
 EncryptBuffer(
     const ByteVector* pvbCleartext,
     HCRYPTKEY hKey,
-    SymmetricCipherer::CipherType cipherType,
+    const SymmetricCipherer::CipherInfo* pCipherInfo,
     const ByteVector* pvbIV,
     ByteVector* pvbEncrypted)
 {
     HRESULT hr = S_OK;
     DWORD cb = 0;
     DWORD dwBufLen = 0;
-    BOOL fFinal;
+    BOOL fFinal = TRUE;
     HCRYPTKEY hKeyNew = hKey;
+    const SymmetricCipherer::CipherType cipherType = pCipherInfo->type;
 
     wprintf(L"encrypting\n");
 
@@ -671,12 +673,32 @@ WindowsPublicKeyCipherer::EncryptBufferWithPublicKey(
     ByteVector* pvbEncrypted
 ) const
 {
-    return MungeTLS::EncryptBuffer(
-               pvbCleartext,
-               PublicKey(),
-               SymmetricCipherer::CipherType_Asymmetric_Block,
-               nullptr,
-               pvbEncrypted);
+    HRESULT hr = S_OK;
+    SymmetricCipherer::CipherInfo cipherInfo;
+
+    hr = SymmetricCipherer::GetCipherInfo(SymmetricCipherer::CipherAlg_RSA, &cipherInfo);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = MungeTLS::EncryptBuffer(
+             pvbCleartext,
+             PublicKey(),
+             &cipherInfo,
+             nullptr,
+             pvbEncrypted);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
 } // end function EncryptBufferWithPublicKey
 
 HRESULT
@@ -719,12 +741,32 @@ WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
     ByteVector* pvbEncrypted
 ) const
 {
-    return MungeTLS::EncryptBuffer(
-               pvbCleartext,
-               PrivateKey(),
-               SymmetricCipherer::CipherType_Asymmetric_Block,
-               nullptr,
-               pvbEncrypted);
+    HRESULT hr = S_OK;
+    SymmetricCipherer::CipherInfo cipherInfo;
+
+    hr = SymmetricCipherer::GetCipherInfo(SymmetricCipherer::CipherAlg_RSA, &cipherInfo);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = MungeTLS::EncryptBuffer(
+             pvbCleartext,
+             PrivateKey(),
+             &cipherInfo,
+             nullptr,
+             pvbEncrypted);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
 } // end function EncryptBufferWithPrivateKey
 
 /*********** WindowsPublicKeyCipherer *****************/
@@ -1064,7 +1106,7 @@ WindowsSymmetricCipherer::EncryptBuffer(
     return MungeTLS::EncryptBuffer(
                pvbCleartext,
                Key()->GetKey(),
-               Cipher()->type,
+               Cipher(),
                pvbIV,
                pvbEncrypted);
 } // end function EncryptBuffer

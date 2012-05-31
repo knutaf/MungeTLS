@@ -163,7 +163,8 @@ HRESULT
 EncryptBuffer(
     const ByteVector* pvbCleartext,
     HCRYPTKEY hKey,
-    SymmetricCipherer::CipherType cipherType,
+    const SymmetricCipherer::CipherInfo* pCipherInfo,
+    const ByteVector* pvbIV,
     ByteVector* pvbEncrypted);
 
 HRESULT
@@ -171,6 +172,7 @@ DecryptBuffer(
     const ByteVector* pvbEncrypted,
     HCRYPTKEY hKey,
     const SymmetricCipherer::CipherInfo* pCipherInfo,
+    const ByteVector* pvbIV,
     ByteVector* pvbDecrypted);
 
 ByteVector ReverseByteOrder(const ByteVector* pvb);
