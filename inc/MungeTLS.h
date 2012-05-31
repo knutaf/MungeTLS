@@ -578,8 +578,8 @@ class TLSConnection
     ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
     ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
 
-    CipherInfo Cipher() const;
-    HashInfo Hash() const;
+    const CipherInfo* Cipher() const;
+    const HashInfo* Hash() const;
 
 
     HRESULT

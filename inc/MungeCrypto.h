@@ -11,10 +11,11 @@ enum MT_CipherSuiteValue;
 
 enum CipherAlg
 {
-    CipherAlg_RSA = 0,
-    CipherAlg_RC4_128 = 1,
-    CipherAlg_AES_128 = 2,
-    CipherAlg_AES_256 = 3,
+    CipherAlg_Unknown,
+    CipherAlg_RSA,
+    CipherAlg_RC4_128,
+    CipherAlg_AES_128,
+    CipherAlg_AES_256
 };
 
 enum CipherType
@@ -35,9 +36,10 @@ struct CipherInfo
 
 enum HashAlg
 {
-    HashAlg_MD5       = 0,
-    HashAlg_SHA1      = 1,
-    HashAlg_SHA256    = 2
+    HashAlg_Unknown,
+    HashAlg_MD5,
+    HashAlg_SHA1,
+    HashAlg_SHA256
 };
 
 struct HashInfo

@@ -135,13 +135,6 @@ TLSConnection::HandleMessage(
     {
         MT_TLSCiphertext message;
 
-        CipherInfo cipherInfo;
-        hr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, nullptr);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
         hr = message.ParseFrom(pv, cb);
         if (hr != S_OK)
         {
@@ -185,10 +178,10 @@ TLSConnection::HandleMessage(
             goto error;
         }
 
-        assert(message.Fragment()->size() >= cipherInfo.cbIVSize);
+        assert(message.Fragment()->size() >= Cipher()->cbIVSize);
 
-        ClientWriteIV()->assign(message.Fragment()->end() - cipherInfo.cbIVSize, message.Fragment()->end());
-        assert(ClientWriteIV()->size() == cipherInfo.cbIVSize);
+        ClientWriteIV()->assign(message.Fragment()->end() - Cipher()->cbIVSize, message.Fragment()->end());
+        assert(ClientWriteIV()->size() == Cipher()->cbIVSize);
     }
     else
     {
@@ -688,8 +681,8 @@ TLSConnection::RespondToFinished(
         pResponses->push_back(spCiphertext);
         (*WriteSequenceNumber())++;
 
-        ServerWriteIV()->assign(spCiphertext->Fragment()->end() - Cipher().cbIVSize, spCiphertext->Fragment()->end());
-        assert(ServerWriteIV()->size() == Cipher().cbIVSize);
+        ServerWriteIV()->assign(spCiphertext->Fragment()->end() - Cipher()->cbIVSize, spCiphertext->Fragment()->end());
+        assert(ServerWriteIV()->size() == Cipher()->cbIVSize);
     }
 
     // dummy Application Data
@@ -724,8 +717,8 @@ TLSConnection::RespondToFinished(
 
         pResponses->push_back(spCiphertext);
         (*WriteSequenceNumber())++;
-        ServerWriteIV()->assign(spCiphertext->Fragment()->end() - Cipher().cbIVSize, spCiphertext->Fragment()->end());
-        assert(ServerWriteIV()->size() == Cipher().cbIVSize);
+        ServerWriteIV()->assign(spCiphertext->Fragment()->end() - Cipher()->cbIVSize, spCiphertext->Fragment()->end());
+        assert(ServerWriteIV()->size() == Cipher()->cbIVSize);
     }
 
 done:
@@ -849,8 +842,6 @@ TLSConnection::GenerateKeyMaterial()
 {
     HRESULT hr = S_OK;
 
-    CipherInfo cipherInfo;
-    HashInfo hashInfo;
     size_t cbKeyBlock;
     ByteVector vbRandoms;
     ByteVector vbKeyBlock;
@@ -859,17 +850,11 @@ TLSConnection::GenerateKeyMaterial()
 
     assert(!MasterSecret()->empty());
 
-    hr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, &hashInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    cbKeyBlock = (Hash()->cbHashKeySize * 2) +
+                 (Cipher()->cbKeyMaterialSize * 2) +
+                 (Cipher()->cbIVSize * 2);
 
-    cbKeyBlock = (hashInfo.cbHashKeySize * 2) +
-                 (cipherInfo.cbKeyMaterialSize * 2) +
-                 (cipherInfo.cbIVSize * 2);
-
-    printf("need %d bytes for key block (%d * 2) + (%d * 2) + (%d * 2)\n", cbKeyBlock, hashInfo.cbHashKeySize, cipherInfo.cbKeyMaterialSize, cipherInfo.cbIVSize);
+    printf("need %d bytes for key block (%d * 2) + (%d * 2) + (%d * 2)\n", cbKeyBlock, Hash()->cbHashKeySize, Cipher()->cbKeyMaterialSize, Cipher()->cbIVSize);
 
     hr = ServerRandom()->SerializeToVect(&vbRandoms);
     if (hr != S_OK)
@@ -904,7 +889,7 @@ TLSConnection::GenerateKeyMaterial()
     {
         auto itKeyBlock = vbKeyBlock.begin();
 
-        size_t cbField = hashInfo.cbHashKeySize;
+        size_t cbField = Hash()->cbHashKeySize;
         ClientWriteMACKey()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
@@ -912,7 +897,7 @@ TLSConnection::GenerateKeyMaterial()
         PrintByteVector(ClientWriteMACKey());
 
         assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = hashInfo.cbHashKeySize;
+        cbField = Hash()->cbHashKeySize;
         ServerWriteMACKey()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
@@ -922,7 +907,7 @@ TLSConnection::GenerateKeyMaterial()
 
 
         assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = cipherInfo.cbKeyMaterialSize;
+        cbField = Cipher()->cbKeyMaterialSize;
         ClientWriteKey()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
@@ -930,7 +915,7 @@ TLSConnection::GenerateKeyMaterial()
         PrintByteVector(ClientWriteKey());
 
         assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = cipherInfo.cbKeyMaterialSize;
+        cbField = Cipher()->cbKeyMaterialSize;
         ServerWriteKey()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
@@ -940,7 +925,7 @@ TLSConnection::GenerateKeyMaterial()
 
 
         assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = cipherInfo.cbIVSize;
+        cbField = Cipher()->cbIVSize;
         ClientWriteIV()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
@@ -948,7 +933,7 @@ TLSConnection::GenerateKeyMaterial()
         PrintByteVector(ClientWriteIV());
 
         assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = cipherInfo.cbIVSize;
+        cbField = Cipher()->cbIVSize;
         ServerWriteIV()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
@@ -958,11 +943,9 @@ TLSConnection::GenerateKeyMaterial()
         assert(itKeyBlock == vbKeyBlock.end());
 
 
-
-        // TODO: incorporate IV
         hr = ClientSymCipherer()->Initialize(
                  ClientWriteKey(),
-                 &cipherInfo);
+                 Cipher());
 
         if (hr != S_OK)
         {
@@ -971,7 +954,7 @@ TLSConnection::GenerateKeyMaterial()
 
         hr = ServerSymCipherer()->Initialize(
                  ServerWriteKey(),
-                 &cipherInfo);
+                 Cipher());
 
         if (hr != S_OK)
         {
@@ -992,22 +975,44 @@ error:
     goto done;
 } // end function GenerateKeyMaterial
 
-CipherInfo
+const CipherInfo*
 TLSConnection::Cipher() const
 {
-    CipherInfo cipherInfo;
-    HRESULT hr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, nullptr);
-    assert(hr == S_OK);
-    return cipherInfo;
+    static CipherInfo cipherInfo =
+    {
+        CipherAlg_Unknown,
+        CipherType_Stream,
+        0,
+        0,
+        0
+    };
+
+    if (cipherInfo.alg == CipherAlg_Unknown)
+    {
+        HRESULT hr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, nullptr);
+        assert(hr == S_OK);
+    }
+
+    return &cipherInfo;
 } // end function Cipher
 
-HashInfo
+const HashInfo*
 TLSConnection::Hash() const
 {
-    HashInfo hashInfo;
-    HRESULT hr = CryptoInfoFromCipherSuite(CipherSuite(), nullptr, &hashInfo);
-    assert(hr == S_OK);
-    return hashInfo;
+    static HashInfo hashInfo =
+    {
+        HashAlg_Unknown,
+        0,
+        0
+    };
+
+    if (hashInfo.alg == HashAlg_Unknown)
+    {
+        HRESULT hr = CryptoInfoFromCipherSuite(CipherSuite(), nullptr, &hashInfo);
+        assert(hr == S_OK);
+    }
+
+    return &hashInfo;
 } // end function Hash
 
 
@@ -2369,11 +2374,11 @@ MT_TLSCiphertext::SetSecurityParameters(
         goto error;
     }
 
-    if (SecurityParameters()->Cipher().type == CipherType_Stream)
+    if (SecurityParameters()->Cipher()->type == CipherType_Stream)
     {
         m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericStreamCipher());
     }
-    else if (SecurityParameters()->Cipher().type == CipherType_Block)
+    else if (SecurityParameters()->Cipher()->type == CipherType_Block)
     {
         if (SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
         {
@@ -2412,16 +2417,9 @@ MT_TLSCiphertext::Decrypt()
     assert(SecurityParameters()->ClientSymCipherer() != nullptr);
 
     ByteVector vbDecryptedFragment;
-    CipherInfo cipherInfo;
     const ByteVector* pvbClientWriteIV = nullptr;
 
-    hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), &cipherInfo, nullptr);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    if (cipherInfo.type == CipherType_Block)
+    if (SecurityParameters()->Cipher()->type == CipherType_Block)
     {
         pvbClientWriteIV = SecurityParameters()->ClientWriteIV();
     }
@@ -2510,14 +2508,7 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
 {
     HRESULT hr = S_OK;
 
-    HashInfo hashInfo;
-    hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), nullptr, &hashInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    if (SecurityParameters()->Cipher().type == CipherType_Stream)
+    if (SecurityParameters()->Cipher()->type == CipherType_Stream)
     {
         MT_GenericStreamCipher* pStreamCipher = static_cast<MT_GenericStreamCipher*>(DecryptedFragment());
 
@@ -2531,9 +2522,9 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
             goto error;
         }
 
-        assert(pStreamCipher->MAC()->size() == hashInfo.cbHashSize);
+        assert(pStreamCipher->MAC()->size() == SecurityParameters()->Hash()->cbHashSize);
     }
-    else if (SecurityParameters()->Cipher().type == CipherType_Block)
+    else if (SecurityParameters()->Cipher()->type == CipherType_Block)
     {
         MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(DecryptedFragment());
 
@@ -2567,7 +2558,7 @@ MT_TLSCiphertext::CheckSecurityPriv()
 {
     HRESULT hr = S_OK;
 
-    if (SecurityParameters()->Cipher().type == CipherType_Stream)
+    if (SecurityParameters()->Cipher()->type == CipherType_Stream)
     {
         MT_GenericStreamCipher* pStreamCipher = static_cast<MT_GenericStreamCipher*>(DecryptedFragment());
         ByteVector vbMAC;
@@ -2594,7 +2585,7 @@ MT_TLSCiphertext::CheckSecurityPriv()
             goto error;
         }
     }
-    else if (SecurityParameters()->Cipher().type == CipherType_Block)
+    else if (SecurityParameters()->Cipher()->type == CipherType_Block)
     {
         MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(DecryptedFragment());
         ByteVector vbMAC;
@@ -2664,12 +2655,7 @@ MT_TLSCiphertext::ComputeSecurityInfo_Stream(
     size_t cb = 0;
     size_t cbField = 0;
 
-    HashInfo hashInfo;
-    hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), nullptr, &hashInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    const HashInfo* pHashInfo = SecurityParameters()->Hash();
 
     cb = 8 + // seq_num
          1 + // content type
@@ -2751,7 +2737,7 @@ MT_TLSCiphertext::ComputeSecurityInfo_Stream(
 
 
     hr = SecurityParameters()->HashInst()->HMAC(
-             &hashInfo,
+             pHashInfo,
              pvbMACKey,
              &vbHashText,
              pvbMAC);
@@ -2761,7 +2747,7 @@ MT_TLSCiphertext::ComputeSecurityInfo_Stream(
         goto error;
     }
 
-    assert(pvbMAC->size() == hashInfo.cbHashSize);
+    assert(pvbMAC->size() == pHashInfo->cbHashSize);
 
 done:
     return hr;
@@ -4162,25 +4148,19 @@ MT_GenericStreamCipher::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    HashInfo hashInfo;
+    const HashInfo* pHashInfo = SecurityParameters()->Hash();
     size_t cbField = 0;
 
-    hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), nullptr, &hashInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
     // should be <= ? handles 0-length content
-    assert(hashInfo.cbHashSize < cb);
+    assert(pHashInfo->cbHashSize < cb);
 
-    cbField = cb - hashInfo.cbHashSize;
+    cbField = cb - pHashInfo->cbHashSize;
     Content()->assign(pv, pv + cbField);
 
     ADVANCE_PARSE();
 
-    assert(cb == hashInfo.cbHashSize);
-    cbField = hashInfo.cbHashSize;
+    assert(cb == pHashInfo->cbHashSize);
+    cbField = pHashInfo->cbHashSize;
     MAC()->assign(pv, pv + cbField);
 
     ADVANCE_PARSE();
@@ -4257,7 +4237,7 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    HashInfo hashInfo;
+    const HashInfo* pHashInfo = SecurityParameters()->Hash();
     const BYTE* pvEnd = &pv[cb - 1];
     size_t cbField = 0;
     MT_UINT8 cbPaddingLength = 0;
@@ -4290,22 +4270,16 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
     pvEnd -= cbField;
     cb -= cbField;
 
-    hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), nullptr, &hashInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
     // should be <= ? handles 0-length content
-    assert(hashInfo.cbHashSize < cb);
+    assert(pHashInfo->cbHashSize < cb);
 
-    cbField = cb - hashInfo.cbHashSize;
+    cbField = cb - pHashInfo->cbHashSize;
     Content()->assign(pv, pv + cbField);
 
     ADVANCE_PARSE();
 
-    assert(cb == hashInfo.cbHashSize);
-    cbField = hashInfo.cbHashSize;
+    assert(cb == pHashInfo->cbHashSize);
+    cbField = pHashInfo->cbHashSize;
     MAC()->assign(pv, pv + cbField);
 
     ADVANCE_PARSE();
@@ -4326,15 +4300,10 @@ MT_GenericBlockCipher_TLS10::Length() const
                       1; // padding length
 
     {
-        HRESULT hr = S_OK;
-        CipherInfo cipherInfo;
-        hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), &cipherInfo, nullptr);
-        if (hr == S_OK)
+        const CipherInfo* pCipherInfo = SecurityParameters()->Cipher();
+        if (pCipherInfo->type == CipherType_Block)
         {
-            if (cipherInfo.type == CipherType_Block)
-            {
-                assert((cbLength % cipherInfo.cbBlockSize) == 0);
-            }
+            assert((cbLength % pCipherInfo->cbBlockSize) == 0);
         }
     }
 
@@ -4428,13 +4397,8 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
     size_t cb = 0;
     size_t cbField = 0;
 
-    HashInfo hashInfo;
-    CipherInfo cipherInfo;
-    hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), &cipherInfo, &hashInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    const HashInfo* pHashInfo = SecurityParameters()->Hash();
+    const CipherInfo* pCipherInfo = SecurityParameters()->Cipher();
 
     cb = 8 + // seq_num
          1 + // content type
@@ -4516,7 +4480,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
 
 
     hr = SecurityParameters()->HashInst()->HMAC(
-             &hashInfo,
+             pHashInfo,
              pvbMACKey,
              &vbHashText,
              pvbMAC);
@@ -4526,19 +4490,19 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
         goto error;
     }
 
-    assert(pvbMAC->size() == hashInfo.cbHashSize);
+    assert(pvbMAC->size() == pHashInfo->cbHashSize);
 
     {
-        assert(cipherInfo.cbBlockSize != 0);
+        assert(pCipherInfo->cbBlockSize != 0);
         size_t cbUnpaddedBlockLength = Content()->size() + MAC()->size();
         size_t cbPaddedBlockLength = 0;
         while (cbPaddedBlockLength <= cbUnpaddedBlockLength)
         {
-            cbPaddedBlockLength += cipherInfo.cbBlockSize;
+            cbPaddedBlockLength += pCipherInfo->cbBlockSize;
         }
 
         assert(cbPaddedBlockLength >= cbUnpaddedBlockLength);
-        assert((cbPaddedBlockLength % cipherInfo.cbBlockSize) == 0);
+        assert((cbPaddedBlockLength % pCipherInfo->cbBlockSize) == 0);
         assert(cbPaddedBlockLength > 0);
 
         // minus one for the padding length value itself
@@ -4556,7 +4520,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
         pvbPadding->assign(cbPaddingLength, b);
     }
 
-    assert(((Content()->size() + MAC()->size() + pvbPadding->size() + 1) % cipherInfo.cbBlockSize) == 0);
+    assert(((Content()->size() + MAC()->size() + pvbPadding->size() + 1) % pCipherInfo->cbBlockSize) == 0);
 
 done:
     return hr;
