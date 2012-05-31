@@ -9,34 +9,104 @@ namespace MungeTLS
 
 enum MT_CipherSuiteValue;
 
+enum CipherAlg
+{
+    CipherAlg_RSA = 0,
+    CipherAlg_RC4_128 = 1,
+    CipherAlg_AES_128 = 2,
+    CipherAlg_AES_256 = 3,
+};
+
+enum CipherType
+{
+    CipherType_Stream,
+    CipherType_Block,
+    CipherType_Asymmetric_Block
+};
+
+struct CipherInfo
+{
+    CipherAlg alg;
+    CipherType type;
+    size_t cbKeyMaterialSize;
+    size_t cbIVSize;
+    size_t cbBlockSize;
+};
+
+enum HashAlg
+{
+    HashAlg_MD5       = 0,
+    HashAlg_SHA1      = 1,
+    HashAlg_SHA256    = 2
+};
+
+struct HashInfo
+{
+    HashAlg alg;
+    size_t cbHashSize;
+    size_t cbHashKeySize;
+};
+
+const CipherInfo c_CipherInfo_RSA =
+{
+    CipherAlg_RSA,
+    CipherType_Asymmetric_Block,
+    16,
+    0,
+    0
+};
+
+const CipherInfo c_CipherInfo_RC4_128 =
+{
+    CipherAlg_RC4_128,
+    CipherType_Stream,
+    16,
+    0,
+    0
+};
+
+const CipherInfo c_CipherInfo_AES_128 =
+{
+    CipherAlg_AES_128,
+    CipherType_Block,
+    16,
+    16,
+    16
+};
+
+const CipherInfo c_CipherInfo_AES_256 =
+{
+    CipherAlg_AES_256,
+    CipherType_Block,
+    32,
+    16,
+    16
+};
+
+const HashInfo c_HashInfo_MD5 =
+{
+    HashAlg_MD5,
+    16,
+    16,
+};
+
+const HashInfo c_HashInfo_SHA1 =
+{
+    HashAlg_SHA1,
+    20,
+    20,
+};
+
+const HashInfo c_HashInfo_SHA256 =
+{
+    HashAlg_SHA256,
+    32,
+    32,
+};
+
 class SymmetricCipherer
 {
     public:
-
-    enum CipherAlg
-    {
-        CipherAlg_RSA = 0,
-        CipherAlg_RC4_128 = 1,
-        CipherAlg_AES_128 = 2,
-        CipherAlg_AES_256 = 3,
-    };
-
-    enum CipherType
-    {
-        CipherType_Stream,
-        CipherType_Block,
-        CipherType_Asymmetric_Block
-    };
-
-    struct CipherInfo
-    {
-        CipherAlg alg;
-        CipherType type;
-        size_t cbKeyMaterialSize;
-        size_t cbIVSize;
-        size_t cbBlockSize;
-    };
-
     virtual
     HRESULT
     Initialize(
@@ -56,15 +126,6 @@ class SymmetricCipherer
         const ByteVector* pvbEncrypted,
         const ByteVector* pvbIV,
         ByteVector* pvbDecrypted) const = 0;
-
-    static
-    HRESULT
-    GetCipherInfo(
-        CipherAlg alg,
-        CipherInfo* pCipherInfo);
-
-    private:
-    static const CipherInfo c_rgCiphers[];
 };
 
 class PublicKeyCipherer
@@ -92,44 +153,20 @@ class PublicKeyCipherer
 class Hasher
 {
     public:
-    enum HashAlg
-    {
-        HashAlg_MD5       = 0,
-        HashAlg_SHA1      = 1,
-        HashAlg_SHA256    = 2
-    };
-
-    struct HashInfo
-    {
-        HashAlg alg;
-        size_t cbHashSize;
-        size_t cbHashKeySize;
-    };
-
     virtual
     HRESULT
     Hash(
-        HashAlg alg,
+        const HashInfo* pHashInfo,
         const ByteVector* pvbText,
         ByteVector* pvbHash) = 0;
 
     virtual
     HRESULT
     HMAC(
-        HashAlg alg,
+        const HashInfo* pHashInfo,
         const ByteVector* pvbKey,
         const ByteVector* pvbText,
         ByteVector* pvbHMAC) = 0;
-
-    static
-    HRESULT
-    GetHashInfo(
-        HashAlg alg,
-        HashInfo* pHashInfo);
-
-    private:
-    static const HashInfo c_rgHashes[];
 };
-
 
 }

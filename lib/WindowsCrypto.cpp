@@ -293,7 +293,7 @@ HRESULT
 EncryptBuffer(
     const ByteVector* pvbCleartext,
     HCRYPTKEY hKey,
-    const SymmetricCipherer::CipherInfo* pCipherInfo,
+    const CipherInfo* pCipherInfo,
     const ByteVector* pvbIV,
     ByteVector* pvbEncrypted)
 {
@@ -302,15 +302,15 @@ EncryptBuffer(
     DWORD dwBufLen = 0;
     BOOL fFinal = TRUE;
     HCRYPTKEY hKeyNew = hKey;
-    const SymmetricCipherer::CipherType cipherType = pCipherInfo->type;
+    const CipherType cipherType = pCipherInfo->type;
 
     wprintf(L"encrypting\n");
 
-    if (cipherType == SymmetricCipherer::CipherType_Asymmetric_Block)
+    if (cipherType == CipherType_Asymmetric_Block)
     {
         fFinal = TRUE;
     }
-    else if (cipherType == SymmetricCipherer::CipherType_Block)
+    else if (cipherType == CipherType_Block)
     {
         fFinal = FALSE;
 
@@ -338,7 +338,7 @@ EncryptBuffer(
             goto error;
         }
     }
-    else if (cipherType == SymmetricCipherer::CipherType_Stream)
+    else if (cipherType == CipherType_Stream)
     {
         fFinal = FALSE;
     }
@@ -402,7 +402,7 @@ EncryptBuffer(
 
     assert(cb == pvbEncrypted->size());
 
-    if (cipherType == SymmetricCipherer::CipherType_Asymmetric_Block)
+    if (cipherType == CipherType_Asymmetric_Block)
     {
         // CryptEncrypt returns in little-endian
         *pvbEncrypted = ReverseByteOrder(pvbEncrypted);
@@ -420,7 +420,7 @@ HRESULT
 DecryptBuffer(
     const ByteVector* pvbEncrypted,
     HCRYPTKEY hKey,
-    const SymmetricCipherer::CipherInfo* pCipherInfo,
+    const CipherInfo* pCipherInfo,
     const ByteVector* pvbIV,
     ByteVector* pvbDecrypted)
 {
@@ -432,7 +432,7 @@ DecryptBuffer(
     wprintf(L"decrypting. ciphertext (%d bytes):\n", pvbEncrypted->size());
     PrintByteVector(pvbEncrypted);
 
-    if (pCipherInfo->type == SymmetricCipherer::CipherType_Asymmetric_Block)
+    if (pCipherInfo->type == CipherType_Asymmetric_Block)
     {
         assert(pvbIV == nullptr);
 
@@ -440,7 +440,7 @@ DecryptBuffer(
         *pvbDecrypted = ReverseByteOrder(pvbEncrypted);
         fFinal = TRUE;
     }
-    else if (pCipherInfo->type == SymmetricCipherer::CipherType_Block)
+    else if (pCipherInfo->type == CipherType_Block)
     {
         fFinal = TRUE;
         *pvbDecrypted = *pvbEncrypted;
@@ -473,7 +473,7 @@ DecryptBuffer(
     }
     else
     {
-        assert(pCipherInfo->type == SymmetricCipherer::CipherType_Stream);
+        assert(pCipherInfo->type == CipherType_Stream);
 
         *pvbDecrypted = *pvbEncrypted;
         fFinal = FALSE;
@@ -510,7 +510,7 @@ DecryptBuffer(
     ** a consistent view to our TLS protocol implementation that calls into
     ** this, we'll manually reconstruct the padding bytes here.
     */
-    if (pCipherInfo->type == SymmetricCipherer::CipherType_Block)
+    if (pCipherInfo->type == CipherType_Block)
     {
         BYTE cbPaddingLength = 0;
         hr = SizeTToByte(pCipherInfo->cbBlockSize - (cb % pCipherInfo->cbBlockSize), &cbPaddingLength);
@@ -674,18 +674,11 @@ WindowsPublicKeyCipherer::EncryptBufferWithPublicKey(
 ) const
 {
     HRESULT hr = S_OK;
-    SymmetricCipherer::CipherInfo cipherInfo;
-
-    hr = SymmetricCipherer::GetCipherInfo(SymmetricCipherer::CipherAlg_RSA, &cipherInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
 
     hr = MungeTLS::EncryptBuffer(
              pvbCleartext,
              PublicKey(),
-             &cipherInfo,
+             &c_CipherInfo_RSA,
              nullptr,
              pvbEncrypted);
 
@@ -708,18 +701,11 @@ WindowsPublicKeyCipherer::DecryptBufferWithPrivateKey(
 ) const
 {
     HRESULT hr = S_OK;
-    SymmetricCipherer::CipherInfo cipherInfo;
-
-    hr = SymmetricCipherer::GetCipherInfo(SymmetricCipherer::CipherAlg_RSA, &cipherInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
 
     hr = MungeTLS::DecryptBuffer(
              pvbEncrypted,
              PrivateKey(),
-             &cipherInfo,
+             &c_CipherInfo_RSA,
              nullptr,
              pvbDecrypted);
 
@@ -742,18 +728,11 @@ WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
 ) const
 {
     HRESULT hr = S_OK;
-    SymmetricCipherer::CipherInfo cipherInfo;
-
-    hr = SymmetricCipherer::GetCipherInfo(SymmetricCipherer::CipherAlg_RSA, &cipherInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
 
     hr = MungeTLS::EncryptBuffer(
              pvbCleartext,
              PrivateKey(),
-             &cipherInfo,
+             &c_CipherInfo_RSA,
              nullptr,
              pvbEncrypted);
 
@@ -773,7 +752,7 @@ error:
 
 HRESULT
 WindowsHasher::Hash(
-    Hasher::HashAlg alg,
+    const HashInfo* pHashInfo,
     const ByteVector* pvbText,
     ByteVector* pvbHash
 )
@@ -784,7 +763,7 @@ WindowsHasher::Hash(
     DWORD cbText = 0;
     ALG_ID algID;
 
-    hr = WindowsHashAlgFromMTHashAlg(alg, &algID);
+    hr = WindowsHashAlgFromMTHashInfo(pHashInfo, &algID);
     if (hr != S_OK)
     {
         goto error;
@@ -894,7 +873,7 @@ error:
 
 HRESULT
 WindowsHasher::HMAC(
-    Hasher::HashAlg alg,
+    const HashInfo* pHashInfo,
     const ByteVector* pvbKey,
     const ByteVector* pvbText,
     ByteVector* pvbHMAC
@@ -908,7 +887,7 @@ WindowsHasher::HMAC(
     KeyAndProv kp;
     HMAC_INFO hinfo = {0};
 
-    hr = WindowsHashAlgFromMTHashAlg(alg, &hinfo.HashAlgid);
+    hr = WindowsHashAlgFromMTHashInfo(pHashInfo, &hinfo.HashAlgid);
     if (hr != S_OK)
     {
         goto error;
@@ -999,44 +978,22 @@ error:
 } // end function HMAC
 
 HRESULT
-WindowsHasher::WindowsHashAlgFromMTHashAlg(
-    Hasher::HashAlg alg,
+WindowsHasher::WindowsHashAlgFromMTHashInfo(
+    const HashInfo* pHashInfo,
     ALG_ID* pAlg
 )
 {
     HRESULT hr = S_OK;
 
-    /* TODO: debris to be used elsewhere
-    if (cipherSuite == MTCS_TLS_RSA_WITH_NULL_SHA ||
-        cipherSuite == MTCS_TLS_RSA_WITH_RC4_128_SHA ||
-        cipherSuite == MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA ||
-        cipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
-        cipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA)
-    {
-        *pAlg = CALG_SHA1;
-    }
-    else if (cipherSuite == MTCS_TLS_RSA_WITH_NULL_SHA256 ||
-             cipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256 ||
-             cipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
-    {
-        *pAlg = CALG_SHA_256;
-    }
-    else
-    {
-        hr = MT_E_UNSUPPORTED_HASH;
-        goto error;
-    }
-    */
-
-    if (alg == HashAlg_MD5)
+    if (pHashInfo->alg == HashAlg_MD5)
     {
         *pAlg = CALG_MD5;
     }
-    else if (alg == HashAlg_SHA1)
+    else if (pHashInfo->alg == HashAlg_SHA1)
     {
         *pAlg = CALG_SHA1;
     }
-    else if (alg == HashAlg_SHA256)
+    else if (pHashInfo->alg == HashAlg_SHA256)
     {
         *pAlg = CALG_SHA_256;
     }
@@ -1051,7 +1008,7 @@ done:
 
 error:
     goto done;
-} // end function WindowsHashAlgFromMTHashAlg
+} // end function WindowsHashAlgFromMTHashInfo
 
 WindowsSymmetricCipherer::WindowsSymmetricCipherer()
     : m_key(),
@@ -1128,7 +1085,7 @@ WindowsSymmetricCipherer::DecryptBuffer(
 
 HRESULT
 WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
-    SymmetricCipherer::CipherAlg alg,
+    CipherAlg alg,
     ALG_ID* pAlgID
 )
 {

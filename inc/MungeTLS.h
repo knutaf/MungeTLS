@@ -578,8 +578,8 @@ class TLSConnection
     ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
     ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
 
-    SymmetricCipherer::CipherInfo Cipher() const;
-    Hasher::HashInfo Hash() const;
+    CipherInfo Cipher() const;
+    HashInfo Hash() const;
 
 
     HRESULT
@@ -890,8 +890,8 @@ ComputePRF_TLS10(
 HRESULT
 CryptoInfoFromCipherSuite(
     const MT_CipherSuite* pCipherSuite,
-    SymmetricCipherer::CipherInfo* pCipherInfo,
-    Hasher::HashInfo* pHashInfo);
+    CipherInfo* pCipherInfo,
+    HashInfo* pHashInfo);
 
 }
 #pragma warning(pop)

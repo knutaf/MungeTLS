@@ -38,7 +38,7 @@ ComputePRF_TLS10(
 HRESULT
 PRF_P_hash(
     Hasher* pHasher,
-    Hasher::HashAlg alg,
+    const HashInfo* pHashInfo,
     const ByteVector* pvbSecret,
     const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
@@ -47,7 +47,7 @@ PRF_P_hash(
 HRESULT
 PRF_A(
     Hasher* pHasher,
-    Hasher::HashAlg alg,
+    const HashInfo* pHashInfo,
     UINT i,
     const ByteVector* pvbSecret,
     const ByteVector* pvbSeed,
@@ -135,7 +135,7 @@ TLSConnection::HandleMessage(
     {
         MT_TLSCiphertext message;
 
-        SymmetricCipherer::CipherInfo cipherInfo;
+        CipherInfo cipherInfo;
         hr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, nullptr);
         if (hr != S_OK)
         {
@@ -849,8 +849,8 @@ TLSConnection::GenerateKeyMaterial()
 {
     HRESULT hr = S_OK;
 
-    SymmetricCipherer::CipherInfo cipherInfo;
-    Hasher::HashInfo hashInfo;
+    CipherInfo cipherInfo;
+    HashInfo hashInfo;
     size_t cbKeyBlock;
     ByteVector vbRandoms;
     ByteVector vbKeyBlock;
@@ -992,19 +992,19 @@ error:
     goto done;
 } // end function GenerateKeyMaterial
 
-SymmetricCipherer::CipherInfo
+CipherInfo
 TLSConnection::Cipher() const
 {
-    SymmetricCipherer::CipherInfo cipherInfo;
+    CipherInfo cipherInfo;
     HRESULT hr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, nullptr);
     assert(hr == S_OK);
     return cipherInfo;
 } // end function Cipher
 
-Hasher::HashInfo
+HashInfo
 TLSConnection::Hash() const
 {
-    Hasher::HashInfo hashInfo;
+    HashInfo hashInfo;
     HRESULT hr = CryptoInfoFromCipherSuite(CipherSuite(), nullptr, &hashInfo);
     assert(hr == S_OK);
     return hashInfo;
@@ -1308,7 +1308,7 @@ ComputePRF_TLS12(
 
     hr = PRF_P_hash(
              pHasher,
-             Hasher::HashAlg_SHA256,
+             &c_HashInfo_SHA256,
              pvbSecret,
              &vbLabelAndSeed,
              cbLengthDesired,
@@ -1382,7 +1382,7 @@ ComputePRF_TLS10(
 
     hr = PRF_P_hash(
              pHasher,
-             Hasher::HashAlg_MD5,
+             &c_HashInfo_MD5,
              &vbS1,
              &vbLabelAndSeed,
              cbLengthDesired,
@@ -1395,7 +1395,7 @@ ComputePRF_TLS10(
 
     hr = PRF_P_hash(
              pHasher,
-             Hasher::HashAlg_SHA1,
+             &c_HashInfo_SHA1,
              &vbS2,
              &vbLabelAndSeed,
              cbLengthDesired,
@@ -1428,7 +1428,7 @@ error:
 HRESULT
 PRF_A(
     Hasher* pHasher,
-    Hasher::HashAlg alg,
+    const HashInfo* pHashInfo,
     UINT i,
     const ByteVector* pvbSecret,
     const ByteVector* pvbSeed,
@@ -1446,7 +1446,7 @@ PRF_A(
         vbTemp = *pvbResult;
 
         hr = pHasher->HMAC(
-                          alg,
+                          pHashInfo,
                           pvbSecret,
                           &vbTemp,
                           pvbResult);
@@ -1470,7 +1470,7 @@ error:
 HRESULT
 PRF_P_hash(
     Hasher* pHasher,
-    Hasher::HashAlg alg,
+    const HashInfo* pHashInfo,
     const ByteVector* pvbSecret,
     const ByteVector* pvbSeed,
     size_t cbMinimumLengthDesired,
@@ -1491,7 +1491,7 @@ PRF_P_hash(
 
         hr = PRF_A(
                  pHasher,
-                 alg,
+                 pHashInfo,
                  i,
                  pvbSecret,
                  pvbSeed,
@@ -1505,7 +1505,7 @@ PRF_P_hash(
         vbInnerSeed.insert(vbInnerSeed.end(), pvbSeed->begin(), pvbSeed->end());
 
         hr = pHasher->HMAC(
-                          alg,
+                          pHashInfo,
                           pvbSecret,
                           &vbInnerSeed,
                           &vbIteration);
@@ -1529,8 +1529,8 @@ error:
 HRESULT
 CryptoInfoFromCipherSuite(
     const MT_CipherSuite* pCipherSuite,
-    SymmetricCipherer::CipherInfo* pCipherInfo,
-    Hasher::HashInfo* pHashInfo
+    CipherInfo* pCipherInfo,
+    HashInfo* pHashInfo
 )
 {
     HRESULT hr = S_OK;
@@ -1543,63 +1543,47 @@ CryptoInfoFromCipherSuite(
 
     if (pHashInfo)
     {
-        Hasher::HashAlg hashAlg;
-
         if (*pCipherSuite == MTCS_TLS_RSA_WITH_NULL_SHA ||
             *pCipherSuite == MTCS_TLS_RSA_WITH_RC4_128_SHA ||
             *pCipherSuite == MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA ||
             *pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
             *pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA)
         {
-            hashAlg = Hasher::HashAlg_SHA1;
+            *pHashInfo = c_HashInfo_SHA1;
         }
         else if (*pCipherSuite == MTCS_TLS_RSA_WITH_NULL_SHA256 ||
                  *pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256 ||
                  *pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
         {
-            hashAlg = Hasher::HashAlg_SHA256;
+            *pHashInfo = c_HashInfo_SHA256;
         }
         else
         {
             hr = MT_E_UNSUPPORTED_HASH;
             goto error;
         }
-
-        hr = Hasher::GetHashInfo(hashAlg, pHashInfo);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
     }
 
     if (pCipherInfo)
     {
-        SymmetricCipherer::CipherAlg cipherAlg;
-
         if (*pCipherSuite == MTCS_TLS_RSA_WITH_RC4_128_MD5 ||
             *pCipherSuite ==  MTCS_TLS_RSA_WITH_RC4_128_SHA)
         {
-            cipherAlg = SymmetricCipherer::CipherAlg_RC4_128;
+            *pCipherInfo = c_CipherInfo_RC4_128;
         }
         else if (*pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
                  *pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256)
         {
-            cipherAlg = SymmetricCipherer::CipherAlg_AES_128;
+            *pCipherInfo = c_CipherInfo_AES_128;
         }
         else if (*pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA ||
                  *pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
         {
-            cipherAlg = SymmetricCipherer::CipherAlg_AES_256;
+            *pCipherInfo = c_CipherInfo_AES_256;
         }
         else
         {
             hr = MT_E_UNSUPPORTED_CIPHER;
-            goto error;
-        }
-
-        hr = SymmetricCipherer::GetCipherInfo(cipherAlg, pCipherInfo);
-        if (hr != S_OK)
-        {
             goto error;
         }
     }
@@ -2385,11 +2369,11 @@ MT_TLSCiphertext::SetSecurityParameters(
         goto error;
     }
 
-    if (SecurityParameters()->Cipher().type == SymmetricCipherer::CipherType_Stream)
+    if (SecurityParameters()->Cipher().type == CipherType_Stream)
     {
         m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericStreamCipher());
     }
-    else if (SecurityParameters()->Cipher().type == SymmetricCipherer::CipherType_Block)
+    else if (SecurityParameters()->Cipher().type == CipherType_Block)
     {
         if (SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
         {
@@ -2428,7 +2412,7 @@ MT_TLSCiphertext::Decrypt()
     assert(SecurityParameters()->ClientSymCipherer() != nullptr);
 
     ByteVector vbDecryptedFragment;
-    SymmetricCipherer::CipherInfo cipherInfo;
+    CipherInfo cipherInfo;
     const ByteVector* pvbClientWriteIV = nullptr;
 
     hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), &cipherInfo, nullptr);
@@ -2437,7 +2421,7 @@ MT_TLSCiphertext::Decrypt()
         goto error;
     }
 
-    if (cipherInfo.type == SymmetricCipherer::CipherType_Block)
+    if (cipherInfo.type == CipherType_Block)
     {
         pvbClientWriteIV = SecurityParameters()->ClientWriteIV();
     }
@@ -2526,14 +2510,14 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
 {
     HRESULT hr = S_OK;
 
-    Hasher::HashInfo hashInfo;
+    HashInfo hashInfo;
     hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), nullptr, &hashInfo);
     if (hr != S_OK)
     {
         goto error;
     }
 
-    if (SecurityParameters()->Cipher().type == SymmetricCipherer::CipherType_Stream)
+    if (SecurityParameters()->Cipher().type == CipherType_Stream)
     {
         MT_GenericStreamCipher* pStreamCipher = static_cast<MT_GenericStreamCipher*>(DecryptedFragment());
 
@@ -2549,7 +2533,7 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
 
         assert(pStreamCipher->MAC()->size() == hashInfo.cbHashSize);
     }
-    else if (SecurityParameters()->Cipher().type == SymmetricCipherer::CipherType_Block)
+    else if (SecurityParameters()->Cipher().type == CipherType_Block)
     {
         MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(DecryptedFragment());
 
@@ -2583,7 +2567,7 @@ MT_TLSCiphertext::CheckSecurityPriv()
 {
     HRESULT hr = S_OK;
 
-    if (SecurityParameters()->Cipher().type == SymmetricCipherer::CipherType_Stream)
+    if (SecurityParameters()->Cipher().type == CipherType_Stream)
     {
         MT_GenericStreamCipher* pStreamCipher = static_cast<MT_GenericStreamCipher*>(DecryptedFragment());
         ByteVector vbMAC;
@@ -2610,7 +2594,7 @@ MT_TLSCiphertext::CheckSecurityPriv()
             goto error;
         }
     }
-    else if (SecurityParameters()->Cipher().type == SymmetricCipherer::CipherType_Block)
+    else if (SecurityParameters()->Cipher().type == CipherType_Block)
     {
         MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(DecryptedFragment());
         ByteVector vbMAC;
@@ -2680,7 +2664,7 @@ MT_TLSCiphertext::ComputeSecurityInfo_Stream(
     size_t cb = 0;
     size_t cbField = 0;
 
-    Hasher::HashInfo hashInfo;
+    HashInfo hashInfo;
     hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), nullptr, &hashInfo);
     if (hr != S_OK)
     {
@@ -2767,7 +2751,7 @@ MT_TLSCiphertext::ComputeSecurityInfo_Stream(
 
 
     hr = SecurityParameters()->HashInst()->HMAC(
-             hashInfo.alg,
+             &hashInfo,
              pvbMACKey,
              &vbHashText,
              pvbMAC);
@@ -4088,7 +4072,7 @@ MT_Finished::ComputeVerifyData(
         ByteVector vbHandshakeHash;
 
         hr = SecurityParameters()->HashInst()->Hash(
-                 Hasher::HashAlg_MD5,
+                 &c_HashInfo_MD5,
                  &vbHandshakeMessages,
                  &vbMD5HandshakeHash);
 
@@ -4098,7 +4082,7 @@ MT_Finished::ComputeVerifyData(
         }
 
         hr = SecurityParameters()->HashInst()->Hash(
-                 Hasher::HashAlg_SHA1,
+                 &c_HashInfo_SHA1,
                  &vbHandshakeMessages,
                  &vbSHA1HandshakeHash);
 
@@ -4116,7 +4100,7 @@ MT_Finished::ComputeVerifyData(
     else if (SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS12)
     {
         hr = SecurityParameters()->HashInst()->Hash(
-                 Hasher::HashAlg_SHA256,
+                 &c_HashInfo_SHA256,
                  &vbHandshakeMessages,
                  &vbHashedHandshakeMessages);
 
@@ -4178,7 +4162,7 @@ MT_GenericStreamCipher::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    Hasher::HashInfo hashInfo;
+    HashInfo hashInfo;
     size_t cbField = 0;
 
     hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), nullptr, &hashInfo);
@@ -4273,7 +4257,7 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    Hasher::HashInfo hashInfo;
+    HashInfo hashInfo;
     const BYTE* pvEnd = &pv[cb - 1];
     size_t cbField = 0;
     MT_UINT8 cbPaddingLength = 0;
@@ -4343,11 +4327,11 @@ MT_GenericBlockCipher_TLS10::Length() const
 
     {
         HRESULT hr = S_OK;
-        SymmetricCipherer::CipherInfo cipherInfo;
+        CipherInfo cipherInfo;
         hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), &cipherInfo, nullptr);
         if (hr == S_OK)
         {
-            if (cipherInfo.type == SymmetricCipherer::CipherType_Block)
+            if (cipherInfo.type == CipherType_Block)
             {
                 assert((cbLength % cipherInfo.cbBlockSize) == 0);
             }
@@ -4444,8 +4428,8 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
     size_t cb = 0;
     size_t cbField = 0;
 
-    Hasher::HashInfo hashInfo;
-    SymmetricCipherer::CipherInfo cipherInfo;
+    HashInfo hashInfo;
+    CipherInfo cipherInfo;
     hr = CryptoInfoFromCipherSuite(SecurityParameters()->CipherSuite(), &cipherInfo, &hashInfo);
     if (hr != S_OK)
     {
@@ -4532,7 +4516,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
 
 
     hr = SecurityParameters()->HashInst()->HMAC(
-             hashInfo.alg,
+             &hashInfo,
              pvbMACKey,
              &vbHashText,
              pvbMAC);

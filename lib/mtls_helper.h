@@ -86,7 +86,7 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
     static
     HRESULT
     WindowsCipherAlgFromMTCipherAlg(
-        SymmetricCipherer::CipherAlg alg,
+        CipherAlg alg,
         ALG_ID* pAlgID);
 
     ACCESSORS(CipherInfo*, Cipher, &m_cipherInfo);
@@ -141,21 +141,21 @@ class WindowsHasher : public Hasher
     public:
     HRESULT
     Hash(
-        Hasher::HashAlg alg,
+        const HashInfo* pHashInfo,
         const ByteVector* pvbText,
         ByteVector* pvbHash);
 
     HRESULT
     HMAC(
-        Hasher::HashAlg alg,
+        const HashInfo* pHashInfo,
         const ByteVector* pvbKey,
         const ByteVector* pvbText,
         ByteVector* pvbHMAC);
 
     private:
     static
-    HRESULT WindowsHashAlgFromMTHashAlg(
-        Hasher::HashAlg alg,
+    HRESULT WindowsHashAlgFromMTHashInfo(
+        const HashInfo* pHashInfo,
         ALG_ID* pAlg);
 };
 
@@ -163,7 +163,7 @@ HRESULT
 EncryptBuffer(
     const ByteVector* pvbCleartext,
     HCRYPTKEY hKey,
-    const SymmetricCipherer::CipherInfo* pCipherInfo,
+    const CipherInfo* pCipherInfo,
     const ByteVector* pvbIV,
     ByteVector* pvbEncrypted);
 
@@ -171,7 +171,7 @@ HRESULT
 DecryptBuffer(
     const ByteVector* pvbEncrypted,
     HCRYPTKEY hKey,
-    const SymmetricCipherer::CipherInfo* pCipherInfo,
+    const CipherInfo* pCipherInfo,
     const ByteVector* pvbIV,
     ByteVector* pvbDecrypted);
 
