@@ -17,13 +17,6 @@ namespace MungeTLS
 
 using namespace std;
 
-enum RSAEncryptionBlockType
-{
-    RSABT_Priv_0 = 0x00,
-    RSABT_Priv_FF = 0x01,
-    RSABT_Pub = 0x02
-};
-
 struct PlaintextKey
 {
     BLOBHEADER hdr;
