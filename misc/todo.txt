@@ -7,5 +7,4 @@
 - remove the cast operator from MT_CipherSuite to CipherSuiteValue
 - figure out what cipher and hash suites we actually support. there are many places where we seem to support a hash type, but in another place we throw unsupported hash for it
 - don't access MT_VariableLengthField::Data. surface common operations
-- consider making the cipher type enums external to the class
-- remove enum RSAEncryptionBlockType
+- support null encryption
