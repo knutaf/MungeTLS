@@ -153,7 +153,7 @@ HRESULT ProcessConnections()
     // IP address, and port for the socket that is being bound.
     sockaddr_in service;
     service.sin_family = AF_INET;
-    service.sin_addr.s_addr = inet_addr("127.0.0.1");
+    service.sin_addr.s_addr = 0;
     service.sin_port = htons(8879);
 
     if (bind(sockListen,
