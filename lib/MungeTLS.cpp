@@ -2377,17 +2377,15 @@ MT_TLSCiphertext::SetSecurityParameters(
     {
         m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericStreamCipher());
     }
-    else if (SecurityParameters()->Cipher()->type == CipherType_Block)
+    else if (SecurityParameters()->Cipher()->type == CipherType_Block &&
+             SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
     {
-        if (SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
-        {
-            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS10());
-        }
-        else
-        {
-            hr = E_NOTIMPL;
-            goto error;
-        }
+        m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS10());
+    }
+    else if (SecurityParameters()->Cipher()->type == CipherType_Block &&
+             SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+    {
+        m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS12());
     }
     else
     {
@@ -2481,11 +2479,27 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
             goto error;
         }
     }
-    else if (SecurityParameters()->Cipher()->type == CipherType_Block)
+    else if (SecurityParameters()->Cipher()->type == CipherType_Block &&
+             SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
     {
         MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(CipherFragment());
 
         hr = pBlockCipher->UpdateWriteSecurity(
+                  ContentType(),
+                  ProtocolVersion());
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+    }
+    else if (SecurityParameters()->Cipher()->type == CipherType_Block &&
+             SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+    {
+        MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(CipherFragment());
+
+        hr = pBlockCipher->UpdateWriteSecurity(
+                  SecurityParameters()->ServerWriteIV(),
                   ContentType(),
                   ProtocolVersion());
 
@@ -2523,9 +2537,23 @@ MT_TLSCiphertext::CheckSecurityPriv()
             goto error;
         }
     }
-    else if (SecurityParameters()->Cipher()->type == CipherType_Block)
+    else if (SecurityParameters()->Cipher()->type == CipherType_Block &&
+             SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
     {
         MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(CipherFragment());
+        hr = pBlockCipher->CheckSecurity(
+                 ContentType(),
+                 ProtocolVersion());
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+    }
+    else if (SecurityParameters()->Cipher()->type == CipherType_Block &&
+             SecurityParameters()->NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+    {
+        MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(CipherFragment());
         hr = pBlockCipher->CheckSecurity(
                  ContentType(),
                  ProtocolVersion());
@@ -3916,8 +3944,8 @@ error:
 MT_CipherFragment::MT_CipherFragment()
     : MT_Structure(),
       MT_Securable(),
-      m_content(),
-      m_encryptedContent()
+      m_vbContent(),
+      m_vbRawContent()
 {
 } // end ctor MT_CipherFragment
 
@@ -3930,7 +3958,7 @@ MT_CipherFragment::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = cb;
 
-    EncryptedContent()->assign(pv, pv + cbField);
+    RawContent()->assign(pv, pv + cbField);
 
     ADVANCE_PARSE();
 
@@ -3958,7 +3986,7 @@ MT_CipherFragment::SerializePriv(
         goto error;
     }
 
-    std::copy(EncryptedContent()->begin(), EncryptedContent()->end(), pv);
+    std::copy(RawContent()->begin(), RawContent()->end(), pv);
 
     ADVANCE_PARSE();
 
@@ -3974,7 +4002,7 @@ error:
 size_t
 MT_CipherFragment::Length() const
 {
-    size_t cbLength = EncryptedContent()->size();
+    size_t cbLength = RawContent()->size();
 
     return cbLength;
 } // end function Length
@@ -4009,7 +4037,7 @@ MT_GenericStreamCipher::ParseFromPriv(
     ** changes the internal state of the cipherer down in cryptapi
     */
     hr = SecurityParameters()->ClientSymCipherer()->DecryptBuffer(
-             EncryptedContent(),
+             RawContent(),
              nullptr,
              &vbDecryptedStruct);
 
@@ -4084,7 +4112,7 @@ MT_GenericStreamCipher::UpdateWriteSecurity(
     hr = SecurityParameters()->ServerSymCipherer()->EncryptBuffer(
              &vbDecryptedStruct,
              SecurityParameters()->ServerWriteIV(),
-             EncryptedContent());
+             RawContent());
 
     if (hr != S_OK)
     {
@@ -4287,7 +4315,7 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
     ** changes the internal state of the cipherer down in cryptapi
     */
     hr = SecurityParameters()->ClientSymCipherer()->DecryptBuffer(
-             EncryptedContent(),
+             RawContent(),
              SecurityParameters()->ClientWriteIV(),
              &vbDecryptedStruct);
 
@@ -4417,7 +4445,7 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity(
     hr = SecurityParameters()->ServerSymCipherer()->EncryptBuffer(
              &vbDecryptedStruct,
              SecurityParameters()->ServerWriteIV(),
-             EncryptedContent());
+             RawContent());
 
     if (hr != S_OK)
     {
@@ -4644,6 +4672,464 @@ done:
 error:
     goto done;
 } // end function CheckSecurity
+
+/*********** MT_GenericBlockCipher_TLS12 *****************/
+
+MT_GenericBlockCipher_TLS12::MT_GenericBlockCipher_TLS12()
+    : MT_CipherFragment(),
+      m_vbIV(),
+      m_vbMAC(),
+      m_vbPadding()
+{
+} // end ctor MT_GenericBlockCipher_TLS12
+
+HRESULT
+MT_GenericBlockCipher_TLS12::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    const HashInfo* pHashInfo = SecurityParameters()->Hash();
+    const BYTE* pvEnd = nullptr;
+    MT_UINT8 cbPaddingLength = 0;
+    size_t cbField = 0;
+    ByteVector vbDecryptedStruct;
+
+    hr = MT_CipherFragment::ParseFromPriv(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    cbField = SecurityParameters()->Cipher()->cbIVSize;
+
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    IV()->assign(pv, pv + cbField);
+
+    ADVANCE_PARSE();
+
+    /*
+    ** we have to be careful only to call this when we mean it, or else it
+    ** changes the internal state of the cipherer down in cryptapi
+    */
+    hr = SecurityParameters()->ClientSymCipherer()->DecryptBuffer(
+             RawContent(),
+             IV(),
+             &vbDecryptedStruct);
+
+    pv = &vbDecryptedStruct.front();
+    cb = vbDecryptedStruct.size();
+
+    pvEnd = &pv[cb - 1];
+
+    cbField = 1;
+    if (cb < cbField)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    cbPaddingLength = *pvEnd;
+    cb -= cbField;
+    pvEnd -= cbField;
+
+    cbField = cbPaddingLength;
+    if (cb < cbField)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    Padding()->assign(pvEnd - cbPaddingLength + 1, pvEnd + 1);
+
+    {
+        ByteVector vbFakePadding(cbPaddingLength, static_cast<BYTE>(cbPaddingLength));
+        assert(*Padding() == vbFakePadding);
+    }
+
+    pvEnd -= cbField;
+    cb -= cbField;
+
+    // should be <= ? handles 0-length content
+    assert(pHashInfo->cbHashSize < cb);
+
+    cbField = cb - pHashInfo->cbHashSize;
+    Content()->assign(pv, pv + cbField);
+
+    ADVANCE_PARSE();
+
+    assert(cb == pHashInfo->cbHashSize);
+    cbField = pHashInfo->cbHashSize;
+    MAC()->assign(pv, pv + cbField);
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+HRESULT
+MT_GenericBlockCipher_TLS12::UpdateWriteSecurity(
+    const ByteVector* pvbIV,
+    const MT_ContentType* pContentType,
+    const MT_ProtocolVersion* pProtocolVersion)
+{
+    HRESULT hr = S_OK;
+    BYTE* pv = nullptr;
+    size_t cb = 0;
+    size_t cbField = 0;
+    ByteVector vbDecryptedStruct;
+
+    *IV() = *pvbIV;
+
+    hr = ComputeSecurityInfo(
+              *SecurityParameters()->WriteSequenceNumber(),
+              SecurityParameters()->ServerWriteMACKey(),
+              pContentType,
+              pProtocolVersion,
+              MAC(),
+              Padding());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    assert(MAC()->size() == SecurityParameters()->Hash()->cbHashSize);
+
+    cb = Content()->size() +
+         MAC()->size() +
+         Padding()->size() +
+         1; // padding length
+
+    {
+        const CipherInfo* pCipherInfo = SecurityParameters()->Cipher();
+        assert(pCipherInfo->type == CipherType_Block);
+        assert((cb % pCipherInfo->cbBlockSize) == 0);
+    }
+
+    ResizeVector(&vbDecryptedStruct, cb);
+    pv = &vbDecryptedStruct.front();
+
+    cbField = Content()->size();
+    assert(cbField <= cb);
+    std::copy(Content()->begin(), Content()->end(), pv);
+
+    ADVANCE_PARSE();
+
+    cbField = MAC()->size();
+    assert(cbField <= cb);
+    std::copy(MAC()->begin(), MAC()->end(), pv);
+
+    ADVANCE_PARSE();
+
+    cbField = Padding()->size();
+    assert(cbField <= cb);
+    std::copy(Padding()->begin(), Padding()->end(), pv);
+
+    ADVANCE_PARSE();
+
+    cbField = 1;
+    hr = WriteNetworkLong(PaddingLength(), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    assert(cb == 0);
+
+    hr = SecurityParameters()->ServerSymCipherer()->EncryptBuffer(
+             &vbDecryptedStruct,
+             IV(),
+             RawContent());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function UpdateWriteSecurity
+
+MT_UINT8
+MT_GenericBlockCipher_TLS12::PaddingLength() const
+{
+    HRESULT hr = S_OK;
+    BYTE b = 0;
+    hr = SizeTToByte(Padding()->size(), &b);
+    assert(hr == S_OK);
+    return b;
+} // end function PaddingLength
+
+HRESULT
+MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
+    MT_UINT64 sequenceNumber,
+    const ByteVector* pvbMACKey,
+    const MT_ContentType* pContentType,
+    const MT_ProtocolVersion* pProtocolVersion,
+    ByteVector* pvbMAC,
+    ByteVector* pvbPadding
+)
+{
+    HRESULT hr = S_OK;
+
+    ByteVector vbHashText;
+    BYTE* pv = nullptr;
+    size_t cb = 0;
+    size_t cbField = 0;
+
+    const HashInfo* pHashInfo = SecurityParameters()->Hash();
+    const CipherInfo* pCipherInfo = SecurityParameters()->Cipher();
+
+    cb = 8 + // seq_num
+         1 + // content type
+         2 + // version
+         2 + // fragment length
+         Content()->size();
+
+    printf("MAC text is %d bytes\n", cb);
+
+    ResizeVector(&vbHashText, cb);
+    pv = &vbHashText.front();
+
+    printf("sequence number: %d\n", sequenceNumber);
+
+    cbField = 8;
+    hr = WriteNetworkLong(
+             sequenceNumber,
+             cbField,
+             pv,
+             cb);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = 1;
+    hr = WriteNetworkLong(
+             static_cast<ULONG>(pContentType->Type()),
+             cbField,
+             pv,
+             cb);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = 2;
+    hr = WriteNetworkLong(
+             static_cast<ULONG>(pProtocolVersion->Version()),
+             cbField,
+             pv,
+             cb);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = 2;
+    hr = WriteNetworkLong(
+             Content()->size(),
+             cbField,
+             pv,
+             cb);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = Content()->size();
+    std::copy(Content()->begin(), Content()->end(), pv);
+
+    ADVANCE_PARSE();
+    assert(cb == 0);
+
+    printf("MAC hash text:\n");
+    PrintByteVector(&vbHashText);
+
+
+    hr = SecurityParameters()->HashInst()->HMAC(
+             pHashInfo,
+             pvbMACKey,
+             &vbHashText,
+             pvbMAC);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    assert(pvbMAC->size() == pHashInfo->cbHashSize);
+
+    {
+        assert(pCipherInfo->cbBlockSize != 0);
+        size_t cbUnpaddedBlockLength = Content()->size() + MAC()->size();
+        size_t cbPaddedBlockLength = 0;
+        while (cbPaddedBlockLength <= cbUnpaddedBlockLength)
+        {
+            cbPaddedBlockLength += pCipherInfo->cbBlockSize;
+        }
+
+        assert(cbPaddedBlockLength >= cbUnpaddedBlockLength);
+        assert((cbPaddedBlockLength % pCipherInfo->cbBlockSize) == 0);
+        assert(cbPaddedBlockLength > 0);
+
+        // minus one for the padding length value itself
+        size_t cbPaddingLength = cbPaddedBlockLength - Content()->size() - MAC()->size() - 1;
+        BYTE b = 0;
+
+        hr = SizeTToByte(cbPaddingLength, &b);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        assert(b == cbPaddingLength);
+
+        pvbPadding->assign(cbPaddingLength, b);
+    }
+
+    assert(((Content()->size() + MAC()->size() + pvbPadding->size() + 1) % pCipherInfo->cbBlockSize) == 0);
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ComputeSecurityInfo
+
+HRESULT
+MT_GenericBlockCipher_TLS12::CheckSecurity(
+    const MT_ContentType* pContentType,
+    const MT_ProtocolVersion* pProtocolVersion
+)
+{
+    HRESULT hr = S_OK;
+
+    ByteVector vbMAC;
+    ByteVector vbPadding;
+
+    hr = ComputeSecurityInfo(
+              *SecurityParameters()->ReadSequenceNumber(),
+              SecurityParameters()->ClientWriteMACKey(),
+              pContentType,
+              pProtocolVersion,
+              &vbMAC,
+              &vbPadding);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    printf("received MAC:\n");
+    PrintByteVector(MAC());
+
+    printf("computed MAC:\n");
+    PrintByteVector(&vbMAC);
+
+    if (*MAC() != vbMAC)
+    {
+        hr = MT_E_BAD_RECORD_MAC;
+        goto error;
+    }
+
+    printf("received padding:\n");
+    PrintByteVector(Padding());
+
+    printf("computed padding:\n");
+    PrintByteVector(&vbPadding);
+
+    if (*Padding() != vbPadding)
+    {
+        hr = MT_E_BAD_RECORD_PADDING;
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CheckSecurity
+
+HRESULT
+MT_GenericBlockCipher_TLS12::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = IV()->size();
+    assert(IV()->size() == SecurityParameters()->Cipher()->cbIVSize);
+
+    if (cbField > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    std::copy(IV()->begin(), IV()->end(), pv);
+
+    ADVANCE_PARSE();
+
+    cbField = RawContent()->size();
+
+    if (cbField > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    std::copy(RawContent()->begin(), RawContent()->end(), pv);
+
+    ADVANCE_PARSE();
+
+    assert(cb == 0);
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+size_t
+MT_GenericBlockCipher_TLS12::Length() const
+{
+    size_t cbLength = IV()->size() +
+                      RawContent()->size();
+
+    return cbLength;
+} // end function Length
+
 
 /*********** MT_Thingy *****************/
 
