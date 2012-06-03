@@ -1,10 +1,13 @@
-- add a check that ParseFrom is not called multiple times
 - customizable behavior for extensions. shouldn't just hard-code reneg info
 - configurable behavior about whether to encapsulate multiple handshake messages with a new plaintext message each, or to bundle them in one
 - ability to verify correct cert usages before using
+- interface for specifying the cert to use
 - HandshakeType should be a regular accessor
 - proper consts for all magic numbers
 - remove the cast operator from MT_CipherSuite to CipherSuiteValue
-- figure out what cipher and hash suites we actually support. there are many places where we seem to support a hash type, but in another place we throw unsupported hash for it
 - don't access MT_VariableLengthField::Data. surface common operations
 - support null encryption
+- separate RO and RW accessors
+- TLS 1.2 block ciphers
+- runtime customizable cipher suite
+- make all ParseFromPriv and SerializePriv actually private

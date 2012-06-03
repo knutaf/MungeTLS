@@ -32,6 +32,7 @@ extern const size_t c_cbCert;
 
 class MT_PreMasterSecret;
 class TLSConnection;
+class MT_CipherFragment;
 
 class MT_Structure
 {
@@ -66,18 +67,6 @@ class MT_Securable
     virtual HRESULT CheckSecurityPriv() = 0;
 
     TLSConnection* m_pSecurityParameters;
-};
-
-class MT_CipherFragment : public MT_Structure, public MT_Securable
-{
-    public:
-    MT_CipherFragment();
-    virtual ~MT_CipherFragment() { }
-
-    ACCESSORS(ByteVector*, Content, &m_content);
-
-    private:
-    ByteVector m_content;
 };
 
 template <typename F,
@@ -399,7 +388,7 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     MT_TLSCiphertext();
     ~MT_TLSCiphertext() {};
 
-    ACCESSORS(MT_CipherFragment*, DecryptedFragment, m_spCipherFragment.get());
+    ACCESSORS(MT_CipherFragment*, CipherFragment, m_spCipherFragment.get());
 
     HRESULT Encrypt();
     HRESULT Decrypt();
@@ -408,11 +397,6 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     HRESULT SetSecurityParameters(TLSConnection* pSecurityParameters);
 
     HRESULT UpdateFragmentSecurity();
-
-    HRESULT ComputeSecurityInfo_Stream(
-        MT_UINT64 sequenceNumber,
-        const ByteVector* pvbMACKey,
-        ByteVector* pvbMAC);
 
     private:
     HRESULT CheckSecurityPriv();
@@ -739,20 +723,54 @@ class MT_Finished : public MT_Structure, public MT_Securable
     MTF_VerifyData m_verifyData;
 };
 
+class MT_CipherFragment : public MT_Structure, public MT_Securable
+{
+    public:
+    MT_CipherFragment();
+    virtual ~MT_CipherFragment() { }
+
+    virtual size_t Length() const;
+    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    ACCESSORS(ByteVector*, Content, &m_content);
+    ACCESSORS(ByteVector*, EncryptedContent, &m_encryptedContent);
+
+    private:
+    ByteVector m_content;
+    ByteVector m_encryptedContent;
+};
+
 class MT_GenericStreamCipher : public MT_CipherFragment
 {
     public:
     MT_GenericStreamCipher();
     ~MT_GenericStreamCipher() { }
 
-    size_t Length() const;
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    HRESULT
+    UpdateWriteSecurity(
+        const MT_ContentType* pContentType,
+        const MT_ProtocolVersion* pProtocolVersion);
 
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
 
+    HRESULT
+    CheckSecurity(
+        const MT_ContentType* pContentType,
+        const MT_ProtocolVersion* pProtocolVersion);
+
     private:
     HRESULT CheckSecurityPriv() { return S_OK; }
+
+    HRESULT
+    ComputeSecurityInfo(
+        MT_UINT64 sequenceNumber,
+        const ByteVector* pvbMACKey,
+        const MT_ContentType* pContentType,
+        const MT_ProtocolVersion* pProtocolVersion,
+        ByteVector* pvbMAC);
 
     ByteVector m_vbMAC;
 };
@@ -763,13 +781,24 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
     MT_GenericBlockCipher_TLS10();
     ~MT_GenericBlockCipher_TLS10() { }
 
-    size_t Length() const;
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
     ACCESSORS(ByteVector*, Padding, &m_vbPadding);
     MT_UINT8 PaddingLength() const;
+
+    HRESULT
+    UpdateWriteSecurity(
+        const MT_ContentType* pContentType,
+        const MT_ProtocolVersion* pProtocolVersion);
+
+    HRESULT
+    CheckSecurity(
+        const MT_ContentType* pContentType,
+        const MT_ProtocolVersion* pProtocolVersion);
+
+    private:
+    HRESULT CheckSecurityPriv() { return S_OK; }
 
     HRESULT ComputeSecurityInfo(
         MT_UINT64 sequenceNumber,
@@ -778,13 +807,6 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
         const MT_ProtocolVersion* pProtocolVersion,
         ByteVector* pvbMAC,
         ByteVector* pvbPadding);
-
-    HRESULT UpdateSecurity(
-        MT_UINT64 sequenceNumber,
-        const ByteVector* pvbMACKey);
-
-    private:
-    HRESULT CheckSecurityPriv() { return S_OK; }
 
     ByteVector m_vbMAC;
     ByteVector m_vbPadding;
