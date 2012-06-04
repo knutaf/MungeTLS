@@ -4123,8 +4123,8 @@ MT_GenericStreamCipher::ParseFromPriv(
     pv = &vbDecryptedStruct.front();
     cb = vbDecryptedStruct.size();
 
-    // should be <= ? handles 0-length content
-    assert(pHashInfo->cbHashSize < cb);
+    // allows for 0-length content
+    assert(cb >= pHashInfo->cbHashSize);
 
     cbField = cb - pHashInfo->cbHashSize;
     Content()->assign(pv, pv + cbField);
@@ -4410,7 +4410,12 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
         goto error;
     }
 
-    cbPaddingLength = *pvEnd;
+    hr = ReadNetworkLong(pvEnd, cbField, cbField, &cbPaddingLength);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
     cb -= cbField;
     pvEnd -= cbField;
 
@@ -4421,7 +4426,16 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
         goto error;
     }
 
-    Padding()->assign(pvEnd - cbPaddingLength + 1, pvEnd + 1);
+    /*
+    ** cbPaddingLength = cbField = 5
+    **
+    ** yy yy yy 05 05 05 05 05
+    **          ^           ^
+    **          |           pvEnd
+    **          pvEnd -
+    **          cbField + 1
+    */
+    Padding()->assign(pvEnd - cbField + 1, pvEnd + 1);
 
     {
         ByteVector vbFakePadding(cbPaddingLength, static_cast<BYTE>(cbPaddingLength));
@@ -4431,8 +4445,7 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
     pvEnd -= cbField;
     cb -= cbField;
 
-    // should be <= ? handles 0-length content
-    assert(pHashInfo->cbHashSize < cb);
+    assert(cb >= pHashInfo->cbHashSize);
 
     cbField = cb - pHashInfo->cbHashSize;
     Content()->assign(pv, pv + cbField);
@@ -4834,8 +4847,8 @@ MT_GenericBlockCipher_TLS12::ParseFromPriv(
     pvEnd -= cbField;
     cb -= cbField;
 
-    // should be <= ? handles 0-length content
-    assert(pHashInfo->cbHashSize < cb);
+    // allows for 0-length content
+    assert(cb >= pHashInfo->cbHashSize);
 
     cbField = cb - pHashInfo->cbHashSize;
     Content()->assign(pv, pv + cbField);
