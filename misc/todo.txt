@@ -1,4 +1,9 @@
+BUGS:
+- assert when hitting a<enter> in openssl test
+
+WORK:
 - customizable behavior for extensions. shouldn't just hard-code reneg info
+- implement renegotiation
 - configurable behavior about whether to encapsulate multiple handshake messages with a new plaintext message each, or to bundle them in one
 - ability to verify correct cert usages before using
 - interface for specifying the cert to use

@@ -52,21 +52,14 @@ class MT_Structure
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const { return E_NOTIMPL; }
 };
 
-class MT_Securable
+enum MT_KeyExchangeAlgorithm
 {
-    public:
-    MT_Securable();
-    virtual ~MT_Securable() { }
-    HRESULT CheckSecurity();
-
-    const TLSConnection* SecurityParameters() const { return m_pSecurityParameters; }
-    TLSConnection* SecurityParameters() { return const_cast<TLSConnection*>(static_cast<const MT_Securable*>(this)->SecurityParameters()); }
-    virtual HRESULT SetSecurityParameters(TLSConnection* pSecurityParameters) { m_pSecurityParameters = pSecurityParameters; return S_OK; }
-
-    private:
-    virtual HRESULT CheckSecurityPriv() = 0;
-
-    TLSConnection* m_pSecurityParameters;
+    MTKEA_dhe_dss,
+    MTKEA_dhe_rsa,
+    MTKEA_dh_anon,
+    MTKEA_rsa,
+    MTKEA_dh_dss,
+    MTKEA_dh_rsa
 };
 
 template <typename F,
@@ -168,6 +161,146 @@ class MT_FixedLengthByteStructure : public MT_FixedLengthStructureBase
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
 
+class MT_ProtocolVersion : public MT_Structure
+{
+    public:
+    enum MTPV_Version
+    {
+        MTPV_TLS10 = 0x0301,
+        MTPV_TLS12 = 0x0303,
+    };
+
+    MT_ProtocolVersion();
+    ~MT_ProtocolVersion() {};
+
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    MT_UINT16 Version() const;
+    void SetVersion(MT_UINT16 ver) { m_version = ver; }
+
+    size_t Length() const { return 2; } // sizeof(MT_UINT16)
+
+    static bool IsKnownVersion(MT_UINT16 version);
+
+    private:
+    MT_UINT16 m_version;
+};
+
+// uint8 CipherSuite[2];    /* Cryptographic suite selector */
+class MT_CipherSuite : public MT_FixedLengthByteStructure<2>
+{
+    public:
+    HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
+    operator MT_CipherSuiteValue() const;
+};
+
+class MT_Random : public MT_Structure
+{
+    public:
+    MT_Random();
+    ~MT_Random() { }
+
+    size_t Length() const { return 4 + RandomBytes()->size(); }
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    MT_UINT32 GMTUnixTime() const { return m_timestamp; }
+    void SetGMTUnixTime(MT_UINT32 timestamp) { m_timestamp = timestamp; }
+
+    ACCESSORS(ByteVector*, RandomBytes, &m_vbRandomBytes);
+
+    HRESULT PopulateNow();
+
+    private:
+    static const size_t c_cbRandomBytes;
+
+    MT_UINT32 m_timestamp;
+    ByteVector m_vbRandomBytes;
+};
+
+class ConnectionParameters
+{
+    public:
+    ConnectionParameters();
+    ~ConnectionParameters() { }
+
+    HRESULT Initialize();
+
+    ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext);
+    ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get());
+    ACCESSORS(SymmetricCipherer*, ClientSymCipherer, m_spClientSymCipherer.get());
+    ACCESSORS(SymmetricCipherer*, ServerSymCipherer, m_spServerSymCipherer.get());
+    ACCESSORS(Hasher*, HashInst, m_spHasher.get());
+
+    ACCESSORS(std::vector<std::shared_ptr<MT_Structure>>*, HandshakeMessages, &m_vHandshakeMessages);
+    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
+    ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
+    ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion);
+    ACCESSORS(MT_UINT64*, ReadSequenceNumber, &m_seqNumRead);
+    ACCESSORS(MT_UINT64*, WriteSequenceNumber, &m_seqNumWrite);
+
+    ACCESSORS(ByteVector*, ClientWriteMACKey, &m_vbClientWriteMACKey);
+    ACCESSORS(ByteVector*, ServerWriteMACKey, &m_vbServerWriteMACKey);
+    ACCESSORS(ByteVector*, ClientWriteKey, &m_vbClientWriteKey);
+    ACCESSORS(ByteVector*, ServerWriteKey, &m_vbServerWriteKey);
+    ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
+    ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
+    ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
+    ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
+
+    const CipherInfo* Cipher() const;
+    const HashInfo* Hash() const;
+
+    HRESULT
+    ComputePRF(
+        const ByteVector* pvbSecret,
+        PCSTR szLabel,
+        const ByteVector* pvbSeed,
+        size_t cbMinimumLengthDesired,
+        ByteVector* pvbPRF);
+
+    private:
+    MT_CipherSuite m_cipherSuite;
+    std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
+    std::shared_ptr<SymmetricCipherer> m_spClientSymCipherer;
+    std::shared_ptr<SymmetricCipherer> m_spServerSymCipherer;
+    std::shared_ptr<Hasher> m_spHasher;
+
+    MT_ProtocolVersion m_negotiatedVersion;
+    ByteVector m_vbMasterSecret;
+    MT_Random m_clientRandom;
+    MT_Random m_serverRandom;
+    ByteVector m_vbClientWriteMACKey;
+    ByteVector m_vbServerWriteMACKey;
+    ByteVector m_vbClientWriteKey;
+    ByteVector m_vbServerWriteKey;
+    ByteVector m_vbClientWriteIV;
+    ByteVector m_vbServerWriteIV;
+    MT_UINT64 m_seqNumRead;
+    MT_UINT64 m_seqNumWrite;
+    PCCERT_CONTEXT m_pCertContext;
+
+    std::vector<std::shared_ptr<MT_Structure>> m_vHandshakeMessages;
+};
+
+class MT_Securable
+{
+    public:
+    MT_Securable();
+    virtual ~MT_Securable() { }
+    HRESULT CheckSecurity();
+
+    const ConnectionParameters* ConnParams() const { return m_pConnParams; }
+    ConnectionParameters* ConnParams() { return const_cast<ConnectionParameters*>(static_cast<const MT_Securable*>(this)->ConnParams()); }
+    virtual HRESULT SetConnectionParameters(ConnectionParameters* pSecurityParameters) { m_pConnParams = pSecurityParameters; return S_OK; }
+
+    private:
+    virtual HRESULT CheckSecurityPriv() = 0;
+
+    ConnectionParameters* m_pConnParams;
+};
+
 template <typename T>
 class MT_PublicKeyEncryptedStructure : public MT_Structure
 {
@@ -193,16 +326,6 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     ByteVector m_vbPlaintextStructure;
     ByteVector m_vbEncryptedStructure;
     const PublicKeyCipherer* m_pCipherer;
-};
-
-enum MT_KeyExchangeAlgorithm
-{
-    MTKEA_dhe_dss,
-    MTKEA_dhe_rsa,
-    MTKEA_dh_anon,
-    MTKEA_rsa,
-    MTKEA_dh_dss,
-    MTKEA_dh_rsa
 };
 
 class MT_ContentType : public MT_Structure
@@ -236,56 +359,6 @@ class MT_ContentType : public MT_Structure
     static const ULONG c_cValidTypes;
 };
 
-class MT_ProtocolVersion : public MT_Structure
-{
-    public:
-    enum MTPV_Version
-    {
-        MTPV_TLS10 = 0x0301,
-        MTPV_TLS12 = 0x0303,
-    };
-
-    MT_ProtocolVersion();
-    ~MT_ProtocolVersion() {};
-
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
-
-    MT_UINT16 Version() const;
-    void SetVersion(MT_UINT16 ver) { m_version = ver; }
-
-    size_t Length() const { return 2; } // sizeof(MT_UINT16)
-
-    static bool IsKnownVersion(MT_UINT16 version);
-
-    private:
-    MT_UINT16 m_version;
-};
-
-class MT_Random : public MT_Structure
-{
-    public:
-    MT_Random();
-    ~MT_Random() { }
-
-    size_t Length() const { return 4 + RandomBytes()->size(); }
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
-
-    MT_UINT32 GMTUnixTime() const { return m_timestamp; }
-    void SetGMTUnixTime(MT_UINT32 timestamp) { m_timestamp = timestamp; }
-
-    ACCESSORS(ByteVector*, RandomBytes, &m_vbRandomBytes);
-
-    HRESULT PopulateNow();
-
-    private:
-    static const size_t c_cbRandomBytes;
-
-    MT_UINT32 m_timestamp;
-    ByteVector m_vbRandomBytes;
-};
-
 enum MT_CipherSuiteValue
 {
     MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
@@ -302,14 +375,6 @@ enum MT_CipherSuiteValue
 
 const MT_CipherSuiteValue* GetSupportedCipherSuites(size_t* pcCipherSuites);
 bool IsKnownCipherSuite(MT_CipherSuiteValue eSuite);
-
-// uint8 CipherSuite[2];    /* Cryptographic suite selector */
-class MT_CipherSuite : public MT_FixedLengthByteStructure<2>
-{
-    public:
-    HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
-    operator MT_CipherSuiteValue() const;
-};
 
 // CipherSuite cipher_suites<2..2^16-1>;
 typedef MT_VariableLengthField<MT_CipherSuite, 2, 2, MAXFORBYTES(2)>
@@ -394,7 +459,7 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     HRESULT Decrypt();
 
     HRESULT ToTLSPlaintext(MT_TLSPlaintext* pPlaintext) const;
-    HRESULT SetSecurityParameters(TLSConnection* pSecurityParameters);
+    HRESULT SetConnectionParameters(ConnectionParameters* pConnectionParameters);
 
     HRESULT UpdateFragmentSecurity();
 
@@ -543,37 +608,6 @@ class TLSConnection
         size_t cb,
         ByteVector* pvbResponse);
 
-    ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get());
-    ACCESSORS(SymmetricCipherer*, ClientSymCipherer, m_spClientSymCipherer.get());
-    ACCESSORS(SymmetricCipherer*, ServerSymCipherer, m_spServerSymCipherer.get());
-    ACCESSORS(Hasher*, HashInst, m_spHasher.get());
-
-    ACCESSORS(std::vector<std::shared_ptr<MT_Structure>>*, HandshakeMessages, &m_vHandshakeMessages);
-    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
-    ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
-    ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion);
-    ACCESSORS(MT_UINT64*, ReadSequenceNumber, &m_seqNumRead);
-    ACCESSORS(MT_UINT64*, WriteSequenceNumber, &m_seqNumWrite);
-
-    ACCESSORS(ByteVector*, ClientWriteMACKey, &m_vbClientWriteMACKey);
-    ACCESSORS(ByteVector*, ServerWriteMACKey, &m_vbServerWriteMACKey);
-    ACCESSORS(ByteVector*, ClientWriteKey, &m_vbClientWriteKey);
-    ACCESSORS(ByteVector*, ServerWriteKey, &m_vbServerWriteKey);
-    ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
-    ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
-
-    const CipherInfo* Cipher() const;
-    const HashInfo* Hash() const;
-
-
-    HRESULT
-    ComputePRF(
-        const ByteVector* pvbSecret,
-        PCSTR szLabel,
-        const ByteVector* pvbSeed,
-        size_t cbMinimumLengthDesired,
-        ByteVector* pvbPRF);
-
     private:
     HRESULT RespondToClientHello(
         const MT_ClientHello* pClientHello,
@@ -586,34 +620,10 @@ class TLSConnection
         std::vector<std::shared_ptr<MT_RecordLayerMessage>>* pResponses);
 
     HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
-
     HRESULT GenerateKeyMaterial();
 
-    ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext);
-    ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
-    ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
-
-    MT_CipherSuite m_cipherSuite;
-    PCCERT_CONTEXT m_pCertContext;
-    std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
-    std::shared_ptr<SymmetricCipherer> m_spClientSymCipherer;
-    std::shared_ptr<SymmetricCipherer> m_spServerSymCipherer;
-    std::shared_ptr<Hasher> m_spHasher;
-
-    MT_ProtocolVersion m_negotiatedVersion;
-    ByteVector m_vbMasterSecret;
-    MT_Random m_clientRandom;
-    MT_Random m_serverRandom;
-    ByteVector m_vbClientWriteMACKey;
-    ByteVector m_vbServerWriteMACKey;
-    ByteVector m_vbClientWriteKey;
-    ByteVector m_vbServerWriteKey;
-    ByteVector m_vbClientWriteIV;
-    ByteVector m_vbServerWriteIV;
-    MT_UINT64 m_seqNumRead;
-    MT_UINT64 m_seqNumWrite;
-
-    std::vector<std::shared_ptr<MT_Structure>> m_vHandshakeMessages;
+    ACCESSORS(ConnectionParameters*, ConnParams, &m_connParams);
+    ConnectionParameters m_connParams;
 
     // TODO: absolutely not the right way to do this
     bool m_fSecureMode;
