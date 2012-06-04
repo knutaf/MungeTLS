@@ -737,6 +737,8 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
     ACCESSORS(ByteVector*, RawContent, &m_vbRawContent);
 
     private:
+    HRESULT CheckSecurityPriv() { assert(false); return E_NOTIMPL; }
+
     ByteVector m_vbContent;
     ByteVector m_vbRawContent;
 };
@@ -762,8 +764,6 @@ class MT_GenericStreamCipher : public MT_CipherFragment
         const MT_ProtocolVersion* pProtocolVersion);
 
     private:
-    HRESULT CheckSecurityPriv() { return S_OK; }
-
     HRESULT
     ComputeSecurityInfo(
         MT_UINT64 sequenceNumber,
@@ -798,8 +798,6 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
         const MT_ProtocolVersion* pProtocolVersion);
 
     private:
-    HRESULT CheckSecurityPriv() { return S_OK; }
-
     HRESULT ComputeSecurityInfo(
         MT_UINT64 sequenceNumber,
         const ByteVector* pvbMACKey,
@@ -818,18 +816,15 @@ class MT_GenericBlockCipher_TLS12 : public MT_CipherFragment
     MT_GenericBlockCipher_TLS12();
     ~MT_GenericBlockCipher_TLS12() { }
 
-    size_t Length() const;
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    ACCESSORS(ByteVector*, IV, &m_vbIV);
+    ACCESSORS(ByteVector*, IVNext, &m_vbIVNext);
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
     ACCESSORS(ByteVector*, Padding, &m_vbPadding);
     MT_UINT8 PaddingLength() const;
 
     HRESULT
     UpdateWriteSecurity(
-        const ByteVector* pvbIV,
         const MT_ContentType* pContentType,
         const MT_ProtocolVersion* pProtocolVersion);
 
@@ -839,8 +834,6 @@ class MT_GenericBlockCipher_TLS12 : public MT_CipherFragment
         const MT_ProtocolVersion* pProtocolVersion);
 
     private:
-    HRESULT CheckSecurityPriv() { return S_OK; }
-
     HRESULT ComputeSecurityInfo(
         MT_UINT64 sequenceNumber,
         const ByteVector* pvbMACKey,
@@ -849,7 +842,7 @@ class MT_GenericBlockCipher_TLS12 : public MT_CipherFragment
         ByteVector* pvbMAC,
         ByteVector* pvbPadding);
 
-    ByteVector m_vbIV;
+    ByteVector m_vbIVNext;
     ByteVector m_vbMAC;
     ByteVector m_vbPadding;
 };
