@@ -582,6 +582,9 @@ class TLSConnection
     HRESULT RespondToFinished(
         std::vector<std::shared_ptr<MT_RecordLayerMessage>>* pResponses);
 
+    HRESULT RespondToApplicationData(
+        std::vector<std::shared_ptr<MT_RecordLayerMessage>>* pResponses);
+
     HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
 
     HRESULT GenerateKeyMaterial();

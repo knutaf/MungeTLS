@@ -394,6 +394,13 @@ TLSConnection::HandleMessage(
     {
         printf("application data:\n");
         PrintByteVector(record.Fragment());
+
+        hr = RespondToApplicationData(&responseMessages);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
         (*ReadSequenceNumber())++;
     }
     else
@@ -703,8 +710,29 @@ TLSConnection::RespondToFinished(
         assert(ServerWriteIV()->size() == Cipher()->cbIVSize);
     }
 
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function RespondToFinished
+
+HRESULT
+TLSConnection::RespondToApplicationData(
+    vector<shared_ptr<MT_RecordLayerMessage>>* pResponses
+)
+{
+    HRESULT hr = S_OK;
+
     // dummy Application Data
     {
+        CHAR szApplicationData[] =
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Length: 5\r\n"
+            "Content-Type: text/plain\r\n"
+            "\r\n"
+            "yallo";
+
         MT_ContentType contentType;
         shared_ptr<MT_TLSCiphertext> spCiphertext(new MT_TLSCiphertext());
 
@@ -719,7 +747,7 @@ TLSConnection::RespondToFinished(
         *(spCiphertext->ContentType()) = contentType;
         *(spCiphertext->ProtocolVersion()) = *NegotiatedVersion();
 
-        spCiphertext->CipherFragment()->Content()->assign(23, 0x23);
+        spCiphertext->CipherFragment()->Content()->assign(szApplicationData, szApplicationData + ARRAYSIZE(szApplicationData) - 1);
 
         hr = spCiphertext->UpdateFragmentSecurity();
         if (hr != S_OK)
@@ -744,7 +772,7 @@ done:
 
 error:
     goto done;
-} // end function RespondToFinished
+} // end function RespondToApplicationData
 
 HRESULT
 TLSConnection::ComputeMasterSecret(
