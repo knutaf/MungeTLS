@@ -73,8 +73,6 @@ class MT_VariableLengthFieldBase : public MT_Structure
     virtual ~MT_VariableLengthFieldBase() { }
 
     virtual size_t DataLength() const = 0;
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb) = 0;
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const = 0;
 
     size_t Length() const;
     ACCESSORS(std::vector<F>*, Data, &m_vData);
@@ -87,6 +85,9 @@ class MT_VariableLengthFieldBase : public MT_Structure
     size_t MaxLength() const { return MaxSize; }
 
     private:
+    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb) = 0;
+    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const = 0;
+
     std::vector<F> m_vData;
 };
 
@@ -102,6 +103,8 @@ class MT_VariableLengthField : public MT_VariableLengthFieldBase
 {
     public:
     virtual size_t DataLength() const;
+
+    private:
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
@@ -117,6 +120,8 @@ class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
 {
     public:
     virtual size_t DataLength() const;
+
+    private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
@@ -128,9 +133,6 @@ class MT_FixedLengthStructureBase : public MT_Structure
     MT_FixedLengthStructureBase();
     virtual ~MT_FixedLengthStructureBase() { }
 
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb) = 0;
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const = 0;
-
     ACCESSORS(std::vector<F>*, Data, &m_vData);
     size_t Count() const { return Data()->size(); }
 
@@ -138,6 +140,9 @@ class MT_FixedLengthStructureBase : public MT_Structure
     F* at(typename std::vector<F>::size_type pos);
 
     private:
+    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb) = 0;
+    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const = 0;
+
     std::vector<F> m_vData;
 };
 
@@ -146,6 +151,8 @@ class MT_FixedLengthStructure : public MT_FixedLengthStructureBase<F, Size>
 {
     public:
     virtual size_t Length() const;
+
+    private:
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
@@ -157,6 +164,8 @@ class MT_FixedLengthByteStructure : public MT_FixedLengthStructureBase
 {
     public:
     virtual size_t Length() const;
+
+    private:
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
@@ -173,9 +182,6 @@ class MT_ProtocolVersion : public MT_Structure
     MT_ProtocolVersion();
     ~MT_ProtocolVersion() {};
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
-
     MT_UINT16 Version() const;
     void SetVersion(MT_UINT16 ver) { m_version = ver; }
 
@@ -184,6 +190,9 @@ class MT_ProtocolVersion : public MT_Structure
     static bool IsKnownVersion(MT_UINT16 version);
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
     MT_UINT16 m_version;
 };
 
@@ -202,8 +211,6 @@ class MT_Random : public MT_Structure
     ~MT_Random() { }
 
     size_t Length() const { return 4 + RandomBytes()->size(); }
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     MT_UINT32 GMTUnixTime() const { return m_timestamp; }
     void SetGMTUnixTime(MT_UINT32 timestamp) { m_timestamp = timestamp; }
@@ -214,6 +221,9 @@ class MT_Random : public MT_Structure
 
     private:
     static const size_t c_cbRandomBytes;
+
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     MT_UINT32 m_timestamp;
     ByteVector m_vbRandomBytes;
@@ -309,7 +319,6 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     virtual ~MT_PublicKeyEncryptedStructure() { }
 
     virtual size_t Length() const;
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
 
     HRESULT DecryptStructure();
     HRESULT SetCipherer(const PublicKeyCipherer* pCipherer) { m_pCipherer = pCipherer; return S_OK; }
@@ -318,6 +327,7 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     ACCESSORS(ByteVector*, EncryptedStructure, &m_vbEncryptedStructure);
 
     private:
+    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     ACCESSORS(ByteVector*, PlaintextStructure, &m_vbPlaintextStructure);
 
     const PublicKeyCipherer* GetCipherer() const { return m_pCipherer; }
@@ -343,8 +353,6 @@ class MT_ContentType : public MT_Structure
     MT_ContentType();
     ~MT_ContentType() {};
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     size_t Length() const { return 1; }
 
     const MTCT_Type Type() const;
@@ -353,10 +361,13 @@ class MT_ContentType : public MT_Structure
     static bool IsValidContentType(MTCT_Type eType);
 
     private:
-    MTCT_Type m_eType;
-
     static const MTCT_Type c_rgeValidTypes[];
     static const ULONG c_cValidTypes;
+
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    MTCT_Type m_eType;
 };
 
 enum MT_CipherSuiteValue
@@ -404,13 +415,14 @@ class MT_CompressionMethod : public MT_Structure
     ~MT_CompressionMethod() { }
 
     size_t Length() const { return 1; }
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     MT_UINT8 Method() const;
     void SetMethod(MTCM_Method eMethod) { m_compressionMethod = eMethod; }
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
     MT_UINT8 m_compressionMethod;
 };
 
@@ -425,8 +437,6 @@ class MT_RecordLayerMessage : public MT_Structure
     MT_RecordLayerMessage();
     virtual ~MT_RecordLayerMessage() {};
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     size_t Length() const;
 
     ACCESSORS(MT_ContentType*, ContentType, &m_contentType);
@@ -436,6 +446,9 @@ class MT_RecordLayerMessage : public MT_Structure
     MT_UINT16 PayloadLength() const;
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
     MT_ContentType m_contentType;
     MT_ProtocolVersion m_protocolVersion;
     ByteVector m_vbFragment;
@@ -490,8 +503,6 @@ class MT_Handshake : public MT_Structure
     MT_Handshake();
     ~MT_Handshake() {}
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     size_t PayloadLength() const { return Body()->size(); }
     size_t Length() const;
 
@@ -510,6 +521,9 @@ class MT_Handshake : public MT_Structure
     static const ULONG c_cKnownTypes;
     static const MTH_HandshakeType c_rgeSupportedTypes[];
     static const ULONG c_cSupportedTypes;
+
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     // uint24 length
     size_t LengthFieldLength() const { return 3; }
@@ -531,13 +545,14 @@ class MT_Extension : public MT_Structure
     ~MT_Extension() { }
 
     size_t Length() const;
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     ACCESSORS(MTE_ExtensionType*, ExtensionType, &m_extensionType);
     ACCESSORS(ByteVector*, ExtensionData, &m_vbExtensionData);
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
     MTE_ExtensionType m_extensionType;
     ByteVector m_vbExtensionData;
 };
@@ -558,10 +573,11 @@ class MT_ClientHello : public MT_Structure
     ACCESSORS(MT_CompressionMethods*, CompressionMethods, &m_compressionMethods);
     ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions);
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     size_t Length() const;
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+
     MT_ProtocolVersion m_protocolVersion;
     MT_Random m_random;
     MT_SessionID m_sessionID;
@@ -662,14 +678,15 @@ class MT_PreMasterSecret : public MT_Structure
     virtual ~MT_PreMasterSecret() { }
 
     size_t Length() const;
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     ACCESSORS(MT_ProtocolVersion*, ClientVersion, &m_clientVersion);
     ACCESSORS(OpaqueRandom*, Random, &m_random);
 
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
     MT_ProtocolVersion m_clientVersion;
     OpaqueRandom m_random;
 };
@@ -684,13 +701,14 @@ class MT_ClientKeyExchange : public MT_Structure
     virtual ~MT_ClientKeyExchange() { }
 
     size_t Length() const { return ExchangeKeys()->Length(); }
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     // TODO: make shared_ptr, I think?
     ACCESSORS(KeyType*, ExchangeKeys, m_spExchangeKeys.get());
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
     std::shared_ptr<KeyType> m_spExchangeKeys;
 };
 
@@ -707,12 +725,13 @@ class MT_ChangeCipherSpec : public MT_Structure
     ~MT_ChangeCipherSpec() { }
 
     size_t Length() const { return 1; }
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     ACCESSORS(MTCCS_Type*, Type, &m_type);
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
     MTCCS_Type m_type;
 };
 
@@ -725,14 +744,15 @@ class MT_Finished : public MT_Structure, public MT_Securable
     ~MT_Finished() { }
 
     size_t Length() const { return VerifyData()->Length(); }
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     ACCESSORS(MTF_VerifyData*, VerifyData, &m_verifyData);
     HRESULT ComputeVerifyData(PCSTR szLabel, ByteVector* pvbVerifyData);
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     HRESULT CheckSecurityPriv();
+
     MTF_VerifyData m_verifyData;
 };
 
@@ -743,11 +763,13 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
     virtual ~MT_CipherFragment() { }
 
     virtual size_t Length() const;
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     ACCESSORS(ByteVector*, Content, &m_vbContent);
     ACCESSORS(ByteVector*, RawContent, &m_vbRawContent);
+
+    protected:
+    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     private:
     HRESULT CheckSecurityPriv() { assert(false); return E_NOTIMPL; }
@@ -762,8 +784,6 @@ class MT_GenericStreamCipher : public MT_CipherFragment
     MT_GenericStreamCipher();
     ~MT_GenericStreamCipher() { }
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-
     HRESULT
     UpdateWriteSecurity(
         const MT_ContentType* pContentType,
@@ -777,6 +797,8 @@ class MT_GenericStreamCipher : public MT_CipherFragment
         const MT_ProtocolVersion* pProtocolVersion);
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+
     HRESULT
     ComputeSecurityInfo(
         MT_UINT64 sequenceNumber,
@@ -794,8 +816,6 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
     MT_GenericBlockCipher_TLS10();
     ~MT_GenericBlockCipher_TLS10() { }
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
     ACCESSORS(ByteVector*, Padding, &m_vbPadding);
     MT_UINT8 PaddingLength() const;
@@ -811,7 +831,10 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
         const MT_ProtocolVersion* pProtocolVersion);
 
     private:
-    HRESULT ComputeSecurityInfo(
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+
+    HRESULT
+    ComputeSecurityInfo(
         MT_UINT64 sequenceNumber,
         const ByteVector* pvbMACKey,
         const MT_ContentType* pContentType,
@@ -829,8 +852,6 @@ class MT_GenericBlockCipher_TLS12 : public MT_CipherFragment
     MT_GenericBlockCipher_TLS12();
     ~MT_GenericBlockCipher_TLS12() { }
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-
     ACCESSORS(ByteVector*, IVNext, &m_vbIVNext);
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
     ACCESSORS(ByteVector*, Padding, &m_vbPadding);
@@ -847,7 +868,10 @@ class MT_GenericBlockCipher_TLS12 : public MT_CipherFragment
         const MT_ProtocolVersion* pProtocolVersion);
 
     private:
-    HRESULT ComputeSecurityInfo(
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+
+    HRESULT
+    ComputeSecurityInfo(
         MT_UINT64 sequenceNumber,
         const ByteVector* pvbMACKey,
         const MT_ContentType* pContentType,
@@ -868,12 +892,13 @@ class MT_Thingy : public MT_Structure
     ~MT_Thingy() { }
 
     size_t Length() const { return Thingy()->Length(); }
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     ACCESSORS(ThingyType*, Thingy, &m_thingy);
 
     private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
     ThingyType m_thingy;
 };
 */
