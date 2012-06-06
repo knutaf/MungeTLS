@@ -2,6 +2,7 @@ H_FILES=\
     ..\inc\mtls_defs.h \
     ..\inc\MungeTLS.h \
     ..\inc\MungeCrypto.h \
+    ..\inc\MungeWinHelpers.h \
 
 all:
 	set H_FILES=$(H_FILES)

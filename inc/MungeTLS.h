@@ -233,9 +233,9 @@ class ConnectionParameters
 {
     public:
     ConnectionParameters();
-    ~ConnectionParameters() { }
+    ~ConnectionParameters();
 
-    HRESULT Initialize();
+    HRESULT Initialize(PCCERT_CONTEXT pCertContext);
 
     ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext);
     ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get());
@@ -617,7 +617,7 @@ class TLSConnection
     TLSConnection();
     virtual ~TLSConnection() { }
 
-    HRESULT Initialize();
+    HRESULT Initialize(PCCERT_CONTEXT pCertContext);
 
     HRESULT HandleMessage(
         const BYTE* pv,

@@ -10,6 +10,7 @@
 
 #include "MungeTLS.h"
 #include "MungeCrypto.h"
+#include "MungeWinHelpers.h"
 #include "mtls_helper.h"
 
 namespace MungeTLS

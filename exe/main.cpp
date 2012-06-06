@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include "MungeTLS.h"
+#include "MungeWinHelpers.h"
 
 
 using namespace std;
@@ -124,6 +125,7 @@ HRESULT ProcessConnections()
     HRESULT hr = S_OK;
     SOCKET sockListen = INVALID_SOCKET;
     SOCKET sockAccept = INVALID_SOCKET;
+    PCCERT_CONTEXT pCertContext = nullptr;
 
     //----------------------
     // Initialize Winsock.
@@ -202,7 +204,18 @@ HRESULT ProcessConnections()
         HRESULT hr = S_OK;
         ULONG cMessages = 0;
 
-        hr = con.Initialize();
+        hr = LookupCertificate(
+                 CERT_SYSTEM_STORE_CURRENT_USER,
+                 L"root",
+                 L"mtls-test",
+                 &pCertContext);
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        hr = con.Initialize(pCertContext);
         if (hr != S_OK)
         {
             goto error;
@@ -293,6 +306,12 @@ error:
     {
         closesocket(sockAccept);
         sockAccept = INVALID_SOCKET;
+    }
+
+    if (pCertContext != nullptr)
+    {
+        CertFreeCertificateContext(pCertContext);
+        pCertContext = nullptr;
     }
 
     WSACleanup();

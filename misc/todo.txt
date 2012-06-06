@@ -1,5 +1,4 @@
 BUGS:
-- assert when hitting a<enter> in openssl test
 
 WORK:
 - customizable behavior for extensions. shouldn't just hard-code reneg info
@@ -7,17 +6,12 @@ WORK:
 - configurable behavior about whether to encapsulate multiple handshake messages with a new plaintext message each, or to bundle them in one
 - ability to verify correct cert usages before using
 - interface for specifying the cert to use
+- for not self-signed certs, send whole chain in Certificate message (see CertGetCertificateChain)
 - HandshakeType should be a regular accessor
 - proper consts for all magic numbers
 - remove the cast operator from MT_CipherSuite to CipherSuiteValue
 - don't access MT_VariableLengthField::Data. surface common operations
 - support null encryption
-- separate RO and RW accessors
 - runtime customizable cipher suite
-- make all ParseFromPriv and SerializePriv actually private
 - support alerts
 - put an actual web server on this
-
-
-blog:
-- mis-specification of TLS 1.2 block cipher

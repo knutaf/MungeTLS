@@ -62,9 +62,11 @@ TLSConnection::TLSConnection()
 } // end ctor TLSConnection
 
 HRESULT
-TLSConnection::Initialize()
+TLSConnection::Initialize(
+    PCCERT_CONTEXT pCertContext
+)
 {
-    return ConnParams()->Initialize();
+    return ConnParams()->Initialize(pCertContext);
 } // end function Initialize
 
 HRESULT
@@ -1223,22 +1225,29 @@ ConnectionParameters::ConnectionParameters()
 {
 } // end ctor ConnectionParameters
 
+ConnectionParameters::~ConnectionParameters()
+{
+    if (m_pCertContext != nullptr)
+    {
+        CertFreeCertificateContext(m_pCertContext);
+        m_pCertContext = nullptr;
+    }
+} // end dtor ConnectionParameters
+
 HRESULT
-ConnectionParameters::Initialize()
+ConnectionParameters::Initialize(
+    PCCERT_CONTEXT pCertContext
+)
 {
     HRESULT hr = S_OK;
     shared_ptr<WindowsPublicKeyCipherer> spPubKeyCipherer;
 
     assert(*CertContext() == nullptr);
 
-    hr = LookupCertificate(
-             CERT_SYSTEM_STORE_CURRENT_USER,
-             L"root",
-             L"mtls-test",
-             CertContext());
-
-    if (hr != S_OK)
+    *CertContext() = CertDuplicateCertificateContext(pCertContext);
+    if (*CertContext() == nullptr)
     {
+        hr = E_INVALIDARG;
         goto error;
     }
 
