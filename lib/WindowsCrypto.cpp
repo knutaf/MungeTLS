@@ -30,10 +30,12 @@ LookupCertificate(
     DWORD dwCertStoreFlags,
     PCWSTR wszStoreName,
     PCWSTR wszSubjectName,
-    PCCERT_CONTEXT* ppCertContext)
+    PCCERT_CHAIN_CONTEXT* ppCertChain)
 {
     HRESULT hr = S_OK;
     PCCERT_CONTEXT pCertContext = NULL;
+    PCCERT_CHAIN_CONTEXT pCertChain = NULL;
+    CERT_CHAIN_PARA chainPara = {0};
 
     HCERTSTORE hCertStore = CertOpenStore(
                                 CERT_STORE_PROV_SYSTEM_W,
@@ -64,9 +66,33 @@ LookupCertificate(
         goto error;
     }
 
-    *ppCertContext = pCertContext;
+    chainPara.cbSize = sizeof(chainPara);
+    // indicates not to use this member
+    chainPara.RequestedUsage.dwType = USAGE_MATCH_TYPE_AND;
+
+    if (!CertGetCertificateChain(
+             NULL,
+             pCertContext,
+             NULL,
+             NULL,
+             &chainPara,
+             0,
+             NULL,
+             &pCertChain))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    *ppCertChain = pCertChain;
 
 done:
+    if (pCertContext != NULL)
+    {
+        CertFreeCertificateContext(pCertContext);
+        pCertContext = NULL;
+    }
+
     if (hCertStore != NULL)
     {
         CertCloseStore(hCertStore, 0);
@@ -76,10 +102,10 @@ done:
     return hr;
 
 error:
-    if (pCertContext != NULL)
+    if (pCertChain != NULL)
     {
-        CertFreeCertificateContext(pCertContext);
-        pCertContext = NULL;
+        CertFreeCertificateChain(pCertChain);
+        pCertChain = NULL;
     }
 
     goto done;

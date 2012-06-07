@@ -125,7 +125,7 @@ HRESULT ProcessConnections()
     HRESULT hr = S_OK;
     SOCKET sockListen = INVALID_SOCKET;
     SOCKET sockAccept = INVALID_SOCKET;
-    PCCERT_CONTEXT pCertContext = nullptr;
+    PCCERT_CHAIN_CONTEXT pCertChain = nullptr;
 
     //----------------------
     // Initialize Winsock.
@@ -206,16 +206,16 @@ HRESULT ProcessConnections()
 
         hr = LookupCertificate(
                  CERT_SYSTEM_STORE_CURRENT_USER,
-                 L"root",
+                 L"my",
                  L"mtls-test",
-                 &pCertContext);
+                 &pCertChain);
 
         if (hr != S_OK)
         {
             goto error;
         }
 
-        hr = con.Initialize(pCertContext);
+        hr = con.Initialize(pCertChain);
         if (hr != S_OK)
         {
             goto error;
@@ -308,10 +308,10 @@ error:
         sockAccept = INVALID_SOCKET;
     }
 
-    if (pCertContext != nullptr)
+    if (pCertChain != nullptr)
     {
-        CertFreeCertificateContext(pCertContext);
-        pCertContext = nullptr;
+        CertFreeCertificateChain(pCertChain);
+        pCertChain = nullptr;
     }
 
     WSACleanup();

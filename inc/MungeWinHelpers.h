@@ -9,6 +9,6 @@ LookupCertificate(
     DWORD dwCertStoreFlags,
     PCWSTR wszStoreName,
     PCWSTR wszSubjectName,
-    PCCERT_CONTEXT* ppCertContext);
+    PCCERT_CHAIN_CONTEXT* ppCertChain);
 
 }

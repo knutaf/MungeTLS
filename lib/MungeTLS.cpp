@@ -63,10 +63,10 @@ TLSConnection::TLSConnection()
 
 HRESULT
 TLSConnection::Initialize(
-    PCCERT_CONTEXT pCertContext
+    PCCERT_CHAIN_CONTEXT pCertChain
 )
 {
-    return ConnParams()->Initialize(pCertContext);
+    return ConnParams()->Initialize(pCertChain);
 } // end function Initialize
 
 HRESULT
@@ -500,21 +500,26 @@ TLSConnection::RespondToClientHello(
         MT_ContentType contentType;
         MT_ProtocolVersion protocolVersion;
         shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
+        PCCERT_CHAIN_CONTEXT pCertChain = *ConnParams()->CertChain();
 
-        if (hr != S_OK)
+        // what does it mean to have 2 simple chains? no support for now
+        assert(pCertChain->cChain == 1);
+
+        PCERT_SIMPLE_CHAIN pSimpleChain = pCertChain->rgpChain[0];
+
+        for (DWORD i = 0; i < pSimpleChain->cElement; i++)
         {
-            goto error;
+            hr = certificate.AddCertificateFromMemory(
+                     pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded,
+                     pSimpleChain->rgpElement[i]->pCertContext->cbCertEncoded);
+
+            if (hr != S_OK)
+            {
+                goto error;
+            }
         }
 
-
-        hr = certificate.PopulateFromMemory(
-                 (*ConnParams()->CertContext())->pbCertEncoded,
-                 (*ConnParams()->CertContext())->cbCertEncoded);
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        assert(hr == S_OK);
 
         handshake.SetType(MT_Handshake::MTH_Certificate);
         hr = certificate.SerializeToVect(handshake.Body());
@@ -1206,7 +1211,7 @@ HRESULT PrintByteVector(const ByteVector* pvb)
 
 ConnectionParameters::ConnectionParameters()
     : m_cipherSuite(),
-      m_pCertContext(nullptr),
+      m_pCertChain(nullptr),
       m_spPubKeyCipherer(nullptr),
       m_spHasher(nullptr),
       m_vbMasterSecret(),
@@ -1227,32 +1232,32 @@ ConnectionParameters::ConnectionParameters()
 
 ConnectionParameters::~ConnectionParameters()
 {
-    if (m_pCertContext != nullptr)
+    if (m_pCertChain != nullptr)
     {
-        CertFreeCertificateContext(m_pCertContext);
-        m_pCertContext = nullptr;
+        CertFreeCertificateChain(m_pCertChain);
+        m_pCertChain = nullptr;
     }
 } // end dtor ConnectionParameters
 
 HRESULT
 ConnectionParameters::Initialize(
-    PCCERT_CONTEXT pCertContext
+    PCCERT_CHAIN_CONTEXT pCertChain
 )
 {
     HRESULT hr = S_OK;
     shared_ptr<WindowsPublicKeyCipherer> spPubKeyCipherer;
 
-    assert(*CertContext() == nullptr);
+    assert(*CertChain() == nullptr);
 
-    *CertContext() = CertDuplicateCertificateContext(pCertContext);
-    if (*CertContext() == nullptr)
+    *CertChain() = CertDuplicateCertificateChain(pCertChain);
+    if (*CertChain() == nullptr)
     {
         hr = E_INVALIDARG;
         goto error;
     }
 
     spPubKeyCipherer.reset(new WindowsPublicKeyCipherer());
-    hr = spPubKeyCipherer->Initialize(*CertContext());
+    hr = spPubKeyCipherer->Initialize((*CertChain())->rgpChain[0]->rgpElement[0]->pCertContext);
     if (hr != S_OK)
     {
         goto error;
@@ -3456,24 +3461,16 @@ error:
 } // end function SerializePriv
 
 HRESULT
-MT_Certificate::PopulateFromFile(
-    PCWSTR wszFilename
-)
-{
-    UNREFERENCED_PARAMETER(wszFilename);
-    return E_NOTIMPL;
-} // end function PopulateFromFile
-
-HRESULT
-MT_Certificate::PopulateFromMemory(
-    const BYTE* pvCert, size_t cbCert
+MT_Certificate::AddCertificateFromMemory(
+    const BYTE* pvCert,
+    size_t cbCert
 )
 {
     MT_ASN1Cert cert;
     cert.Data()->assign(pvCert, pvCert + cbCert);
-    CertificateList()->Data()->assign(1, cert);
+    CertificateList()->Data()->push_back(cert);
     return S_OK;
-} // end function PopulateFromMemory
+} // end function AddCertificateFromMemory
 
 /*********** MT_SessionID *****************/
 

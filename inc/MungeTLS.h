@@ -235,9 +235,9 @@ class ConnectionParameters
     ConnectionParameters();
     ~ConnectionParameters();
 
-    HRESULT Initialize(PCCERT_CONTEXT pCertContext);
+    HRESULT Initialize(PCCERT_CHAIN_CONTEXT pCertChain);
 
-    ACCESSORS(PCCERT_CONTEXT*, CertContext, &m_pCertContext);
+    ACCESSORS(PCCERT_CHAIN_CONTEXT*, CertChain, &m_pCertChain);
     ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get());
     ACCESSORS(SymmetricCipherer*, ClientSymCipherer, m_spClientSymCipherer.get());
     ACCESSORS(SymmetricCipherer*, ServerSymCipherer, m_spServerSymCipherer.get());
@@ -289,7 +289,7 @@ class ConnectionParameters
     ByteVector m_vbServerWriteIV;
     MT_UINT64 m_seqNumRead;
     MT_UINT64 m_seqNumWrite;
-    PCCERT_CONTEXT m_pCertContext;
+    PCCERT_CHAIN_CONTEXT m_pCertChain;
 
     std::vector<std::shared_ptr<MT_Structure>> m_vHandshakeMessages;
 };
@@ -617,7 +617,7 @@ class TLSConnection
     TLSConnection();
     virtual ~TLSConnection() { }
 
-    HRESULT Initialize(PCCERT_CONTEXT pCertContext);
+    HRESULT Initialize(PCCERT_CHAIN_CONTEXT pCertChain);
 
     HRESULT HandleMessage(
         const BYTE* pv,
@@ -660,8 +660,7 @@ class MT_Certificate : public MT_Structure
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     size_t Length() const { return CertificateList()->Length(); }
 
-    HRESULT PopulateFromFile(PCWSTR wszFilename);
-    HRESULT PopulateFromMemory(const BYTE* pvCert, size_t cbCert);
+    HRESULT AddCertificateFromMemory(const BYTE* pvCert, size_t cbCert);
 
     ACCESSORS(MT_CertificateList*, CertificateList, &m_certificateList);
 

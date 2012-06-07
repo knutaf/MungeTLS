@@ -5,8 +5,7 @@ WORK:
 - implement renegotiation
 - configurable behavior about whether to encapsulate multiple handshake messages with a new plaintext message each, or to bundle them in one
 - ability to verify correct cert usages before using
-- interface for specifying the cert to use
-- for not self-signed certs, send whole chain in Certificate message (see CertGetCertificateChain)
+- platform agnostic method of specifying certificate - what format?
 - HandshakeType should be a regular accessor
 - proper consts for all magic numbers
 - remove the cast operator from MT_CipherSuite to CipherSuiteValue
