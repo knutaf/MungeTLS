@@ -6,7 +6,6 @@ WORK:
 - configurable behavior about whether to encapsulate multiple handshake messages with a new plaintext message each, or to bundle them in one
 - ability to verify correct cert usages before using
 - platform agnostic method of specifying certificate - what format?
-- HandshakeType should be a regular accessor
 - proper consts for all magic numbers
 - remove the cast operator from MT_CipherSuite to CipherSuiteValue
 - don't access MT_VariableLengthField::Data. surface common operations

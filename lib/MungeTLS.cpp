@@ -94,7 +94,7 @@ TLSConnection::HandleMessage(
             goto error;
         }
 
-        printf("successfully parsed TLSCiphertext. CT=%d\n", message.ContentType()->Type());
+        printf("successfully parsed TLSCiphertext. CT=%d\n", *message.ContentType()->Type());
 
         hr = message.SetConnectionParameters(ConnParams());
         if (hr != S_OK)
@@ -160,13 +160,13 @@ TLSConnection::HandleMessage(
             goto error;
         }
 
-        printf("successfully parsed TLSPlaintext. CT=%d\n", message.ContentType()->Type());
+        printf("successfully parsed TLSPlaintext. CT=%d\n", *message.ContentType()->Type());
 
         record = message;
     }
 
 
-    if (record.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+    if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
     {
         shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
 
@@ -323,7 +323,7 @@ TLSConnection::HandleMessage(
 
         (*ConnParams()->ReadSequenceNumber())++;
     }
-    else if (record.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
+    else if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
     {
         MT_ChangeCipherSpec changeCipherSpec;
         hr = changeCipherSpec.ParseFromVect(record.Fragment());
@@ -337,12 +337,12 @@ TLSConnection::HandleMessage(
         m_fSecureMode = true;
         *ConnParams()->ReadSequenceNumber() = 0;
     }
-    else if (record.ContentType()->Type() == MT_ContentType::MTCT_Type_Alert)
+    else if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_Alert)
     {
         printf("got alert message - not yet supported\n");
         (*ConnParams()->ReadSequenceNumber())++;
     }
-    else if (record.ContentType()->Type() == MT_ContentType::MTCT_Type_ApplicationData)
+    else if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_ApplicationData)
     {
         printf("application data:\n");
         PrintByteVector(record.Fragment());
@@ -380,7 +380,7 @@ TLSConnection::HandleMessage(
             {
                 if (hr == S_OK)
                 {
-                    if (rspStructure->ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+                    if (*rspStructure->ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
                     {
                         shared_ptr<MT_Structure> spHS(new MT_Handshake());
 
@@ -476,7 +476,7 @@ TLSConnection::RespondToClientHello(
             goto error;
         }
 
-        contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
+        *contentType.Type() = MT_ContentType::MTCT_Type_Handshake;
 
         *(spPlaintext->ContentType()) = contentType;
         *(spPlaintext->ProtocolVersion()) = protocolVersion;
@@ -525,7 +525,7 @@ TLSConnection::RespondToClientHello(
         hr = certificate.SerializeToVect(handshake.Body());
 
         protocolVersion.SetVersion(pClientHello->ProtocolVersion()->Version());
-        contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
+        *contentType.Type() = MT_ContentType::MTCT_Type_Handshake;
 
         *(spPlaintext->ContentType()) = contentType;
         *(spPlaintext->ProtocolVersion()) = protocolVersion;
@@ -551,7 +551,7 @@ TLSConnection::RespondToClientHello(
 
         protocolVersion.SetVersion(pClientHello->ProtocolVersion()->Version());
         *handshake.Type() = MT_Handshake::MTH_ServerHelloDone;
-        contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
+        *contentType.Type() = MT_ContentType::MTCT_Type_Handshake;
 
         *(spPlaintext->ContentType()) = contentType;
         *(spPlaintext->ProtocolVersion()) = protocolVersion;
@@ -588,7 +588,7 @@ TLSConnection::RespondToFinished(
 
         *(changeCipherSpec.Type()) = MT_ChangeCipherSpec::MTCCS_ChangeCipherSpec;
 
-        contentType.SetType(MT_ContentType::MTCT_Type_ChangeCipherSpec);
+        *contentType.Type() = MT_ContentType::MTCT_Type_ChangeCipherSpec;
 
         *(spPlaintext->ContentType()) = contentType;
         *(spPlaintext->ProtocolVersion()) = *ConnParams()->NegotiatedVersion();
@@ -637,7 +637,7 @@ TLSConnection::RespondToFinished(
             goto error;
         }
 
-        contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
+        *contentType.Type() = MT_ContentType::MTCT_Type_Handshake;
 
         *(spCiphertext->ContentType()) = contentType;
         *(spCiphertext->ProtocolVersion()) = *ConnParams()->NegotiatedVersion();
@@ -699,7 +699,7 @@ TLSConnection::RespondToApplicationData(
             goto error;
         }
 
-        contentType.SetType(MT_ContentType::MTCT_Type_ApplicationData);
+        *contentType.Type() = MT_ContentType::MTCT_Type_ApplicationData;
 
         *(spCiphertext->ContentType()) = contentType;
         *(spCiphertext->ProtocolVersion()) = *ConnParams()->NegotiatedVersion();
@@ -2711,7 +2711,7 @@ MT_ContentType::ParseFromPriv(
         goto error;
     }
 
-    SetType(eType);
+    *Type() = eType;
 
 error:
     return hr;
@@ -2726,7 +2726,7 @@ MT_ContentType::SerializePriv(
     HRESULT hr = S_OK;
 
     size_t cbField = Length();
-    hr = WriteNetworkLong(static_cast<ULONG>(Type()), cbField, pv, cb);
+    hr = WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb);
     if (hr != S_OK)
     {
         goto error;
@@ -2745,14 +2745,6 @@ MT_ContentType::IsValidContentType(
 {
     return (find(c_rgeValidTypes, c_rgeValidTypes+c_cValidTypes, eType) != c_rgeValidTypes+c_cValidTypes);
 } // end function IsValidContentType
-
-const
-MT_ContentType::MTCT_Type
-MT_ContentType::Type() const
-{
-    assert(IsValidContentType(m_eType));
-    return m_eType;
-} // end function Type
 
 
 /*********** MT_ProtocolVersion *****************/
@@ -4251,7 +4243,7 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
 
     cbField = 1;
     hr = WriteNetworkLong(
-             static_cast<ULONG>(pContentType->Type()),
+             static_cast<ULONG>(*pContentType->Type()),
              cbField,
              pv,
              cb);
@@ -4609,7 +4601,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
 
     cbField = 1;
     hr = WriteNetworkLong(
-             static_cast<ULONG>(pContentType->Type()),
+             static_cast<ULONG>(*pContentType->Type()),
              cbField,
              pv,
              cb);
@@ -5027,7 +5019,7 @@ MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
 
     cbField = 1;
     hr = WriteNetworkLong(
-             static_cast<ULONG>(pContentType->Type()),
+             static_cast<ULONG>(*pContentType->Type()),
              cbField,
              pv,
              cb);

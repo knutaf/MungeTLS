@@ -354,9 +354,7 @@ class MT_ContentType : public MT_Structure
     ~MT_ContentType() {};
 
     size_t Length() const { return 1; }
-
-    const MTCT_Type Type() const;
-    void SetType(MTCT_Type eType) { m_eType = eType; }
+    ACCESSORS(MTCT_Type*, Type, &m_eType);
 
     static bool IsValidContentType(MTCT_Type eType);
 
