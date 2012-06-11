@@ -177,9 +177,9 @@ TLSConnection::HandleMessage(
             goto error;
         }
 
-        printf("successfully parsed Handshake. type=%d\n", spHandshakeMessage->HandshakeType());
+        printf("successfully parsed Handshake. type=%d\n", *spHandshakeMessage->Type());
 
-        if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_ClientHello)
+        if (*spHandshakeMessage->Type() == MT_Handshake::MTH_ClientHello)
         {
             MT_ClientHello clientHello;
 
@@ -219,7 +219,7 @@ TLSConnection::HandleMessage(
 
             }
         }
-        else if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_ClientKeyExchange)
+        else if (*spHandshakeMessage->Type() == MT_Handshake::MTH_ClientKeyExchange)
         {
             MT_KeyExchangeAlgorithm keyExchangeAlg;
             MT_ClientKeyExchange<MT_EncryptedPreMasterSecret> keyExchange;
@@ -281,7 +281,7 @@ TLSConnection::HandleMessage(
 
             printf("computed key material\n");
         }
-        else if (spHandshakeMessage->HandshakeType() == MT_Handshake::MTH_Finished)
+        else if (*spHandshakeMessage->Type() == MT_Handshake::MTH_Finished)
         {
             MT_Finished finishedMessage;
             hr = finishedMessage.ParseFromVect(spHandshakeMessage->Body());
@@ -316,7 +316,7 @@ TLSConnection::HandleMessage(
         }
         else
         {
-            printf("not yet supporting handshake type %d\n", spHandshakeMessage->HandshakeType());
+            printf("not yet supporting handshake type %d\n", *spHandshakeMessage->Type());
             hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
             goto error;
         }
@@ -469,7 +469,7 @@ TLSConnection::RespondToClientHello(
 
         *ConnParams()->ServerRandom() = *(serverHello.Random());
 
-        handshake.SetType(MT_Handshake::MTH_ServerHello);
+        *handshake.Type() = MT_Handshake::MTH_ServerHello;
         hr = serverHello.SerializeToVect(handshake.Body());
         if (hr != S_OK)
         {
@@ -521,7 +521,7 @@ TLSConnection::RespondToClientHello(
 
         assert(hr == S_OK);
 
-        handshake.SetType(MT_Handshake::MTH_Certificate);
+        *handshake.Type() = MT_Handshake::MTH_Certificate;
         hr = certificate.SerializeToVect(handshake.Body());
 
         protocolVersion.SetVersion(pClientHello->ProtocolVersion()->Version());
@@ -550,7 +550,7 @@ TLSConnection::RespondToClientHello(
         shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
         protocolVersion.SetVersion(pClientHello->ProtocolVersion()->Version());
-        handshake.SetType(MT_Handshake::MTH_ServerHelloDone);
+        *handshake.Type() = MT_Handshake::MTH_ServerHelloDone;
         contentType.SetType(MT_ContentType::MTCT_Type_Handshake);
 
         *(spPlaintext->ContentType()) = contentType;
@@ -630,7 +630,7 @@ TLSConnection::RespondToFinished(
             goto error;
         }
 
-        handshake.SetType(MT_Handshake::MTH_Finished);
+        *handshake.Type() = MT_Handshake::MTH_Finished;
         hr = finished.SerializeToVect(handshake.Body());
         if (hr != S_OK)
         {
@@ -2936,13 +2936,6 @@ MT_Handshake::Length() const
            PayloadLength();
 } // end function Length
 
-MT_Handshake::MTH_HandshakeType
-MT_Handshake::HandshakeType() const
-{
-    assert(IsKnownType(m_eType));
-    return m_eType;
-} // end function HandshakeType
-
 bool
 MT_Handshake::IsKnownType(
     MTH_HandshakeType eType
@@ -2968,7 +2961,7 @@ MT_Handshake::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = 1;
 
-    hr = WriteNetworkLong(static_cast<ULONG>(HandshakeType()), cbField, pv, cb);
+    hr = WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb);
     if (hr != S_OK)
     {
         goto error;
@@ -3004,47 +2997,47 @@ wstring MT_Handshake::HandshakeTypeString() const
 {
     PCWSTR wszType = nullptr;
 
-    if (HandshakeType() == MTH_HelloRequest)
+    if (*Type() == MTH_HelloRequest)
     {
         wszType = L"HelloRequest";
     }
-    else if (HandshakeType() == MTH_ClientHello)
+    else if (*Type() == MTH_ClientHello)
     {
         wszType = L"ClientHello";
     }
-    else if (HandshakeType() == MTH_ServerHello)
+    else if (*Type() == MTH_ServerHello)
     {
         wszType = L"ServerHello";
     }
-    else if (HandshakeType() == MTH_Certificate)
+    else if (*Type() == MTH_Certificate)
     {
         wszType = L"Certificate";
     }
-    else if (HandshakeType() == MTH_ServerKeyExchange)
+    else if (*Type() == MTH_ServerKeyExchange)
     {
         wszType = L"ServerKeyExchange";
     }
-    else if (HandshakeType() == MTH_CertificateRequest)
+    else if (*Type() == MTH_CertificateRequest)
     {
         wszType = L"CertificateRequest";
     }
-    else if (HandshakeType() == MTH_ServerHelloDone)
+    else if (*Type() == MTH_ServerHelloDone)
     {
         wszType = L"ServerHelloDone";
     }
-    else if (HandshakeType() == MTH_CertificateVerify)
+    else if (*Type() == MTH_CertificateVerify)
     {
         wszType = L"CertificateVerify";
     }
-    else if (HandshakeType() == MTH_ClientKeyExchange)
+    else if (*Type() == MTH_ClientKeyExchange)
     {
         wszType = L"ClientKeyExchange";
     }
-    else if (HandshakeType() == MTH_Finished)
+    else if (*Type() == MTH_Finished)
     {
         wszType = L"Finished";
     }
-    else if (HandshakeType() == MTH_Unknown)
+    else if (*Type() == MTH_Unknown)
     {
         wszType = L"Unknown";
     }

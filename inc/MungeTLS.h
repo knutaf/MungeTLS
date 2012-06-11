@@ -506,9 +506,7 @@ class MT_Handshake : public MT_Structure
     size_t PayloadLength() const { return Body()->size(); }
     size_t Length() const;
 
-    MTH_HandshakeType HandshakeType() const;
-    void SetType(MTH_HandshakeType eType) { m_eType = eType; }
-
+    ACCESSORS(MTH_HandshakeType*, Type, &m_eType);
     ACCESSORS(ByteVector*, Body, &m_vbBody);
 
     static bool IsKnownType(MTH_HandshakeType eType);
