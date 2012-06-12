@@ -879,6 +879,64 @@ class MT_GenericBlockCipher_TLS12 : public MT_CipherFragment
     ByteVector m_vbPadding;
 };
 
+enum MT_AlertLevel
+{
+    MTAL_Warning = 1,
+    MTAL_Fatal = 2,
+    MTAL_Unknown = 255
+};
+
+enum MT_AlertDescription
+{
+    MTAD_CloseNotify = 0,
+    MTAD_UnexpectedMessage = 10,
+    MTAD_BadRecordMAC = 20,
+    MTAD_DecryptionFailed_RESERVED = 21,
+    MTAD_RecordOverflow = 22,
+    MTAD_DecompressionFailure = 30,
+    MTAD_HandshakeFailure = 40,
+    MTAD_NoCertificate_RESERVED = 41,
+    MTAD_BadCertificate = 42,
+    MTAD_UnsupportedCertificate = 43,
+    MTAD_CertificateRevoked = 44,
+    MTAD_CertificateExpired = 45,
+    MTAD_CertificateUnknown = 46,
+    MTAD_IllegalParameter = 47,
+    MTAD_UnknownCA = 48,
+    MTAD_AccessDenied = 49,
+    MTAD_DecodeError = 50,
+    MTAD_DecryptError = 51,
+    MTAD_ExportRestriction_RESERVED = 60,
+    MTAD_ProtocolVersion = 70,
+    MTAD_InsufficientSecurity = 71,
+    MTAD_InternalError = 80,
+    MTAD_UserCanceled = 90,
+    MTAD_NoRenegotiation = 100,
+    MTAD_UnsupportedExtension = 110,
+    MTAD_Unknown = 255
+};
+
+class MT_Alert : public MT_Structure
+{
+    public:
+    MT_Alert();
+    ~MT_Alert() { }
+
+    size_t Length() const { return 2; }
+
+    ACCESSORS(MT_AlertLevel*, Level, &m_eLevel);
+    ACCESSORS(MT_AlertDescription*, Description, &m_eDescription);
+
+    std::wstring ToString() const;
+
+    private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    MT_AlertLevel m_eLevel;
+    MT_AlertDescription m_eDescription;
+};
+
 /*
 class MT_Thingy : public MT_Structure
 {

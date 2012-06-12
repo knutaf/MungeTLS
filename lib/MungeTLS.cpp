@@ -339,7 +339,17 @@ TLSConnection::HandleMessage(
     }
     else if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_Alert)
     {
-        printf("got alert message - not yet supported\n");
+        MT_Alert alert;
+
+        hr = alert.ParseFromVect(record.Fragment());
+        if (hr != S_OK)
+        {
+            printf("failed to parse alert: %08LX\n");
+            goto error;
+        }
+
+        wprintf(L"got alert: %s\n", alert.ToString().c_str());
+
         (*ConnParams()->ReadSequenceNumber())++;
     }
     else if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_ApplicationData)
@@ -5173,6 +5183,215 @@ done:
 error:
     goto done;
 } // end function CheckSecurity
+
+/*********** MT_Alert *****************/
+
+MT_Alert::MT_Alert()
+    : MT_Structure(),
+      m_eLevel(MTAL_Unknown),
+      m_eDescription(MTAD_Unknown)
+{
+} // end ctor MT_Alert
+
+HRESULT
+MT_Alert::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 1;
+
+    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<BYTE*>(Level()));
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = 1;
+    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<BYTE*>(Description()));
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+HRESULT
+MT_Alert::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 1;
+
+    hr = WriteNetworkLong(static_cast<BYTE>(*Level()), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = 1;
+    hr = WriteNetworkLong(static_cast<BYTE>(*Description()), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+wstring
+MT_Alert::ToString() const
+{
+    PCWSTR wszLevel = nullptr;
+    PCWSTR wszDescription = nullptr;
+
+    switch (*Level())
+    {
+        case MTAL_Warning:
+        wszLevel = L"warning";
+        break;
+
+        case MTAL_Fatal:
+        wszLevel = L"fatal";
+        break;
+
+        default:
+        wszLevel = L"unknown";
+        break;
+    }
+
+    switch (*Description())
+    {
+        case MTAD_CloseNotify:
+        wszDescription = L"CloseNotify";
+        break;
+
+        case MTAD_UnexpectedMessage:
+        wszDescription = L"UnexpectedMessage";
+        break;
+
+        case MTAD_BadRecordMAC:
+        wszDescription = L"BadRecordMAC";
+        break;
+
+        case MTAD_DecryptionFailed_RESERVED:
+        wszDescription = L"DecryptionFailed_RESERVED";
+        break;
+
+        case MTAD_RecordOverflow:
+        wszDescription = L"RecordOverflow";
+        break;
+
+        case MTAD_DecompressionFailure:
+        wszDescription = L"DecompressionFailure";
+        break;
+
+        case MTAD_HandshakeFailure:
+        wszDescription = L"HandshakeFailure";
+        break;
+
+        case MTAD_NoCertificate_RESERVED:
+        wszDescription = L"NoCertificate_RESERVED";
+        break;
+
+        case MTAD_BadCertificate:
+        wszDescription = L"BadCertificate";
+        break;
+
+        case MTAD_UnsupportedCertificate:
+        wszDescription = L"UnsupportedCertificate";
+        break;
+
+        case MTAD_CertificateRevoked:
+        wszDescription = L"CertificateRevoked";
+        break;
+
+        case MTAD_CertificateExpired:
+        wszDescription = L"CertificateExpired";
+        break;
+
+        case MTAD_CertificateUnknown:
+        wszDescription = L"CertificateUnknown";
+        break;
+
+        case MTAD_IllegalParameter:
+        wszDescription = L"IllegalParameter";
+        break;
+
+        case MTAD_UnknownCA:
+        wszDescription = L"UnknownCA";
+        break;
+
+        case MTAD_AccessDenied:
+        wszDescription = L"AccessDenied";
+        break;
+
+        case MTAD_DecodeError:
+        wszDescription = L"DecodeError";
+        break;
+
+        case MTAD_DecryptError:
+        wszDescription = L"DecryptError";
+        break;
+
+        case MTAD_ExportRestriction_RESERVED:
+        wszDescription = L"ExportRestriction_RESERVED";
+        break;
+
+        case MTAD_ProtocolVersion:
+        wszDescription = L"ProtocolVersion";
+        break;
+
+        case MTAD_InsufficientSecurity:
+        wszDescription = L"InsufficientSecurity";
+        break;
+
+        case MTAD_InternalError:
+        wszDescription = L"InternalError";
+        break;
+
+        case MTAD_UserCanceled:
+        wszDescription = L"UserCanceled";
+        break;
+
+        case MTAD_NoRenegotiation:
+        wszDescription = L"NoRenegotiation";
+        break;
+
+        case MTAD_UnsupportedExtension:
+        wszDescription = L"UnsupportedExtension";
+        break;
+
+        default:
+        wszDescription = L"Unknown";
+        break;
+    }
+
+    wstring wsAlert(wszLevel);
+    wsAlert += L" ";
+    wsAlert += wszDescription;
+    return wsAlert;
+} // end function ToString
 
 
 /*********** MT_Thingy *****************/

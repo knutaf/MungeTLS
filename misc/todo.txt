@@ -11,5 +11,6 @@ WORK:
 - don't access MT_VariableLengthField::Data. surface common operations
 - support null encryption
 - runtime customizable cipher suite
-- support alerts
 - put an actual web server on this
+- use actual switch statements in more places
+- change all printfs to wprintf
