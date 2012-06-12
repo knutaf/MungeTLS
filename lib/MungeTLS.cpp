@@ -2999,54 +2999,51 @@ wstring MT_Handshake::HandshakeTypeString() const
 {
     PCWSTR wszType = nullptr;
 
-    if (*Type() == MTH_HelloRequest)
+    switch (*Type())
     {
+        case MTH_HelloRequest:
         wszType = L"HelloRequest";
-    }
-    else if (*Type() == MTH_ClientHello)
-    {
+        break;
+
+        case MTH_ClientHello:
         wszType = L"ClientHello";
-    }
-    else if (*Type() == MTH_ServerHello)
-    {
+        break;
+
+        case MTH_ServerHello:
         wszType = L"ServerHello";
-    }
-    else if (*Type() == MTH_Certificate)
-    {
+        break;
+
+        case MTH_Certificate:
         wszType = L"Certificate";
-    }
-    else if (*Type() == MTH_ServerKeyExchange)
-    {
+        break;
+
+        case MTH_ServerKeyExchange:
         wszType = L"ServerKeyExchange";
-    }
-    else if (*Type() == MTH_CertificateRequest)
-    {
+        break;
+
+        case MTH_CertificateRequest:
         wszType = L"CertificateRequest";
-    }
-    else if (*Type() == MTH_ServerHelloDone)
-    {
+        break;
+
+        case MTH_ServerHelloDone:
         wszType = L"ServerHelloDone";
-    }
-    else if (*Type() == MTH_CertificateVerify)
-    {
+        break;
+
+        case MTH_CertificateVerify:
         wszType = L"CertificateVerify";
-    }
-    else if (*Type() == MTH_ClientKeyExchange)
-    {
+        break;
+
+        case MTH_ClientKeyExchange:
         wszType = L"ClientKeyExchange";
-    }
-    else if (*Type() == MTH_Finished)
-    {
+        break;
+
+        case MTH_Finished:
         wszType = L"Finished";
-    }
-    else if (*Type() == MTH_Unknown)
-    {
+        break;
+
+        default:
         wszType = L"Unknown";
-    }
-    else
-    {
-        // shouldn't see another type, I think
-        assert(false);
+        break;
     }
 
     return wstring(wszType);
