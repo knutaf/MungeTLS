@@ -625,8 +625,22 @@ class TLSConnection
     CreatePlaintext(
         MT_ContentType::MTCT_Type eContentType,
         MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-        MT_Structure* pFragment,
+        const MT_Structure* pFragment,
         MT_TLSPlaintext* pPlaintext);
+
+    HRESULT
+    CreateCiphertext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        const MT_Structure* pFragment,
+        MT_TLSCiphertext* pCiphertext);
+
+    HRESULT
+    CreateCiphertext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        const ByteVector* pvbFragment,
+        MT_TLSCiphertext* pCiphertext);
 
     private:
     HRESULT RespondToClientHello(
