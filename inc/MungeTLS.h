@@ -175,6 +175,7 @@ class MT_ProtocolVersion : public MT_Structure
     public:
     enum MTPV_Version
     {
+        MTPV_Unknown = 0,
         MTPV_TLS10 = 0x0301,
         MTPV_TLS12 = 0x0303,
     };
@@ -182,18 +183,17 @@ class MT_ProtocolVersion : public MT_Structure
     MT_ProtocolVersion();
     ~MT_ProtocolVersion() {};
 
-    MT_UINT16 Version() const;
-    void SetVersion(MT_UINT16 ver) { m_version = ver; }
+    ACCESSORS(MTPV_Version*, Version, &m_eVersion);
 
     size_t Length() const { return 2; } // sizeof(MT_UINT16)
 
-    static bool IsKnownVersion(MT_UINT16 version);
+    static bool IsKnownVersion(MTPV_Version eVersion);
 
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    MT_UINT16 m_version;
+    MTPV_Version m_eVersion;
 };
 
 // uint8 CipherSuite[2];    /* Cryptographic suite selector */
@@ -615,10 +615,18 @@ class TLSConnection
 
     HRESULT Initialize(PCCERT_CHAIN_CONTEXT pCertChain);
 
-    HRESULT HandleMessage(
+    HRESULT
+    HandleMessage(
         const BYTE* pv,
         size_t cb,
         ByteVector* pvbResponse);
+
+    HRESULT
+    CreatePlaintext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        MT_Structure* pFragment,
+        MT_TLSPlaintext* pPlaintext);
 
     private:
     HRESULT RespondToClientHello(

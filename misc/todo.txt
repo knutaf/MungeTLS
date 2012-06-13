@@ -12,5 +12,5 @@ WORK:
 - support null encryption
 - runtime customizable cipher suite
 - put an actual web server on this
-- use actual switch statements in more places
 - change all printfs to wprintf
+- consider replacing the whole protocol version class with just the enum
