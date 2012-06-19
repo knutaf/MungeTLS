@@ -4,6 +4,10 @@ C_DEFINES=/DUNICODE
 C_FILES=\
     main.cpp \
 
+H_FILES=\
+    $(H_FILES) \
+    main.h \
+
 LIBS=\
     shlwapi.lib \
     shell32.lib \

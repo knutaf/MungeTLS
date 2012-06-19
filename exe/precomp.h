@@ -12,6 +12,8 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <strsafe.h>
 
 #include "MungeTLS.h"
 #include "MungeWinHelpers.h"
+#include "main.h"

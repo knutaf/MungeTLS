@@ -607,19 +607,26 @@ class MT_ServerHello : public MT_Structure
     MT_HelloExtensions m_extensions;
 };
 
+class ITLSListener
+{
+    public:
+    virtual HRESULT OnSend(const ByteVector* pvb) = 0;
+    virtual HRESULT OnApplicationData(const ByteVector* pvb) = 0;
+};
+
 class TLSConnection
 {
     public:
-    TLSConnection();
+    typedef std::vector<std::shared_ptr<MT_RecordLayerMessage>> MessageList;
+
+
+    TLSConnection(ITLSListener* pListener);
     virtual ~TLSConnection() { }
 
     HRESULT Initialize(PCCERT_CHAIN_CONTEXT pCertChain);
 
     HRESULT
-    HandleMessage(
-        const BYTE* pv,
-        size_t cb,
-        ByteVector* pvbResponse);
+    HandleMessage(const BYTE* pv, size_t cb);
 
     HRESULT
     CreatePlaintext(
@@ -642,6 +649,14 @@ class TLSConnection
         const ByteVector* pvbFragment,
         MT_TLSCiphertext* pCiphertext);
 
+    HRESULT EnqueueSendApplicationData(const ByteVector* pvbPayload);
+
+    HRESULT EnqueueMessage(std::shared_ptr<MT_RecordLayerMessage> spMessage);
+    HRESULT SendQueuedMessages();
+
+    ACCESSORS(MessageList*, PendingSends, &m_pendingSends);
+    ITLSListener* Listener() { return m_pListener; }
+
     private:
     HRESULT RespondToClientHello(
         const MT_ClientHello* pClientHello,
@@ -650,14 +665,13 @@ class TLSConnection
     HRESULT RespondToFinished(
         std::vector<std::shared_ptr<MT_RecordLayerMessage>>* pResponses);
 
-    HRESULT RespondToApplicationData(
-        std::vector<std::shared_ptr<MT_RecordLayerMessage>>* pResponses);
-
     HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
     HRESULT GenerateKeyMaterial();
 
     ACCESSORS(ConnectionParameters*, ConnParams, &m_connParams);
     ConnectionParameters m_connParams;
+    MessageList m_pendingSends;
+    ITLSListener* m_pListener;
 
     // TODO: absolutely not the right way to do this
     bool m_fSecureMode;

@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <strsafe.h>
+#include "main.h"
 #include "MungeTLS.h"
 #include "MungeWinHelpers.h"
 
@@ -25,7 +27,9 @@ int __cdecl wmain(int argc, wchar_t* argv[])
 
     HRESULT hr = S_OK;
 
-    hr = ProcessConnections();
+    DummyServer ds;
+
+    hr = ds.ProcessConnections();
 
     return hr;
 }
@@ -120,7 +124,7 @@ HRESULT LogRead(ULONG nFile, const ByteVector* pvb)
     return LogTraffic(nFile, &wsRead, pvb);
 } // end function LogRead
 
-HRESULT ProcessConnections()
+HRESULT DummyServer::ProcessConnections()
 {
     HRESULT hr = S_OK;
     SOCKET sockListen = INVALID_SOCKET;
@@ -196,10 +200,8 @@ HRESULT ProcessConnections()
     wprintf(L"client connected with handle %d\n", sockAccept);
 
     {
-        TLSConnection con;
         char c = 0;
         ByteVector vbData;
-        ByteVector vbResponse;
         int cb;
         HRESULT hr = S_OK;
         ULONG cMessages = 0;
@@ -215,7 +217,7 @@ HRESULT ProcessConnections()
             goto error;
         }
 
-        hr = con.Initialize(pCertChain);
+        hr = Connection()->Initialize(pCertChain);
         if (hr != S_OK)
         {
             goto error;
@@ -228,30 +230,30 @@ HRESULT ProcessConnections()
             vbData.push_back(c);
             LogRead(cMessages, &vbData);
 
-            hr = con.HandleMessage(&vbData.front(), vbData.size(), &vbResponse);
+            hr = Connection()->HandleMessage(&vbData.front(), vbData.size());
             if (hr == S_OK)
             {
                 printf("finished parsing message of size %lu\n", vbData.size());
                 cMessages++;
                 vbData.clear();
 
-                if (!vbResponse.empty())
+                if (!PendingSends()->empty())
                 {
-                    size_t cbPayload = vbResponse.size();
+                    size_t cbPayload = PendingSends()->size();
 
                     printf("responding with %d bytes\n", cbPayload);
 
                     while (cbPayload != 0)
                     {
-                        assert(cbPayload == vbResponse.size());
+                        assert(cbPayload == PendingSends()->size());
 
-                        LogWrite(cMessages, &vbResponse);
+                        LogWrite(cMessages, PendingSends());
                         cMessages++;
 
                         assert(cbPayload <= INT_MAX);
 
                         cb = send(sockAccept,
-                                  reinterpret_cast<char*>(&vbResponse.front()),
+                                  reinterpret_cast<char*>(&PendingSends()->front()),
                                   static_cast<int>(cbPayload),
                                   0);
 
@@ -266,18 +268,18 @@ HRESULT ProcessConnections()
                         assert(static_cast<ULONG>(cb) <= cbPayload);
 
                         cbPayload -= cb;
-                        vbResponse.erase(
-                            vbResponse.begin(),
-                            vbResponse.begin() + cb);
+                        PendingSends()->erase(
+                            PendingSends()->begin(),
+                            PendingSends()->begin() + cb);
                     }
 
                     if (hr == S_OK)
                     {
-                        assert(vbResponse.empty());
+                        assert(PendingSends()->empty());
                     }
                     else
                     {
-                        printf("something failed. exiting\n");
+                        printf("something failed (%08LX). exiting\n", hr);
                         break;
                     }
                 }
@@ -317,4 +319,134 @@ error:
     WSACleanup();
 
     return hr;
-}
+} // end function ProcessConnections
+
+HRESULT DummyServer::OnSend(const ByteVector* pvb)
+{
+    wprintf(L"queueing up %d bytes of data to send\n", pvb->size());
+    PendingSends()->insert(PendingSends()->end(), pvb->begin(), pvb->end());
+    return S_OK;
+} // end function OnSend
+
+HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
+{
+    HRESULT hr = S_OK;
+
+    wprintf(L"got %d bytes of application data\n", pvb->size());
+
+    if (!pvb->empty())
+    {
+        // first just append the new data to the pending request
+        PendingRequest()->insert(
+            PendingRequest()->end(),
+            pvb->begin(),
+            pvb->end());
+
+        // do this after the insert, which invalidates iterators
+        string::iterator itEndRequest(PendingRequest()->begin());
+
+        const PCSTR rgszTerminators[] =
+        {
+            "\r\n\r\n",
+            "\r\r",
+            "\n\n"
+        };
+
+        /*
+        ** try all the terminators to see if the request is complete. this is
+        ** simplistic because it doesn't handle things like content-length in
+        ** the request.
+        */
+        for (ULONG i = 0; i < ARRAYSIZE(rgszTerminators); i++)
+        {
+            // find the end terminator
+            string::size_type posEndRequest = PendingRequest()->find(rgszTerminators[i]);
+
+            if (posEndRequest != string::npos)
+            {
+                /*
+                ** if it's found, set an iterator for the spot 1 past the end
+                ** of the terminating string.
+                */
+                itEndRequest = PendingRequest()->begin() + posEndRequest + strlen(rgszTerminators[i]);
+
+                printf("found terminator %d\n", i);
+
+                break;
+            }
+        }
+
+        /*
+        ** the response body is going to be a copy of the request body. do this
+        ** only if a whole request is found at this point (non-empty request)
+        */
+        if (itEndRequest - PendingRequest()->begin() > 0)
+        {
+            ByteVector vbApplicationData;
+
+            const CHAR szApplicationDataTemplate[] =
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: %d\r\n"
+                "Content-Type: text/plain\r\n"
+                "\r\n";
+
+            /*
+            ** reserve (more than) enough space, and trim down later. the *2
+            ** is the generous part of the size, and accounts for the content
+            ** length in the string above. it is really *very* generous.
+            */
+            vbApplicationData.reserve(
+                ARRAYSIZE(szApplicationDataTemplate) * 2 +
+                (itEndRequest - PendingRequest()->begin()));
+
+            // first get enough space for just the template part
+            vbApplicationData.resize(ARRAYSIZE(szApplicationDataTemplate) * 2);
+
+            // substituting in the real content length
+            hr = StringCchPrintfA(
+                     reinterpret_cast<PSTR>(&vbApplicationData.front()),
+                     vbApplicationData.size(),
+                     szApplicationDataTemplate,
+                     itEndRequest - PendingRequest()->begin());
+
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+
+            // trim to just the part we sprintf'd. excludes null terminator
+            vbApplicationData.resize(strlen(reinterpret_cast<PSTR>(&vbApplicationData.front())));
+
+            // append the request
+            vbApplicationData.insert(
+                vbApplicationData.end(),
+                PendingRequest()->begin(),
+                itEndRequest);
+
+            // erase just the portion we inserted
+            PendingRequest()->erase(
+                PendingRequest()->begin(),
+                itEndRequest);
+
+            hr = Connection()->EnqueueSendApplicationData(&vbApplicationData);
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+
+            hr = Connection()->SendQueuedMessages();
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+        }
+
+        printf("pending request is: %s\n", PendingRequest()->c_str());
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function OnApplicationData

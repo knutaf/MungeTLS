@@ -55,8 +55,10 @@ PRF_A(
 
 /*********** TLSConnection *****************/
 
-TLSConnection::TLSConnection()
+TLSConnection::TLSConnection(ITLSListener* pListener)
     : m_connParams(),
+      m_pendingSends(),
+      m_pListener(pListener),
       m_fSecureMode(false)
 {
 } // end ctor TLSConnection
@@ -72,12 +74,10 @@ TLSConnection::Initialize(
 HRESULT
 TLSConnection::HandleMessage(
     const BYTE* pv,
-    size_t cb,
-    ByteVector* pvbResponse
+    size_t cb
 )
 {
     HRESULT hr = S_OK;
-    vector<shared_ptr<MT_RecordLayerMessage>> responseMessages;
 
     assert(cb >= 0);
 
@@ -211,7 +211,7 @@ TLSConnection::HandleMessage(
             *ConnParams()->NegotiatedVersion() = *(clientHello.ProtocolVersion());
             *ConnParams()->ClientRandom() = *(clientHello.Random());
 
-            hr = RespondToClientHello(&clientHello, &responseMessages);
+            hr = RespondToClientHello(&clientHello, PendingSends());
             if (hr != S_OK)
             {
                 printf("failed RespondToClientHello: %08LX\n", hr);
@@ -306,7 +306,7 @@ TLSConnection::HandleMessage(
 
             ConnParams()->HandshakeMessages()->push_back(spHandshakeMessage);
 
-            hr = RespondToFinished(&responseMessages);
+            hr = RespondToFinished(PendingSends());
             if (hr != S_OK)
             {
                 printf("failed RespondToFinished: %08LX\n", hr);
@@ -357,10 +357,10 @@ TLSConnection::HandleMessage(
         printf("application data:\n");
         PrintByteVector(record.Fragment());
 
-        hr = RespondToApplicationData(&responseMessages);
+        hr = Listener()->OnApplicationData(record.Fragment());
         if (hr != S_OK)
         {
-            goto error;
+            wprintf(L"warning: error in OnApplicationData with listener: %08LX\n", hr);
         }
 
         (*ConnParams()->ReadSequenceNumber())++;
@@ -371,43 +371,36 @@ TLSConnection::HandleMessage(
         assert(false);
     }
 
-    if (!responseMessages.empty())
-    {
-        printf("got %u messages to respond with\n", responseMessages.size());
-        hr = SerializeMessagesToVector<MT_RecordLayerMessage>(
-                 responseMessages.begin(),
-                 responseMessages.end(),
-                 pvbResponse);
-
-        if (hr != S_OK)
+    // saving off any handshake messages
+    for_each(PendingSends()->begin(), PendingSends()->end(),
+        [&hr, this](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
         {
-            printf("failed to serialize response messages: %08LX\n", hr);
-            goto error;
-        }
-
-        for_each(responseMessages.begin(), responseMessages.end(),
-            [&hr, this](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
+            if (hr == S_OK)
             {
-                if (hr == S_OK)
+                if (*rspStructure->ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
                 {
-                    if (*rspStructure->ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+                    shared_ptr<MT_Structure> spHS(new MT_Handshake());
+
+                    hr = spHS->ParseFromVect(rspStructure->Fragment());
+                    if (hr != S_OK)
                     {
-                        shared_ptr<MT_Structure> spHS(new MT_Handshake());
-
-                        hr = spHS->ParseFromVect(rspStructure->Fragment());
-                        if (hr != S_OK)
-                        {
-                            // TODO: ought to just store raw bytes for this, probably
-                            printf("squashing error parsing handshake message: %08LX\n", hr);
-                            hr = S_OK;
-                            return;
-                        }
-
-                        ConnParams()->HandshakeMessages()->push_back(spHS);
+                        // TODO: ought to just store raw bytes for this, probably
+                        printf("squashing error parsing handshake message: %08LX\n", hr);
+                        hr = S_OK;
+                        return;
                     }
+
+                    ConnParams()->HandshakeMessages()->push_back(spHS);
                 }
             }
-        );
+        }
+    );
+
+    hr = SendQueuedMessages();
+    if (hr != S_OK)
+    {
+        wprintf(L"failed sending pending messages: %08LX\n", hr);
+        goto error;
     }
 
 done:
@@ -416,6 +409,52 @@ done:
 error:
     goto done;
 } // end function ParseMessage
+
+HRESULT
+TLSConnection::EnqueueMessage(
+    shared_ptr<MT_RecordLayerMessage> spMessage
+)
+{
+    PendingSends()->push_back(spMessage);
+    return S_OK;
+} // end function EnqueueMessage
+
+HRESULT
+TLSConnection::SendQueuedMessages()
+{
+    HRESULT hr = S_OK;
+    ByteVector vbResponse;
+
+    if (!PendingSends()->empty())
+    {
+        printf("sending %u messages\n", PendingSends()->size());
+
+        hr = SerializeMessagesToVector<MT_RecordLayerMessage>(
+                 PendingSends()->begin(),
+                 PendingSends()->end(),
+                 &vbResponse);
+
+        if (hr != S_OK)
+        {
+            wprintf(L"failed to serialize messages: %08LX\n", hr);
+            goto error;
+        }
+
+        hr = Listener()->OnSend(&vbResponse);
+        if (hr != S_OK)
+        {
+            wprintf(L"warning: error in OnSend with listener: %08LX\n", hr);
+        }
+
+        PendingSends()->clear();
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SendQueuedMessages
 
 HRESULT
 TLSConnection::RespondToClientHello(
@@ -661,43 +700,32 @@ error:
 } // end function RespondToFinished
 
 HRESULT
-TLSConnection::RespondToApplicationData(
-    vector<shared_ptr<MT_RecordLayerMessage>>* pResponses
+TLSConnection::EnqueueSendApplicationData(
+    const ByteVector* pvb
 )
 {
     HRESULT hr = S_OK;
+    shared_ptr<MT_TLSCiphertext> spCiphertext(new MT_TLSCiphertext());
 
-    // dummy Application Data
+    hr = CreateCiphertext(
+             MT_ContentType::MTCT_Type_ApplicationData,
+             *ConnParams()->NegotiatedVersion()->Version(),
+             pvb,
+             spCiphertext.get());
+
+    if (hr != S_OK)
     {
-        CHAR szApplicationData[] =
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Length: 5\r\n"
-            "Content-Type: text/plain\r\n"
-            "\r\n"
-            "yallo";
+        goto error;
+    }
 
-        MT_ContentType contentType;
-        shared_ptr<MT_TLSCiphertext> spCiphertext(new MT_TLSCiphertext());
+    (*ConnParams()->WriteSequenceNumber())++;
+    ConnParams()->ServerWriteIV()->assign(spCiphertext->Fragment()->end() - ConnParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
+    assert(ConnParams()->ServerWriteIV()->size() == ConnParams()->Cipher()->cbIVSize);
 
-        ByteVector vbApplicationData(
-                       szApplicationData,
-                       szApplicationData + ARRAYSIZE(szApplicationData) - 1);
-
-        hr = CreateCiphertext(
-                 MT_ContentType::MTCT_Type_ApplicationData,
-                 *ConnParams()->NegotiatedVersion()->Version(),
-                 &vbApplicationData,
-                 spCiphertext.get());
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        pResponses->push_back(spCiphertext);
-        (*ConnParams()->WriteSequenceNumber())++;
-        ConnParams()->ServerWriteIV()->assign(spCiphertext->Fragment()->end() - ConnParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
-        assert(ConnParams()->ServerWriteIV()->size() == ConnParams()->Cipher()->cbIVSize);
+    hr = EnqueueMessage(spCiphertext);
+    if (hr != S_OK)
+    {
+        goto error;
     }
 
 done:
@@ -705,7 +733,7 @@ done:
 
 error:
     goto done;
-} // end function RespondToApplicationData
+} // end function EnqueueSendApplicationData
 
 HRESULT
 TLSConnection::ComputeMasterSecret(
