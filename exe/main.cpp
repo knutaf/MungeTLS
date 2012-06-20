@@ -200,9 +200,15 @@ HRESULT DummyServer::ProcessConnections()
     wprintf(L"client connected with handle %d\n", sockAccept);
 
     {
-        char c = 0;
+        const size_t c_cbReadBuffer = 5000;
+        const size_t c_cbMaxRecvSize = 5000;
+
+        assert(c_cbMaxRecvSize <= c_cbReadBuffer);
+
         ByteVector vbData;
+        size_t cbConsumedBuffer = 0;
         int cb;
+        int cbAvailable;
         HRESULT hr = S_OK;
         ULONG cMessages = 0;
 
@@ -223,19 +229,42 @@ HRESULT DummyServer::ProcessConnections()
             goto error;
         }
 
-        cb = recv(sockAccept, &c, 1, 0);
+        vbData.reserve(c_cbReadBuffer);
+        vbData.resize(c_cbReadBuffer);
+
+        hr = SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        if (cbAvailable > c_cbMaxRecvSize)
+        {
+            cbAvailable = c_cbMaxRecvSize;
+        }
+
+        cb = recv(
+                 sockAccept,
+                 reinterpret_cast<char*>(&vbData.front() + cbConsumedBuffer),
+                 cbAvailable,
+                 0);
+
         while (cb > 0)
         {
-            printf("read %d chars. got char: %01X\n", cb, c);
-            vbData.push_back(c);
+            printf("read %d bytes from the network\n", cb);
+
+            assert(cb <= vbData.size());
+            cbConsumedBuffer += cb;
+            assert(cbConsumedBuffer <= vbData.size());
+            vbData.resize(cbConsumedBuffer);
+
             LogRead(cMessages, &vbData);
 
-            hr = Connection()->HandleMessage(&vbData.front(), vbData.size());
-            if (hr == S_OK)
+            hr = Connection()->HandleMessage(&vbData);
+            while (hr == S_OK)
             {
                 printf("finished parsing message of size %lu\n", vbData.size());
                 cMessages++;
-                vbData.clear();
 
                 if (!PendingSends()->empty())
                 {
@@ -283,15 +312,47 @@ HRESULT DummyServer::ProcessConnections()
                         break;
                     }
                 }
+
+                hr = Connection()->HandleMessage(&vbData);
             }
-            else
-            {
-                printf("failed HandleMessage: %08LX\n", hr);
-            }
+
+            printf("failed HandleMessage (possibly expected): %08LX\n", hr);
 
             _fflush_nolock(stdout);
 
-            cb = recv(sockAccept, &c, 1, 0);
+            assert(vbData.size() <= c_cbReadBuffer);
+
+            /*
+            ** HandleMessage, if it succeeds, resizes vector, so update our
+            ** current knowledge of the consumed size of the vector, then
+            ** inflate it to the buffer size
+            */
+            cbConsumedBuffer = vbData.size();
+            vbData.resize(c_cbReadBuffer);
+
+            hr = SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable);
+            if (hr != S_OK)
+            {
+                printf("failed second SizeTToInt32. %lu - %lu\n", vbData.size(), cbConsumedBuffer);
+                goto error;
+            }
+
+            if (cbAvailable > c_cbMaxRecvSize)
+            {
+                cbAvailable = c_cbMaxRecvSize;
+            }
+
+            cb = recv(
+                     sockAccept,
+                     reinterpret_cast<char*>(&vbData.front() + cbConsumedBuffer),
+                     cbAvailable,
+                     0);
+        }
+
+        if (cb < 0)
+        {
+            printf("failed on recv: cb=%d, err=%08LX\n", cb, WSAGetLastError());
+            goto error;
         }
     }
 

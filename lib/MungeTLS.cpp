@@ -73,21 +73,19 @@ TLSConnection::Initialize(
 
 HRESULT
 TLSConnection::HandleMessage(
-    const BYTE* pv,
-    size_t cb
+    ByteVector* pvb
 )
 {
     HRESULT hr = S_OK;
 
-    assert(cb >= 0);
-
     MT_TLSPlaintext record;
+    size_t cbConsumed = 0;
 
     if (m_fSecureMode)
     {
         MT_TLSCiphertext message;
 
-        hr = message.ParseFrom(pv, cb);
+        hr = message.ParseFrom(&pvb->front(), pvb->size());
         if (hr != S_OK)
         {
             printf("failed to parse ciphered message: %08LX\n", hr);
@@ -111,9 +109,8 @@ TLSConnection::HandleMessage(
 
         {
             ByteVector vbDecryptedFragment;
-            message.CipherFragment()->SerializeToVect(&vbDecryptedFragment);
             printf("decrypted fragment:\n");
-            PrintByteVector(&vbDecryptedFragment);
+            PrintByteVector(message.CipherFragment()->Content());
         }
 
         hr = message.CheckSecurity();
@@ -149,11 +146,13 @@ TLSConnection::HandleMessage(
         }
 
         assert(ConnParams()->ClientWriteIV()->size() == ConnParams()->Cipher()->cbIVSize);
+
+        cbConsumed = message.Length();
     }
     else
     {
         MT_TLSPlaintext message;
-        hr = message.ParseFrom(pv, cb);
+        hr = message.ParseFrom(&pvb->front(), pvb->size());
         if (hr != S_OK)
         {
             printf("failed to parse message: %08LX\n", hr);
@@ -163,6 +162,7 @@ TLSConnection::HandleMessage(
         printf("successfully parsed TLSPlaintext. CT=%d\n", *message.ContentType()->Type());
 
         record = message;
+        cbConsumed = message.Length();
     }
 
 
@@ -373,28 +373,27 @@ TLSConnection::HandleMessage(
 
     // saving off any handshake messages
     for_each(PendingSends()->begin(), PendingSends()->end(),
-        [&hr, this](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
+    [&hr, this](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
+    {
+        if (hr == S_OK)
         {
-            if (hr == S_OK)
+            if (*rspStructure->ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
             {
-                if (*rspStructure->ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+                shared_ptr<MT_Structure> spHS(new MT_Handshake());
+
+                hr = spHS->ParseFromVect(rspStructure->Fragment());
+                if (hr != S_OK)
                 {
-                    shared_ptr<MT_Structure> spHS(new MT_Handshake());
-
-                    hr = spHS->ParseFromVect(rspStructure->Fragment());
-                    if (hr != S_OK)
-                    {
-                        // TODO: ought to just store raw bytes for this, probably
-                        printf("squashing error parsing handshake message: %08LX\n", hr);
-                        hr = S_OK;
-                        return;
-                    }
-
-                    ConnParams()->HandshakeMessages()->push_back(spHS);
+                    // TODO: ought to just store raw bytes for this, probably
+                    printf("squashing error parsing handshake message: %08LX\n", hr);
+                    hr = S_OK;
+                    return;
                 }
+
+                ConnParams()->HandshakeMessages()->push_back(spHS);
             }
         }
-    );
+    });
 
     hr = SendQueuedMessages();
     if (hr != S_OK)
@@ -402,6 +401,9 @@ TLSConnection::HandleMessage(
         wprintf(L"failed sending pending messages: %08LX\n", hr);
         goto error;
     }
+
+    assert(cbConsumed <= pvb->size());
+    pvb->erase(pvb->begin(), pvb->begin() + cbConsumed);
 
 done:
     return hr;

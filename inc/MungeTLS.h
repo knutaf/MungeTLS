@@ -626,7 +626,7 @@ class TLSConnection
     HRESULT Initialize(PCCERT_CHAIN_CONTEXT pCertChain);
 
     HRESULT
-    HandleMessage(const BYTE* pv, size_t cb);
+    HandleMessage(ByteVector* pvb);
 
     HRESULT
     CreatePlaintext(
