@@ -1752,6 +1752,7 @@ CryptoInfoFromCipherSuite(
 )
 {
     HRESULT hr = S_OK;
+    MT_CipherSuiteValue eCSV;
 
     if (pHashInfo == NULL && pCipherInfo == NULL)
     {
@@ -1759,19 +1760,25 @@ CryptoInfoFromCipherSuite(
         goto error;
     }
 
+    hr = pCipherSuite->Value(&eCSV);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
     if (pHashInfo)
     {
-        if (*pCipherSuite == MTCS_TLS_RSA_WITH_NULL_SHA ||
-            *pCipherSuite == MTCS_TLS_RSA_WITH_RC4_128_SHA ||
-            *pCipherSuite == MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA ||
-            *pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
-            *pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA)
+        if (eCSV == MTCS_TLS_RSA_WITH_NULL_SHA ||
+            eCSV == MTCS_TLS_RSA_WITH_RC4_128_SHA ||
+            eCSV == MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA ||
+            eCSV == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
+            eCSV == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA)
         {
             *pHashInfo = c_HashInfo_SHA1;
         }
-        else if (*pCipherSuite == MTCS_TLS_RSA_WITH_NULL_SHA256 ||
-                 *pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256 ||
-                 *pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
+        else if (eCSV == MTCS_TLS_RSA_WITH_NULL_SHA256 ||
+                 eCSV == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256 ||
+                 eCSV == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
         {
             *pHashInfo = c_HashInfo_SHA256;
         }
@@ -1784,18 +1791,18 @@ CryptoInfoFromCipherSuite(
 
     if (pCipherInfo)
     {
-        if (*pCipherSuite == MTCS_TLS_RSA_WITH_RC4_128_MD5 ||
-            *pCipherSuite ==  MTCS_TLS_RSA_WITH_RC4_128_SHA)
+        if (eCSV == MTCS_TLS_RSA_WITH_RC4_128_MD5 ||
+            eCSV ==  MTCS_TLS_RSA_WITH_RC4_128_SHA)
         {
             *pCipherInfo = c_CipherInfo_RC4_128;
         }
-        else if (*pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
-                 *pCipherSuite == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256)
+        else if (eCSV == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
+                 eCSV == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256)
         {
             *pCipherInfo = c_CipherInfo_AES_128;
         }
-        else if (*pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA ||
-                 *pCipherSuite == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
+        else if (eCSV == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA ||
+                 eCSV == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
         {
             *pCipherInfo = c_CipherInfo_AES_256;
         }
@@ -3736,8 +3743,15 @@ MT_CipherSuite::KeyExchangeAlgorithm(
 ) const
 {
     HRESULT hr = S_OK;
+    MT_CipherSuiteValue eCSV;
 
-    if (IsKnownCipherSuite(*this))
+    hr = Value(&eCSV);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    if (IsKnownCipherSuite(eCSV))
     {
         *pAlg = MTKEA_rsa;
     }
@@ -3746,10 +3760,17 @@ MT_CipherSuite::KeyExchangeAlgorithm(
         hr = MT_E_UNKNOWN_CIPHER_SUITE;
     }
 
+done:
     return hr;
+
+error:
+    goto done;
 } // end function KeyExchangeAlgorithm
 
-MT_CipherSuite::operator MT_CipherSuiteValue() const
+HRESULT
+MT_CipherSuite::Value(
+    MT_CipherSuiteValue* peValue
+) const
 {
     MT_CipherSuiteValue cs;
 
@@ -3761,10 +3782,13 @@ MT_CipherSuite::operator MT_CipherSuiteValue() const
                      Data()->size(),
                      reinterpret_cast<ULONG*>(&cs));
 
-    assert(hr == S_OK);
+    if (hr == S_OK)
+    {
+        *peValue = cs;
+    }
 
-    return cs;
-} // end operator MT_CipherSuiteValue
+    return hr;
+} // end operator Value
 
 /*********** MT_ClientKeyExchange *****************/
 

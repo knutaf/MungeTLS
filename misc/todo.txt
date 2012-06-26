@@ -16,6 +16,5 @@ WORK:
 - use error and done labels in all functions, not just goto error
 - go through all the code and rearrange order of functions to be more logical for read-through
 - think more about thread safety. what are the scenarios, anyway?
-- respondto* parameters are bad
-- functions to advance/reset sequence number
+- functions to advance/reset sequence number. maybe?
 - change up goto style of main loop

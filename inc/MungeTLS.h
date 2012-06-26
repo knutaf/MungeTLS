@@ -201,7 +201,7 @@ class MT_CipherSuite : public MT_FixedLengthByteStructure<2>
 {
     public:
     HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
-    operator MT_CipherSuiteValue() const;
+    HRESULT Value(MT_CipherSuiteValue* peValue) const;
 };
 
 class MT_Random : public MT_Structure
