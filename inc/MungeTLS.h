@@ -658,12 +658,9 @@ class TLSConnection
     ITLSListener* Listener() { return m_pListener; }
 
     private:
-    HRESULT RespondToClientHello(
-        const MT_ClientHello* pClientHello,
-        std::vector<std::shared_ptr<MT_RecordLayerMessage>>* pResponses);
+    HRESULT RespondToClientHello(const MT_ClientHello* pClientHello);
 
-    HRESULT RespondToFinished(
-        std::vector<std::shared_ptr<MT_RecordLayerMessage>>* pResponses);
+    HRESULT RespondToFinished();
 
     HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
     HRESULT GenerateKeyMaterial();

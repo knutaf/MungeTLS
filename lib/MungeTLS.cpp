@@ -211,7 +211,7 @@ TLSConnection::HandleMessage(
             *ConnParams()->NegotiatedVersion() = *(clientHello.ProtocolVersion());
             *ConnParams()->ClientRandom() = *(clientHello.Random());
 
-            hr = RespondToClientHello(&clientHello, PendingSends());
+            hr = RespondToClientHello(&clientHello);
             if (hr != S_OK)
             {
                 printf("failed RespondToClientHello: %08LX\n", hr);
@@ -306,7 +306,7 @@ TLSConnection::HandleMessage(
 
             ConnParams()->HandshakeMessages()->push_back(spHandshakeMessage);
 
-            hr = RespondToFinished(PendingSends());
+            hr = RespondToFinished();
             if (hr != S_OK)
             {
                 printf("failed RespondToFinished: %08LX\n", hr);
@@ -460,8 +460,7 @@ error:
 
 HRESULT
 TLSConnection::RespondToClientHello(
-    const MT_ClientHello* pClientHello,
-    vector<shared_ptr<MT_RecordLayerMessage>>* pResponses
+    const MT_ClientHello* pClientHello
 )
 {
     HRESULT hr = S_OK;
@@ -537,7 +536,12 @@ TLSConnection::RespondToClientHello(
             goto error;
         }
 
-        pResponses->push_back(spPlaintext);
+        hr = EnqueueMessage(spPlaintext);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
         (*ConnParams()->WriteSequenceNumber())++;
     }
 
@@ -583,7 +587,12 @@ TLSConnection::RespondToClientHello(
             goto error;
         }
 
-        pResponses->push_back(spPlaintext);
+        hr = EnqueueMessage(spPlaintext);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
         (*ConnParams()->WriteSequenceNumber())++;
     }
 
@@ -607,7 +616,12 @@ TLSConnection::RespondToClientHello(
             goto error;
         }
 
-        pResponses->push_back(spPlaintext);
+        hr = EnqueueMessage(spPlaintext);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
         (*ConnParams()->WriteSequenceNumber())++;
     }
 
@@ -618,9 +632,7 @@ error:
 } // end function RespondToClientHello
 
 HRESULT
-TLSConnection::RespondToFinished(
-    vector<shared_ptr<MT_RecordLayerMessage>>* pResponses
-)
+TLSConnection::RespondToFinished()
 {
     HRESULT hr = S_OK;
 
@@ -644,7 +656,11 @@ TLSConnection::RespondToFinished(
             goto error;
         }
 
-        pResponses->push_back(spPlaintext);
+        hr = EnqueueMessage(spPlaintext);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
 
         // ChangeCipherSpec resets sequence number
         *ConnParams()->WriteSequenceNumber() = 0;
@@ -687,7 +703,12 @@ TLSConnection::RespondToFinished(
             goto error;
         }
 
-        pResponses->push_back(spCiphertext);
+        hr = EnqueueMessage(spCiphertext);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
         (*ConnParams()->WriteSequenceNumber())++;
 
         ConnParams()->ServerWriteIV()->assign(spCiphertext->Fragment()->end() - ConnParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
