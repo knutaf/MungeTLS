@@ -6,8 +6,6 @@ WORK:
 - configurable behavior about whether to encapsulate multiple handshake messages with a new plaintext message each, or to bundle them in one
 - ability to verify correct cert usages before using
 - platform agnostic method of specifying certificate - what format?
-- proper consts for all magic numbers
-- remove the cast operator from MT_CipherSuite to CipherSuiteValue
 - don't access MT_VariableLengthField::Data. surface common operations
 - support null encryption
 - runtime customizable cipher suite
@@ -18,3 +16,6 @@ WORK:
 - think more about thread safety. what are the scenarios, anyway?
 - functions to advance/reset sequence number. maybe?
 - change up goto style of main loop
+- last parameter optional in MT_VariableLengthField and co.
+- look into with returning accessors for shared_ptrs
+- maybe: in parsefrom functions, error path should unset member variables

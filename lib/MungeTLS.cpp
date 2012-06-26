@@ -496,7 +496,7 @@ TLSConnection::RespondToClientHello(
         //*(ConnParams()->CipherSuite()->at(0)) = 0x00;
         //*(ConnParams()->CipherSuite()->at(1)) = 0x05;
 
-        compressionMethod.SetMethod(MT_CompressionMethod::MTCM_Null);
+        *compressionMethod.Method() = MT_CompressionMethod::MTCM_Null;
 
         {
             MT_Extension renegotiationExtension;
@@ -679,7 +679,7 @@ TLSConnection::RespondToFinished()
             goto error;
         }
 
-        hr = finished.ComputeVerifyData("server finished", finished.VerifyData()->Data());
+        hr = finished.ComputeVerifyData(c_szServerFinished_PRFLabel, finished.VerifyData()->Data());
         if (hr != S_OK)
         {
             goto error;
@@ -795,9 +795,9 @@ TLSConnection::ComputeMasterSecret(
 
     hr = ConnParams()->ComputePRF(
              &vbPreMasterSecret,
-             "master secret",
+             c_szMasterSecret_PRFLabel,
              &vbRandoms,
-             48,
+             c_cbMasterSecret_Length,
              ConnParams()->MasterSecret());
 
     if (hr != S_OK)
@@ -805,7 +805,7 @@ TLSConnection::ComputeMasterSecret(
         goto error;
     }
 
-    assert(ConnParams()->MasterSecret()->size() == 48);
+    assert(ConnParams()->MasterSecret()->size() == c_cbMasterSecret_Length);
 
 done:
     return hr;
@@ -827,6 +827,11 @@ TLSConnection::GenerateKeyMaterial()
 
     assert(!ConnParams()->MasterSecret()->empty());
 
+    /*
+    ** client and server hash keys
+    ** client and server keys
+    ** client and server IVs
+    */
     cbKeyBlock = (ConnParams()->Hash()->cbHashKeySize * 2) +
                  (ConnParams()->Cipher()->cbKeyMaterialSize * 2) +
                  (ConnParams()->Cipher()->cbIVSize * 2);
@@ -854,7 +859,7 @@ TLSConnection::GenerateKeyMaterial()
 
     hr = ConnParams()->ComputePRF(
              ConnParams()->MasterSecret(),
-             "key expansion",
+             c_szKeyExpansion_PRFLabel,
              &vbRandoms,
              cbKeyBlock,
              &vbKeyBlock);
@@ -1304,6 +1309,7 @@ ResizeVector<BYTE>(
     typename ByteVector::size_type siz
 )
 {
+    // arbitrary filler value
     pv->resize(siz, 0x23);
 } // end function ResizeVector<BYTE>
 
@@ -1828,19 +1834,7 @@ MT_Structure::ParseFrom(
     size_t cb
 )
 {
-    HRESULT hr = S_OK;
-
-    // if there are no 0-byte fields, this can be <=
-    if (cb < 0)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    hr = ParseFromPriv(pv, cb);
-
-error:
-    return hr;
+    return ParseFromPriv(pv, cb);
 } // end function ParseFrom
 
 HRESULT
@@ -1910,7 +1904,7 @@ MT_VariableLengthFieldBase
     : MT_Structure()
 {
     assert(LengthFieldSize <= sizeof(size_t));
-    assert((1UL << (LengthFieldSize * 8)) - 1 >= MaxSize);
+    assert(MAXFORBYTES(LengthFieldSize) >= MaxSize);
 }
 
 template <typename F,
@@ -2018,7 +2012,7 @@ MT_VariableLengthField
 <F, LengthFieldSize, MinSize, MaxSize>
 ::DataLength() const
 {
-    assert((1UL << (LengthFieldSize * 8)) - 1 >= MaxSize);
+    assert(MAXFORBYTES(LengthFieldSize) >= MaxSize);
 
     size_t cbTotalDataLength = accumulate(
         Data()->begin(),
@@ -2374,7 +2368,7 @@ MT_PublicKeyEncryptedStructure<T>::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    size_t cbField = 2;
+    size_t cbField = c_cbPublicKeyEncrypted_LFL;
     size_t cbStructureLength = 0;
 
     hr = ReadNetworkLong(pv, cb, cbField, &cbStructureLength);
@@ -2477,7 +2471,7 @@ MT_RecordLayerMessage::ParseFromPriv(
     ADVANCE_PARSE();
 
 
-    cbField = 2;
+    cbField = c_cbRecordLayerMessage_Fragment_LFL;
     hr = ReadNetworkLong(pv, cb, cbField, &cbFragmentLength);
     if (hr != S_OK)
     {
@@ -2514,7 +2508,7 @@ MT_RecordLayerMessage::Length() const
 {
     size_t cbLength = ContentType()->Length() +
                       ProtocolVersion()->Length() +
-                      2 + // sizeof MT_UINT16 payload length
+                      c_cbRecordLayerMessage_Fragment_LFL +
                       PayloadLength();
 
     return cbLength;
@@ -2546,8 +2540,7 @@ MT_RecordLayerMessage::SerializePriv(
 
     ADVANCE_PARSE();
 
-    // uint16 length;
-    cbField = 2;
+    cbField = c_cbRecordLayerMessage_Fragment_LFL;
     hr = WriteNetworkLong(PayloadLength(), cbField, pv, cb);
     if (hr != S_OK)
     {
@@ -2641,6 +2634,11 @@ MT_TLSCiphertext::Decrypt()
         goto error;
     }
 
+    /*
+    ** it is crucial that this pass in exactly the fragment assigned to this
+    ** TLSCiphertext--no more, no less--because CipherFragment itself has no
+    ** way to validate the length. it just accepts everything it's given
+    */
     hr = CipherFragment()->ParseFromVect(Fragment());
     if (hr != S_OK)
     {
@@ -2839,22 +2837,17 @@ MT_ContentType::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
+    size_t cbField = Length();
 
-    if (Length() > cb)
+    assert(Length() == c_cbContentType_Length);
+
+    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<BYTE*>(Type()));
+    if (hr != S_OK)
     {
-        hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
 
-    MTCT_Type eType = static_cast<MTCT_Type>(pv[0]);
-
-    if (!IsValidContentType(eType))
-    {
-        hr = MT_E_UNKNOWN_CONTENT_TYPE;
-        goto error;
-    }
-
-    *Type() = eType;
+    ADVANCE_PARSE();
 
 error:
     return hr;
@@ -2869,6 +2862,8 @@ MT_ContentType::SerializePriv(
     HRESULT hr = S_OK;
 
     size_t cbField = Length();
+    assert(Length() == c_cbContentType_Length);
+
     hr = WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb);
     if (hr != S_OK)
     {
@@ -2905,7 +2900,9 @@ MT_ProtocolVersion::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    size_t cbField = 2;
+    size_t cbField = Length();
+
+    assert(Length() == c_cbProtocolVersion_Length);
 
     hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Version()));
     if (hr != S_OK)
@@ -2935,7 +2932,8 @@ MT_ProtocolVersion::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-    size_t cbField = 2;
+    size_t cbField = Length();
+    assert(Length() == c_cbProtocolVersion_Length);
 
     hr = WriteNetworkLong(static_cast<ULONG>(*Version()), cbField, pv, cb);
     if (hr != S_OK)
@@ -3006,35 +3004,29 @@ MT_Handshake::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    size_t cbField = 1;
-    MTH_HandshakeType eType = MTH_Unknown;
+    size_t cbField = c_cbHandshakeType_Length;
     size_t cbPayloadLength = 0;
 
-    if (cbField > cb)
+    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type()));
+    if (hr != S_OK)
     {
-        hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
 
-    eType = static_cast<MTH_HandshakeType>(pv[0]);
-
-    if (!IsKnownType(eType))
+    if (!IsKnownType(*Type()))
     {
-        hr = MT_E_UNKNOWN_HANDSHAKE_TYPE;
-        goto error;
+        wprintf(L"warning: unknown handshake type: %d\n", *Type());
     }
 
-    if (!IsSupportedType(eType))
+    if (!IsSupportedType(*Type()))
     {
         hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
         goto error;
     }
 
-    m_eType = eType;
-
     ADVANCE_PARSE();
 
-    cbField = LengthFieldLength();
+    cbField = c_cbHandshake_LFL;
     hr = ReadNetworkLong(pv, cb, cbField, &cbPayloadLength);
     if (hr != S_OK)
     {
@@ -3061,8 +3053,8 @@ error:
 size_t
 MT_Handshake::Length() const
 {
-    return 1 + // handshake type
-           LengthFieldLength() +
+    return c_cbHandshakeType_Length +
+           c_cbHandshake_LFL +
            PayloadLength();
 } // end function Length
 
@@ -3089,7 +3081,7 @@ MT_Handshake::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-    size_t cbField = 1;
+    size_t cbField = c_cbHandshakeType_Length;
 
     hr = WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb);
     if (hr != S_OK)
@@ -3099,7 +3091,7 @@ MT_Handshake::SerializePriv(
 
     ADVANCE_PARSE();
 
-    cbField = LengthFieldLength();
+    cbField = c_cbHandshake_LFL;
     hr = WriteNetworkLong(PayloadLength(), cbField, pv, cb);
     if (hr != S_OK)
     {
@@ -3179,8 +3171,6 @@ wstring MT_Handshake::HandshakeTypeString() const
 
 /*********** MT_Random *****************/
 
-const size_t MT_Random::c_cbRandomBytes = 28;
-
 MT_Random::MT_Random()
     : MT_Structure(),
       m_timestamp(0),
@@ -3196,8 +3186,7 @@ MT_Random::ParseFromPriv(
 {
     HRESULT hr = S_OK;
 
-    // Random.(uint32 gmt_unix_time)
-    size_t cbField = 4;
+    size_t cbField = c_cbRandomTime_Length;
     hr = ReadNetworkLong(pv, cb, cbField, &m_timestamp);
     if (hr != S_OK)
     {
@@ -3206,8 +3195,7 @@ MT_Random::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    // Random.(opaque random_bytes[28])
-    cbField = c_cbRandomBytes;
+    cbField = c_cbRandomBytes_Length;
     if (cbField > cb)
     {
         hr = MT_E_INCOMPLETE_MESSAGE;
@@ -3229,7 +3217,7 @@ MT_Random::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-    size_t cbField = 4;
+    size_t cbField = c_cbRandomTime_Length;
 
     hr = WriteNetworkLong(GMTUnixTime(), cbField, pv, cb);
     if (hr != S_OK)
@@ -3239,6 +3227,7 @@ MT_Random::SerializePriv(
 
     ADVANCE_PARSE();
 
+    assert(RandomBytes()->size() == c_cbRandomBytes_Length);
     cbField = RandomBytes()->size();
     if (cbField > cb)
     {
@@ -3280,7 +3269,7 @@ MT_Random::PopulateNow()
 
     SetGMTUnixTime(t);
 
-    ResizeVector(RandomBytes(), c_cbRandomBytes);
+    ResizeVector(RandomBytes(), c_cbRandomBytes_Length);
     /*
     hr = WriteRandomBytes(&RandomBytes()->front(), RandomBytes()->size());
 
@@ -3392,7 +3381,7 @@ MT_ClientHello::Length() const
 
 MT_CompressionMethod::MT_CompressionMethod()
     : MT_Structure(),
-      m_compressionMethod(MTCM_Unknown)
+      m_eMethod(MTCM_Unknown)
 {
 }
 
@@ -3403,21 +3392,20 @@ MT_CompressionMethod::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    size_t cbField = 1;
+    size_t cbField = Length();
 
-    if (cbField > cb)
+    assert(Length() == c_cbCompressionMethod_Length);
+
+    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Method()));
+    if (hr != S_OK)
     {
-        hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
 
-    if (pv[0] != MTCM_Null)
+    if (*Method() != MTCM_Null)
     {
-        hr = MT_E_UNKNOWN_COMPRESSION_METHOD;
-        goto error;
+        wprintf(L"unknown compression method: %d\n", *Method());
     }
-
-    m_compressionMethod = pv[0];
 
     ADVANCE_PARSE();
 
@@ -3432,9 +3420,10 @@ MT_CompressionMethod::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-    size_t cbField = 1;
+    size_t cbField = Length();
+    assert(Length() == c_cbCompressionMethod_Length);
 
-    hr = WriteNetworkLong(static_cast<ULONG>(Method()), cbField, pv, cb);
+    hr = WriteNetworkLong(static_cast<ULONG>(*Method()), cbField, pv, cb);
 
     if (hr != S_OK)
     {
@@ -3446,14 +3435,6 @@ MT_CompressionMethod::SerializePriv(
 error:
     return hr;
 } // end function SerializePriv
-
-MT_UINT8
-MT_CompressionMethod::Method() const
-{
-    assert(m_compressionMethod == MTCM_Null);
-    return m_compressionMethod;
-} // end function Method
-
 
 /*********** MT_ServerHello *****************/
 
@@ -3660,28 +3641,22 @@ MT_PreMasterSecret::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    if (Length() > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
-    cbField = ClientVersion()->Length();
     hr = ClientVersion()->Serialize(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
+    cbField = ClientVersion()->Length();
     ADVANCE_PARSE();
 
-    cbField = Random()->Length();
     hr = Random()->Serialize(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
+    cbField = Random()->Length();
     ADVANCE_PARSE();
 
 done:
@@ -3810,7 +3785,7 @@ MT_ClientKeyExchange<KeyType>::ParseFromPriv(
 
     assert(ExchangeKeys() == nullptr);
 
-    m_spExchangeKeys.reset(new KeyType());
+    m_spExchangeKeys = shared_ptr<KeyType>(new KeyType());
 
     hr = ExchangeKeys()->ParseFrom(pv, cb);
     if (hr != S_OK)
@@ -3829,7 +3804,7 @@ error:
 
 MT_ChangeCipherSpec::MT_ChangeCipherSpec()
     : MT_Structure(),
-      m_type(MTCCS_ChangeCipherSpec)
+      m_eType(MTCCS_Unknown)
 {
 } // end ctor MT_ChangeCipherSpec
 
@@ -3840,9 +3815,11 @@ MT_ChangeCipherSpec::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    size_t cbField = 1;
+    size_t cbField = Length();
 
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<UINT*>(Type()));
+    assert(Length() == c_cbChangeCipherSpec_Length);
+
+    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type()));
     if (hr != S_OK)
     {
         goto error;
@@ -3866,17 +3843,14 @@ MT_ChangeCipherSpec::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-
-    if (Length() > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
-    size_t cbField = 1;
+    size_t cbField = Length();
+    assert(Length() == c_cbChangeCipherSpec_Length);
 
     hr = WriteNetworkLong(static_cast<BYTE>(*Type()), cbField, pv, cb);
-    assert(hr == S_OK);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
     ADVANCE_PARSE();
 
@@ -3900,7 +3874,7 @@ MT_Extension::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    size_t cbField = 2;
+    size_t cbField = c_cbExtensionType_Length;
     size_t cbExtensionLength = 0;
 
     hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(ExtensionType()));
@@ -3911,7 +3885,7 @@ MT_Extension::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    cbField = 2;
+    cbField = c_cbExtensionData_LFL;
     hr = ReadNetworkLong(pv, cb, cbField, &cbExtensionLength);
     if (hr != S_OK)
     {
@@ -3943,8 +3917,8 @@ error:
 size_t
 MT_Extension::Length() const
 {
-    size_t cbLength = 2 + // extension type
-                      2 + // extension length field
+    size_t cbLength = c_cbExtensionType_Length +
+                      c_cbExtensionData_LFL +
                       ExtensionData()->size();
     return cbLength;
 } // end function Length
@@ -3958,13 +3932,7 @@ MT_Extension::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    if (Length() > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
-    cbField = 2;
+    cbField = c_cbExtensionType_Length;
     hr = WriteNetworkLong(static_cast<ULONG>(*ExtensionType()), cbField, pv, cb);
     if (hr != S_OK)
     {
@@ -3973,7 +3941,7 @@ MT_Extension::SerializePriv(
 
     ADVANCE_PARSE();
 
-    cbField = 2;
+    cbField = c_cbExtensionData_LFL;
     hr = WriteNetworkLong(ExtensionData()->size(), cbField, pv, cb);
     if (hr != S_OK)
     {
@@ -3983,7 +3951,11 @@ MT_Extension::SerializePriv(
     ADVANCE_PARSE();
 
     cbField = ExtensionData()->size();
-    assert(cbField <= cb);
+    if (cbField > cb)
+    {
+        goto error;
+    }
+
     std::copy(ExtensionData()->begin(), ExtensionData()->end(), pv);
 
     ADVANCE_PARSE();
@@ -4030,7 +4002,7 @@ MT_Finished::CheckSecurityPriv()
     ByteVector vbComputedVerifyData;
 
     hr = ComputeVerifyData(
-             "client finished",
+             c_szClientFinished_PRFLabel,
              &vbComputedVerifyData);
 
     if (hr != S_OK)
@@ -4143,7 +4115,7 @@ MT_Finished::ComputeVerifyData(
              ConnParams()->MasterSecret(),
              szLabel,
              &vbHashedHandshakeMessages,
-             12,
+             c_cbFinishedVerifyData_Length,
              pvbVerifyData);
 
     if (hr != S_OK)
@@ -4366,10 +4338,10 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
 
     const HashInfo* pHashInfo = ConnParams()->Hash();
 
-    cb = 8 + // seq_num
-         1 + // content type
-         2 + // version
-         2 + // fragment length
+    cb = c_cbSequenceNumber_Length +
+         c_cbContentType_Length +
+         c_cbProtocolVersion_Length +
+         c_cbRecordLayerMessage_Fragment_LFL +
          Content()->size();
 
     printf("MAC text is %d bytes\n", cb);
@@ -4379,7 +4351,7 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
 
     printf("sequence number: %d\n", sequenceNumber);
 
-    cbField = 8;
+    cbField = c_cbSequenceNumber_Length;
     hr = WriteNetworkLong(
              sequenceNumber,
              cbField,
@@ -4393,7 +4365,7 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = 1;
+    cbField = c_cbContentType_Length;
     hr = WriteNetworkLong(
              static_cast<ULONG>(*pContentType->Type()),
              cbField,
@@ -4407,7 +4379,7 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = 2;
+    cbField = c_cbProtocolVersion_Length;
     hr = WriteNetworkLong(
              static_cast<ULONG>(*pProtocolVersion->Version()),
              cbField,
@@ -4421,7 +4393,7 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = 2;
+    cbField = c_cbRecordLayerMessage_Fragment_LFL;
     hr = WriteNetworkLong(
              Content()->size(),
              cbField,
@@ -4534,7 +4506,7 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
 
     /*
     ** we have to be careful only to call this when we mean it, or else it
-    ** changes the internal state of the cipherer down in cryptapi
+    ** changes the internal state of the cipherer
     */
     hr = ConnParams()->ClientSymCipherer()->DecryptBuffer(
              RawContent(),
@@ -4544,9 +4516,9 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
     pv = &vbDecryptedStruct.front();
     cb = vbDecryptedStruct.size();
 
-    pvEnd = &pv[cb - 1];
+    pvEnd = &pv[cb - c_cbGenericBlockCipher_Padding_LFL];
 
-    cbField = 1;
+    cbField = c_cbGenericBlockCipher_Padding_LFL;
     if (cb < cbField)
     {
         hr = MT_E_INCOMPLETE_MESSAGE;
@@ -4572,8 +4544,10 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
     /*
     ** cbPaddingLength = cbField = 5
     **
-    ** yy yy yy 05 05 05 05 05
-    **          ^           ^
+    ** yy yy yy 05 05 05 05 05 05
+    **          ^           ^  ^
+    **          |           |  padding length
+    **          |           |
     **          |           pvEnd
     **          pvEnd -
     **          cbField + 1
@@ -4637,7 +4611,7 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity(
     cb = Content()->size() +
          MAC()->size() +
          Padding()->size() +
-         1; // padding length
+         c_cbGenericBlockCipher_Padding_LFL;
 
     {
         const CipherInfo* pCipherInfo = ConnParams()->Cipher();
@@ -4666,7 +4640,7 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity(
 
     ADVANCE_PARSE();
 
-    cbField = 1;
+    cbField = c_cbGenericBlockCipher_Padding_LFL;
     hr = WriteNetworkLong(PaddingLength(), cbField, pv, cb);
     if (hr != S_OK)
     {
@@ -4724,10 +4698,10 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
     const HashInfo* pHashInfo = ConnParams()->Hash();
     const CipherInfo* pCipherInfo = ConnParams()->Cipher();
 
-    cb = 8 + // seq_num
-         1 + // content type
-         2 + // version
-         2 + // fragment length
+    cb = c_cbSequenceNumber_Length +
+         c_cbContentType_Length +
+         c_cbProtocolVersion_Length +
+         c_cbRecordLayerMessage_Fragment_LFL +
          Content()->size();
 
     printf("MAC text is %d bytes\n", cb);
@@ -4737,7 +4711,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
 
     printf("sequence number: %d\n", sequenceNumber);
 
-    cbField = 8;
+    cbField = c_cbSequenceNumber_Length;
     hr = WriteNetworkLong(
              sequenceNumber,
              cbField,
@@ -4751,7 +4725,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = 1;
+    cbField = c_cbContentType_Length;
     hr = WriteNetworkLong(
              static_cast<ULONG>(*pContentType->Type()),
              cbField,
@@ -4765,7 +4739,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = 2;
+    cbField = c_cbProtocolVersion_Length;
     hr = WriteNetworkLong(
              static_cast<ULONG>(*pProtocolVersion->Version()),
              cbField,
@@ -4779,7 +4753,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = 2;
+    cbField = c_cbRecordLayerMessage_Fragment_LFL;
     hr = WriteNetworkLong(
              Content()->size(),
              cbField,
@@ -4829,8 +4803,10 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
         assert((cbPaddedBlockLength % pCipherInfo->cbBlockSize) == 0);
         assert(cbPaddedBlockLength > 0);
 
-        // minus one for the padding length value itself
-        size_t cbPaddingLength = cbPaddedBlockLength - Content()->size() - MAC()->size() - 1;
+        size_t cbPaddingLength = cbPaddedBlockLength -
+                                 Content()->size() -
+                                 MAC()->size() -
+                                 c_cbGenericBlockCipher_Padding_LFL;
         BYTE b = 0;
 
         hr = SizeTToByte(cbPaddingLength, &b);
@@ -4844,7 +4820,15 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
         pvbPadding->assign(cbPaddingLength, b);
     }
 
-    assert(((Content()->size() + MAC()->size() + pvbPadding->size() + 1) % pCipherInfo->cbBlockSize) == 0);
+    assert(
+    (
+      (Content()->size() +
+       MAC()->size() +
+       pvbPadding->size() +
+       c_cbGenericBlockCipher_Padding_LFL)
+       %
+       pCipherInfo->cbBlockSize
+    ) == 0);
 
 done:
     return hr;
@@ -4960,16 +4944,21 @@ MT_GenericBlockCipher_TLS12::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    pvEnd = &pv[cb - 1];
+    pvEnd = &pv[cb - c_cbGenericBlockCipher_Padding_LFL];
 
-    cbField = 1;
+    cbField = c_cbGenericBlockCipher_Padding_LFL;
     if (cb < cbField)
     {
         hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
 
-    cbPaddingLength = *pvEnd;
+    hr = ReadNetworkLong(pvEnd, cbField, cbField, &cbPaddingLength);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
     cb -= cbField;
     pvEnd -= cbField;
 
@@ -4980,6 +4969,7 @@ MT_GenericBlockCipher_TLS12::ParseFromPriv(
         goto error;
     }
 
+    // see TLS1.0 implementation for more comments
     Padding()->assign(pvEnd - cbPaddingLength + 1, pvEnd + 1);
 
     {
@@ -5043,7 +5033,7 @@ MT_GenericBlockCipher_TLS12::UpdateWriteSecurity(
          Content()->size() +
          MAC()->size() +
          Padding()->size() +
-         1; // padding length
+         c_cbGenericBlockCipher_Padding_LFL; // padding length
 
     {
         const CipherInfo* pCipherInfo = ConnParams()->Cipher();
@@ -5084,7 +5074,7 @@ MT_GenericBlockCipher_TLS12::UpdateWriteSecurity(
 
     ADVANCE_PARSE();
 
-    cbField = 1;
+    cbField = c_cbGenericBlockCipher_Padding_LFL;
     hr = WriteNetworkLong(PaddingLength(), cbField, pv, cb);
     if (hr != S_OK)
     {
@@ -5142,10 +5132,10 @@ MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
     const HashInfo* pHashInfo = ConnParams()->Hash();
     const CipherInfo* pCipherInfo = ConnParams()->Cipher();
 
-    cb = 8 + // seq_num
-         1 + // content type
-         2 + // version
-         2 + // fragment length
+    cb = c_cbSequenceNumber_Length +
+         c_cbContentType_Length +
+         c_cbProtocolVersion_Length +
+         c_cbRecordLayerMessage_Fragment_LFL +
          Content()->size();
 
     printf("MAC text is %d bytes\n", cb);
@@ -5155,7 +5145,7 @@ MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
 
     printf("sequence number: %d\n", sequenceNumber);
 
-    cbField = 8;
+    cbField = c_cbSequenceNumber_Length;
     hr = WriteNetworkLong(
              sequenceNumber,
              cbField,
@@ -5169,7 +5159,7 @@ MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = 1;
+    cbField = c_cbContentType_Length;
     hr = WriteNetworkLong(
              static_cast<ULONG>(*pContentType->Type()),
              cbField,
@@ -5183,7 +5173,7 @@ MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = 2;
+    cbField = c_cbProtocolVersion_Length;
     hr = WriteNetworkLong(
              static_cast<ULONG>(*pProtocolVersion->Version()),
              cbField,
@@ -5197,7 +5187,7 @@ MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = 2;
+    cbField = c_cbRecordLayerMessage_Fragment_LFL;
     hr = WriteNetworkLong(
              Content()->size(),
              cbField,
@@ -5248,7 +5238,10 @@ MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
         assert(cbPaddedBlockLength > 0);
 
         // minus one for the padding length value itself
-        size_t cbPaddingLength = cbPaddedBlockLength - Content()->size() - MAC()->size() - 1;
+        size_t cbPaddingLength = cbPaddedBlockLength -
+                                 Content()->size() -
+                                 MAC()->size() -
+                                 c_cbGenericBlockCipher_Padding_LFL;
         BYTE b = 0;
 
         hr = SizeTToByte(cbPaddingLength, &b);
@@ -5262,7 +5255,15 @@ MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
         pvbPadding->assign(cbPaddingLength, b);
     }
 
-    assert(((Content()->size() + MAC()->size() + pvbPadding->size() + 1) % pCipherInfo->cbBlockSize) == 0);
+    assert(
+    (
+      (Content()->size() +
+      MAC()->size() +
+      pvbPadding->size() +
+      c_cbGenericBlockCipher_Padding_LFL)
+      %
+      pCipherInfo->cbBlockSize
+    ) == 0);
 
 done:
     return hr;
@@ -5342,9 +5343,9 @@ MT_Alert::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    size_t cbField = 1;
+    size_t cbField = c_cbAlertLevel_Length;
 
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<BYTE*>(Level()));
+    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Level()));
     if (hr != S_OK)
     {
         goto error;
@@ -5352,8 +5353,8 @@ MT_Alert::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    cbField = 1;
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<BYTE*>(Description()));
+    cbField = c_cbAlertDescription_Length;
+    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Description()));
     if (hr != S_OK)
     {
         goto error;
@@ -5375,7 +5376,7 @@ MT_Alert::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-    size_t cbField = 1;
+    size_t cbField = c_cbAlertLevel_Length;
 
     hr = WriteNetworkLong(static_cast<BYTE>(*Level()), cbField, pv, cb);
     if (hr != S_OK)
@@ -5385,7 +5386,7 @@ MT_Alert::SerializePriv(
 
     ADVANCE_PARSE();
 
-    cbField = 1;
+    cbField = c_cbAlertDescription_Length;
     hr = WriteNetworkLong(static_cast<BYTE>(*Description()), cbField, pv, cb);
     if (hr != S_OK)
     {

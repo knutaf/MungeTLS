@@ -27,6 +27,76 @@ const HRESULT MT_E_BAD_RECORD_MAC                           = 0x8023000e;
 const HRESULT MT_E_BAD_RECORD_PADDING                       = 0x8023000f;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
+/************************** Protocol Constants **********************/
+
+// A public-key-encrypted element is encoded as an opaque vector<0..2^16-1>
+const size_t c_cbPublicKeyEncrypted_LFL = 2;
+
+// uint16 length;
+const size_t c_cbRecordLayerMessage_Fragment_LFL = 2;
+
+// enum going from 0 - 255
+const size_t c_cbContentType_Length = 1;
+
+// uint8 major, minor;
+const size_t c_cbProtocolVersion_Length = 2;
+
+// enum going from 0 - 255
+const size_t c_cbHandshakeType_Length = 1;
+
+// uint24 length;
+const size_t c_cbHandshake_LFL = 3;
+
+// uint32 gmt_unix_time;
+const size_t c_cbRandomTime_Length = 4;
+
+// opaque random_bytes[28];
+const size_t c_cbRandomBytes_Length = 28;
+
+// enum going from 0 - 255
+const size_t c_cbCompressionMethod_Length = 1;
+
+// enum going from 0 - 255
+const size_t c_cbChangeCipherSpec_Length = 1;
+
+// dunno where this is documented
+const size_t c_cbExtensionType_Length = 2;
+
+// dunno where this is documented
+const size_t c_cbExtensionData_LFL = 2;
+
+// uint8 padding_length;
+const size_t c_cbGenericBlockCipher_Padding_LFL = 1;
+
+// enum going from 0 - 255
+const size_t c_cbAlertLevel_Length = 1;
+
+// enum going from 0 - 255
+const size_t c_cbAlertDescription_Length = 1;
+
+// "The master secret is always exactly 48 bytes in length."
+const size_t c_cbMasterSecret_Length = 48;
+
+// opaque verify_data[12];
+const size_t c_cbFinishedVerifyData_Length = 12;
+
+// Sequence numbers are of type uint64 and may not exceed 2^64-1.
+const size_t c_cbSequenceNumber_Length = 8;
+
+// master_secret = PRF(pre_master_secret, "master secret", ...
+const PCSTR c_szMasterSecret_PRFLabel = "master secret";
+
+// key_block = PRF(SecurityParameters.master_secret, "key expansion", ...
+const PCSTR c_szKeyExpansion_PRFLabel = "key expansion";
+
+// For Finished messages sent by the server, the string "server finished".
+const PCSTR c_szServerFinished_PRFLabel = "server finished";
+
+// For Finished messages sent by the client, the string "client finished".
+const PCSTR c_szClientFinished_PRFLabel = "client finished";
+
+/************************** End Protocol Constants **********************/
+
 extern const BYTE c_abyCert[];
 extern const size_t c_cbCert;
 
@@ -185,7 +255,7 @@ class MT_ProtocolVersion : public MT_Structure
 
     ACCESSORS(MTPV_Version*, Version, &m_eVersion);
 
-    size_t Length() const { return 2; } // sizeof(MT_UINT16)
+    size_t Length() const { return c_cbProtocolVersion_Length; }
 
     static bool IsKnownVersion(MTPV_Version eVersion);
 
@@ -353,7 +423,7 @@ class MT_ContentType : public MT_Structure
     MT_ContentType();
     ~MT_ContentType() {};
 
-    size_t Length() const { return 1; }
+    size_t Length() const { return c_cbContentType_Length; }
     ACCESSORS(MTCT_Type*, Type, &m_eType);
 
     static bool IsValidContentType(MTCT_Type eType);
@@ -412,16 +482,15 @@ class MT_CompressionMethod : public MT_Structure
     MT_CompressionMethod();
     ~MT_CompressionMethod() { }
 
-    size_t Length() const { return 1; }
+    size_t Length() const { return c_cbCompressionMethod_Length; }
 
-    MT_UINT8 Method() const;
-    void SetMethod(MTCM_Method eMethod) { m_compressionMethod = eMethod; }
+    ACCESSORS(MTCM_Method*, Method, &m_eMethod);
 
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    MT_UINT8 m_compressionMethod;
+    MTCM_Method m_eMethod;
 };
 
 // CompressionMethod compression_methods<1..2^8-1>;
@@ -520,9 +589,6 @@ class MT_Handshake : public MT_Structure
 
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
-
-    // uint24 length
-    size_t LengthFieldLength() const { return 3; }
 
     MTH_HandshakeType m_eType;
     ByteVector m_vbBody;
@@ -752,15 +818,15 @@ class MT_ChangeCipherSpec : public MT_Structure
     MT_ChangeCipherSpec();
     ~MT_ChangeCipherSpec() { }
 
-    size_t Length() const { return 1; }
+    size_t Length() const { return c_cbChangeCipherSpec_Length; }
 
-    ACCESSORS(MTCCS_Type*, Type, &m_type);
+    ACCESSORS(MTCCS_Type*, Type, &m_eType);
 
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    MTCCS_Type m_type;
+    MTCCS_Type m_eType;
 };
 
 class MT_Finished : public MT_Structure, public MT_Securable
@@ -955,7 +1021,11 @@ class MT_Alert : public MT_Structure
     MT_Alert();
     ~MT_Alert() { }
 
-    size_t Length() const { return 2; }
+    size_t Length() const
+    {
+        return c_cbAlertLevel_Length +
+               c_cbAlertDescription_Length;
+    }
 
     ACCESSORS(MT_AlertLevel*, Level, &m_eLevel);
     ACCESSORS(MT_AlertDescription*, Description, &m_eDescription);
