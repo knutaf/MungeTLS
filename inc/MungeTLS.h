@@ -27,6 +27,9 @@ const HRESULT MT_E_BAD_RECORD_MAC                           = 0x8023000e;
 const HRESULT MT_E_BAD_RECORD_PADDING                       = 0x8023000f;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
+const HRESULT MT_S_LISTENER_HANDLED                         = 0x00230002;
+const HRESULT MT_S_LISTENER_IGNORED                         = 0x00230003;
+
 /************************** Protocol Constants **********************/
 
 // A public-key-encrypted element is encoded as an opaque vector<0..2^16-1>
@@ -299,6 +302,119 @@ class MT_Random : public MT_Structure
     ByteVector m_vbRandomBytes;
 };
 
+class MT_Extension : public MT_Structure
+{
+    public:
+    enum MTE_ExtensionType
+    {
+        MTEE_RenegotiationInfo = 0xff01,
+        MTEE_Unknown = 65535
+    };
+
+    MT_Extension();
+    ~MT_Extension() { }
+
+    size_t Length() const;
+
+    ACCESSORS(MTE_ExtensionType*, ExtensionType, &m_extensionType);
+    ACCESSORS(ByteVector*, ExtensionData, &m_vbExtensionData);
+
+    private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    MTE_ExtensionType m_extensionType;
+    ByteVector m_vbExtensionData;
+};
+
+// Extension extensions<0..2^16-1>;
+typedef MT_VariableLengthField<MT_Extension, 2, 0, MAXFORBYTES(2)> MT_HelloExtensions;
+
+enum MT_CipherSuiteValue
+{
+    MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
+    MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
+    MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
+    MTCS_TLS_RSA_WITH_RC4_128_MD5              = 0x0004,
+    MTCS_TLS_RSA_WITH_RC4_128_SHA              = 0x0005,
+    MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA         = 0x000A,
+    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA          = 0x002F,
+    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA          = 0x0035,
+    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256       = 0x003C,
+    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256       = 0x003D
+};
+
+const MT_CipherSuiteValue* GetSupportedCipherSuites(size_t* pcCipherSuites);
+bool IsKnownCipherSuite(MT_CipherSuiteValue eSuite);
+
+// CipherSuite cipher_suites<2..2^16-1>;
+typedef MT_VariableLengthField<MT_CipherSuite, 2, 2, MAXFORBYTES(2)>
+        MT_CipherSuites;
+
+// opaque SessionID<0..32>;
+class MT_SessionID : public MT_VariableLengthByteField<1, 0, 32>
+{
+    public:
+    MT_SessionID()
+        : MT_VariableLengthByteField()
+    { }
+
+    HRESULT PopulateWithRandom();
+};
+
+class MT_CompressionMethod : public MT_Structure
+{
+    public:
+    enum MTCM_Method
+    {
+        MTCM_Null = 0,
+        MTCM_Unknown = 255,
+    };
+
+    MT_CompressionMethod();
+    ~MT_CompressionMethod() { }
+
+    size_t Length() const { return c_cbCompressionMethod_Length; }
+
+    ACCESSORS(MTCM_Method*, Method, &m_eMethod);
+
+    private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    MTCM_Method m_eMethod;
+};
+
+// CompressionMethod compression_methods<1..2^8-1>;
+typedef MT_VariableLengthField<MT_CompressionMethod, 1, 1, MAXFORBYTES(1)>
+        MT_CompressionMethods;
+
+class MT_ClientHello : public MT_Structure
+{
+    public:
+    MT_ClientHello();
+    ~MT_ClientHello() { }
+
+    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
+    ACCESSORS(MT_Random*, Random, &m_random);
+    ACCESSORS(MT_SessionID*, SessionID, &m_sessionID);
+    ACCESSORS(MT_CipherSuites*, CipherSuites, &m_cipherSuites);
+    ACCESSORS(MT_CompressionMethods*, CompressionMethods, &m_compressionMethods);
+    ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions);
+
+    size_t Length() const;
+
+    private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+
+    MT_ProtocolVersion m_protocolVersion;
+    MT_Random m_random;
+    MT_SessionID m_sessionID;
+    MT_CipherSuites m_cipherSuites;
+    MT_CompressionMethods m_compressionMethods;
+    MT_HelloExtensions m_extensions;
+};
+
 class ConnectionParameters
 {
     public:
@@ -313,10 +429,14 @@ class ConnectionParameters
     ACCESSORS(SymmetricCipherer*, ServerSymCipherer, m_spServerSymCipherer.get());
     ACCESSORS(Hasher*, HashInst, m_spHasher.get());
 
-    ACCESSORS(std::vector<std::shared_ptr<MT_Structure>>*, HandshakeMessages, &m_vHandshakeMessages);
+    ACCESSORS(MT_ClientHello*, ClientHello, &m_clientHello);
     ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
-    ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
     ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion);
+    ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
+    ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
+
+    ACCESSORS(std::vector<std::shared_ptr<MT_Structure>>*, HandshakeMessages, &m_vHandshakeMessages);
+    ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
     ACCESSORS(MT_UINT64*, ReadSequenceNumber, &m_seqNumRead);
     ACCESSORS(MT_UINT64*, WriteSequenceNumber, &m_seqNumWrite);
 
@@ -326,8 +446,6 @@ class ConnectionParameters
     ACCESSORS(ByteVector*, ServerWriteKey, &m_vbServerWriteKey);
     ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
     ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
-    ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
-    ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
 
     const CipherInfo* Cipher() const;
     const HashInfo* Hash() const;
@@ -341,16 +459,18 @@ class ConnectionParameters
         ByteVector* pvbPRF);
 
     private:
-    MT_CipherSuite m_cipherSuite;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
     std::shared_ptr<SymmetricCipherer> m_spClientSymCipherer;
     std::shared_ptr<SymmetricCipherer> m_spServerSymCipherer;
     std::shared_ptr<Hasher> m_spHasher;
 
+    MT_ClientHello m_clientHello;
+    MT_CipherSuite m_cipherSuite;
     MT_ProtocolVersion m_negotiatedVersion;
-    ByteVector m_vbMasterSecret;
     MT_Random m_clientRandom;
     MT_Random m_serverRandom;
+
+    ByteVector m_vbMasterSecret;
     ByteVector m_vbClientWriteMACKey;
     ByteVector m_vbServerWriteMACKey;
     ByteVector m_vbClientWriteKey;
@@ -437,66 +557,6 @@ class MT_ContentType : public MT_Structure
 
     MTCT_Type m_eType;
 };
-
-enum MT_CipherSuiteValue
-{
-    MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
-    MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
-    MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
-    MTCS_TLS_RSA_WITH_RC4_128_MD5              = 0x0004,
-    MTCS_TLS_RSA_WITH_RC4_128_SHA              = 0x0005,
-    MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA         = 0x000A,
-    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA          = 0x002F,
-    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA          = 0x0035,
-    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256       = 0x003C,
-    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256       = 0x003D
-};
-
-const MT_CipherSuiteValue* GetSupportedCipherSuites(size_t* pcCipherSuites);
-bool IsKnownCipherSuite(MT_CipherSuiteValue eSuite);
-
-// CipherSuite cipher_suites<2..2^16-1>;
-typedef MT_VariableLengthField<MT_CipherSuite, 2, 2, MAXFORBYTES(2)>
-        MT_CipherSuites;
-
-// opaque SessionID<0..32>;
-class MT_SessionID : public MT_VariableLengthByteField<1, 0, 32>
-{
-    public:
-    MT_SessionID()
-        : MT_VariableLengthByteField()
-    { }
-
-    HRESULT PopulateWithRandom();
-};
-
-class MT_CompressionMethod : public MT_Structure
-{
-    public:
-    enum MTCM_Method
-    {
-        MTCM_Null = 0,
-        MTCM_Unknown = 255,
-    };
-
-    MT_CompressionMethod();
-    ~MT_CompressionMethod() { }
-
-    size_t Length() const { return c_cbCompressionMethod_Length; }
-
-    ACCESSORS(MTCM_Method*, Method, &m_eMethod);
-
-    private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
-
-    MTCM_Method m_eMethod;
-};
-
-// CompressionMethod compression_methods<1..2^8-1>;
-typedef MT_VariableLengthField<MT_CompressionMethod, 1, 1, MAXFORBYTES(1)>
-        MT_CompressionMethods;
-
 
 class MT_RecordLayerMessage : public MT_Structure
 {
@@ -594,60 +654,6 @@ class MT_Handshake : public MT_Structure
     ByteVector m_vbBody;
 };
 
-class MT_Extension : public MT_Structure
-{
-    public:
-    enum MTE_ExtensionType
-    {
-        MTEE_RenegotiationInfo = 0xff01,
-        MTEE_Unknown = 65535
-    };
-
-    MT_Extension();
-    ~MT_Extension() { }
-
-    size_t Length() const;
-
-    ACCESSORS(MTE_ExtensionType*, ExtensionType, &m_extensionType);
-    ACCESSORS(ByteVector*, ExtensionData, &m_vbExtensionData);
-
-    private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
-
-    MTE_ExtensionType m_extensionType;
-    ByteVector m_vbExtensionData;
-};
-
-// Extension extensions<0..2^16-1>;
-typedef MT_VariableLengthField<MT_Extension, 2, 0, MAXFORBYTES(2)> MT_HelloExtensions;
-
-class MT_ClientHello : public MT_Structure
-{
-    public:
-    MT_ClientHello();
-    ~MT_ClientHello() { }
-
-    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
-    ACCESSORS(MT_Random*, Random, &m_random);
-    ACCESSORS(MT_SessionID*, SessionID, &m_sessionID);
-    ACCESSORS(MT_CipherSuites*, CipherSuites, &m_cipherSuites);
-    ACCESSORS(MT_CompressionMethods*, CompressionMethods, &m_compressionMethods);
-    ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions);
-
-    size_t Length() const;
-
-    private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-
-    MT_ProtocolVersion m_protocolVersion;
-    MT_Random m_random;
-    MT_SessionID m_sessionID;
-    MT_CipherSuites m_cipherSuites;
-    MT_CompressionMethods m_compressionMethods;
-    MT_HelloExtensions m_extensions;
-};
-
 class MT_ServerHello : public MT_Structure
 {
     public:
@@ -678,6 +684,7 @@ class ITLSListener
     public:
     virtual HRESULT OnSend(const ByteVector* pvb) = 0;
     virtual HRESULT OnApplicationData(const ByteVector* pvb) = 0;
+    virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
 };
 
 class TLSConnection
@@ -724,7 +731,7 @@ class TLSConnection
     ITLSListener* Listener() { return m_pListener; }
 
     private:
-    HRESULT RespondToClientHello(const MT_ClientHello* pClientHello);
+    HRESULT RespondToClientHello();
 
     HRESULT RespondToFinished();
 
@@ -796,7 +803,6 @@ class MT_ClientKeyExchange : public MT_Structure
 
     size_t Length() const { return ExchangeKeys()->Length(); }
 
-    // TODO: make shared_ptr, I think?
     ACCESSORS(KeyType*, ExchangeKeys, m_spExchangeKeys.get());
 
     private:

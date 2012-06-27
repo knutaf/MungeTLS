@@ -19,6 +19,7 @@ class DummyServer : public ITLSListener
     HRESULT ProcessConnections();
     HRESULT OnSend(const ByteVector* pvb);
     HRESULT OnApplicationData(const ByteVector* pvb);
+    HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);
 
     ACCESSORS(ByteVector*, PendingSends, &m_vbPendingSends);
 

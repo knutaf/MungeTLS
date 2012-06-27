@@ -16,6 +16,4 @@ WORK:
 - think more about thread safety. what are the scenarios, anyway?
 - functions to advance/reset sequence number. maybe?
 - change up goto style of main loop
-- last parameter optional in MT_VariableLengthField and co.
-- look into with returning accessors for shared_ptrs
 - maybe: in parsefrom functions, error path should unset member variables

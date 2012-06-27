@@ -511,3 +511,9 @@ done:
 error:
     goto done;
 } // end function OnApplicationData
+
+HRESULT DummyServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion)
+{
+    UNREFERENCED_PARAMETER(pProtocolVersion);
+    return MT_S_LISTENER_IGNORED;
+} // end function OnSelectProtocolVersion

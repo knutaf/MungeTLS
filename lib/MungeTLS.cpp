@@ -208,10 +208,24 @@ TLSConnection::HandleMessage(
             ConnParams()->HandshakeMessages()->push_back(spHandshakeMessage);
 
 
-            *ConnParams()->NegotiatedVersion() = *(clientHello.ProtocolVersion());
+            *ConnParams()->ClientHello() = clientHello;
+
+            {
+                MT_ProtocolVersion protocolVersion = *clientHello.ProtocolVersion();
+
+                HRESULT hrL = Listener()->OnSelectProtocolVersion(&protocolVersion);
+                if (FAILED(hrL))
+                {
+                    hr = hrL;
+                    goto error;
+                }
+
+                *ConnParams()->NegotiatedVersion() = protocolVersion;
+            }
+
             *ConnParams()->ClientRandom() = *(clientHello.Random());
 
-            hr = RespondToClientHello(&clientHello);
+            hr = RespondToClientHello();
             if (hr != S_OK)
             {
                 printf("failed RespondToClientHello: %08LX\n", hr);
@@ -459,11 +473,10 @@ error:
 } // end function SendQueuedMessages
 
 HRESULT
-TLSConnection::RespondToClientHello(
-    const MT_ClientHello* pClientHello
-)
+TLSConnection::RespondToClientHello()
 {
     HRESULT hr = S_OK;
+    MT_ClientHello* pClientHello = ConnParams()->ClientHello();
 
     // Server Hello
     {
@@ -476,7 +489,7 @@ TLSConnection::RespondToClientHello(
         MT_Handshake handshake;
         shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
-        *protocolVersion.Version() = *pClientHello->ProtocolVersion()->Version();
+        protocolVersion = *ConnParams()->NegotiatedVersion();
 
         hr = random.PopulateNow();
         if (hr != S_OK)
@@ -638,8 +651,6 @@ TLSConnection::RespondToFinished()
 
     // ChangeCipherSpec
     {
-        MT_ContentType contentType;
-        MT_ProtocolVersion protocolVersion;
         MT_ChangeCipherSpec changeCipherSpec;
         shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
@@ -670,7 +681,6 @@ TLSConnection::RespondToFinished()
     {
         MT_Handshake handshake;
         MT_Finished finished;
-        MT_ContentType contentType;
         shared_ptr<MT_TLSCiphertext> spCiphertext(new MT_TLSCiphertext());
 
         hr = finished.SetConnectionParameters(ConnParams());
@@ -1357,6 +1367,7 @@ ConnectionParameters::ConnectionParameters()
       m_spPubKeyCipherer(nullptr),
       m_spHasher(nullptr),
       m_vbMasterSecret(),
+      m_clientHello(),
       m_clientRandom(),
       m_serverRandom(),
       m_negotiatedVersion(),
