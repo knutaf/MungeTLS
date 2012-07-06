@@ -141,14 +141,14 @@ class SymmetricCipherer
     EncryptBuffer(
         const ByteVector* pvbCleartext,
         const ByteVector* pvbIV,
-        ByteVector* pvbEncrypted) const;
+        ByteVector* pvbEncrypted);
 
     virtual
     HRESULT
     DecryptBuffer(
         const ByteVector* pvbEncrypted,
         const ByteVector* pvbIV,
-        ByteVector* pvbDecrypted) const;
+        ByteVector* pvbDecrypted);
 
     ACCESSORS(CipherInfo*, Cipher, &m_cipherInfo);
 

@@ -5705,7 +5705,7 @@ SymmetricCipherer::EncryptBuffer(
     const ByteVector* pvbCleartext,
     const ByteVector* pvbIV,
     ByteVector* pvbEncrypted
-) const
+)
 {
     UNREFERENCED_PARAMETER(pvbIV);
 
@@ -5723,7 +5723,7 @@ SymmetricCipherer::DecryptBuffer(
     const ByteVector* pvbEncrypted,
     const ByteVector* pvbIV,
     ByteVector* pvbDecrypted
-) const
+)
 {
     UNREFERENCED_PARAMETER(pvbIV);
 

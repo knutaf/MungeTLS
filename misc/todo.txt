@@ -7,7 +7,6 @@ WORK:
 - ability to verify correct cert usages before using
 - platform agnostic method of specifying certificate - what format?
 - don't access MT_VariableLengthField::Data. surface common operations
-- support null encryption
 - change all printfs to wprintf
 - consider replacing the whole protocol version class with just the enum
 - use error and done labels in all functions, not just goto error
@@ -16,4 +15,3 @@ WORK:
 - functions to advance/reset sequence number. maybe?
 - change up goto style of main loop
 - maybe: in parsefrom functions, error path should unset member variables
-- make functions in symmetric cipherer and pub cipherer non-const, since they modify internal state
