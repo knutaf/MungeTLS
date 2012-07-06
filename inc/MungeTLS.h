@@ -48,6 +48,16 @@ const size_t c_cbProtocolVersion_Length = 2;
 // uint8 CipherSuite[2];    /* Cryptographic suite selector */
 const size_t c_cbCipherSuite_Length = 2;
 
+// CipherSuite cipher_suites<2..2^16-1>;
+const size_t c_cbCipherSuites_LFL = 2;
+const size_t c_cbCipherSuites_MinLength = 2;
+const size_t c_cbCipherSuites_MaxLength = MAXFORBYTES(c_cbCipherSuites_LFL);
+
+// opaque SessionID<0..32>;
+const size_t c_cbSessionID_LFL = 1;
+const size_t c_cbSessionID_MinLength = 0;
+const size_t c_cbSessionID_MaxLength = 32;
+
 // enum going from 0 - 255
 const size_t c_cbHandshakeType_Length = 1;
 
@@ -63,6 +73,21 @@ const size_t c_cbRandomBytes_Length = 28;
 // enum going from 0 - 255
 const size_t c_cbCompressionMethod_Length = 1;
 
+// CompressionMethod compression_methods<1..2^8-1>;
+const size_t c_cbCompressionMethods_LFL = 1;
+const size_t c_cbCompressionMethods_MinLength = 1;
+const size_t c_cbCompressionMethods_MaxLength = MAXFORBYTES(c_cbCompressionMethods_LFL);
+
+// opaque ASN.1Cert<1..2^24-1>;
+const size_t c_cbASN1Cert_LFL = 3;
+const size_t c_cbASN1Cert_MinLength = 1;
+const size_t c_cbASN1Cert_MaxLength = MAXFORBYTES(c_cbASN1Cert_LFL);
+
+// ASN.1Cert certificate_list<0..2^24-1>;
+const size_t c_cbASN1Certs_LFL = 3;
+const size_t c_cbASN1Certs_MinLength = 0;
+const size_t c_cbASN1Certs_MaxLength = MAXFORBYTES(c_cbASN1Certs_LFL);
+
 // enum going from 0 - 255
 const size_t c_cbChangeCipherSpec_Length = 1;
 
@@ -72,6 +97,11 @@ const size_t c_cbExtensionType_Length = 2;
 // dunno where this is documented
 const size_t c_cbExtensionData_LFL = 2;
 
+// Extension extensions<0..2^16-1>;
+const size_t c_cbHelloExtensions_LFL = 2;
+const size_t c_cbHelloExtensions_MinLength = 0;
+const size_t c_cbHelloExtensions_MaxLength = MAXFORBYTES(c_cbHelloExtensions_LFL);
+
 // uint8 padding_length;
 const size_t c_cbGenericBlockCipher_Padding_LFL = 1;
 
@@ -80,6 +110,9 @@ const size_t c_cbAlertLevel_Length = 1;
 
 // enum going from 0 - 255
 const size_t c_cbAlertDescription_Length = 1;
+
+// opaque random[46];
+const size_t c_cbPreMasterSecretRandom_Length = 46;
 
 // "The master secret is always exactly 48 bytes in length."
 const size_t c_cbMasterSecret_Length = 48;
@@ -287,7 +320,7 @@ class MT_Random : public MT_Structure
     MT_Random();
     ~MT_Random() { }
 
-    size_t Length() const { return 4 + RandomBytes()->size(); }
+    size_t Length() const { return c_cbRandomTime_Length + RandomBytes()->size(); }
 
     MT_UINT32 GMTUnixTime() const { return m_timestamp; }
     void SetGMTUnixTime(MT_UINT32 timestamp) { m_timestamp = timestamp; }
@@ -331,8 +364,12 @@ class MT_Extension : public MT_Structure
     ByteVector m_vbExtensionData;
 };
 
-// Extension extensions<0..2^16-1>;
-typedef MT_VariableLengthField<MT_Extension, 2, 0, MAXFORBYTES(2)> MT_HelloExtensions;
+typedef MT_VariableLengthField<
+            MT_Extension,
+            c_cbHelloExtensions_LFL,
+            c_cbHelloExtensions_MinLength,
+            c_cbHelloExtensions_MaxLength>
+        MT_HelloExtensions;
 
 enum MT_CipherSuiteValue
 {
@@ -358,12 +395,17 @@ ChooseBestCipherSuite(
     const std::vector<MT_CipherSuiteValue>* pveServerPreference,
     MT_CipherSuiteValue* pePreferredCipherSuite);
 
-// CipherSuite cipher_suites<2..2^16-1>;
-typedef MT_VariableLengthField<MT_CipherSuite, 2, 2, MAXFORBYTES(2)>
+typedef MT_VariableLengthField<
+            MT_CipherSuite,
+            c_cbCipherSuites_LFL,
+            c_cbCipherSuites_MinLength,
+            c_cbCipherSuites_MaxLength>
         MT_CipherSuites;
 
-// opaque SessionID<0..32>;
-class MT_SessionID : public MT_VariableLengthByteField<1, 0, 32>
+class MT_SessionID : public MT_VariableLengthByteField<
+                                c_cbSessionID_LFL,
+                                c_cbSessionID_MinLength,
+                                c_cbSessionID_MaxLength>
 {
     public:
     MT_SessionID()
@@ -396,8 +438,11 @@ class MT_CompressionMethod : public MT_Structure
     MTCM_Method m_eMethod;
 };
 
-// CompressionMethod compression_methods<1..2^8-1>;
-typedef MT_VariableLengthField<MT_CompressionMethod, 1, 1, MAXFORBYTES(1)>
+typedef MT_VariableLengthField<
+            MT_CompressionMethod,
+            c_cbCompressionMethods_LFL,
+            c_cbCompressionMethods_MinLength,
+            c_cbCompressionMethods_MaxLength>
         MT_CompressionMethods;
 
 class MT_ClientHello : public MT_Structure
@@ -759,11 +804,18 @@ class TLSConnection
     bool m_fSecureMode;
 };
 
-// opaque ASN.1Cert<1..2^24-1>;
-typedef MT_VariableLengthByteField<3, 1, MAXFORBYTES(3)> MT_ASN1Cert;
+typedef MT_VariableLengthByteField<
+            c_cbASN1Cert_LFL,
+            c_cbASN1Cert_MinLength,
+            c_cbASN1Cert_MaxLength>
+        MT_ASN1Cert;
 
-// ASN.1Cert certificate_list<0..2^24-1>;
-typedef MT_VariableLengthField<MT_ASN1Cert, 3, 0, MAXFORBYTES(3)> MT_CertificateList;
+typedef MT_VariableLengthField<
+            MT_ASN1Cert,
+            c_cbASN1Certs_LFL,
+            c_cbASN1Certs_MinLength,
+            c_cbASN1Certs_MaxLength>
+        MT_CertificateList;
 
 class MT_Certificate : public MT_Structure
 {
@@ -784,7 +836,7 @@ class MT_Certificate : public MT_Structure
 
 class MT_PreMasterSecret : public MT_Structure
 {
-    typedef MT_FixedLengthByteStructure<46> OpaqueRandom;
+    typedef MT_FixedLengthByteStructure<c_cbPreMasterSecretRandom_Length> OpaqueRandom;
 
     public:
     MT_PreMasterSecret();
@@ -849,7 +901,7 @@ class MT_ChangeCipherSpec : public MT_Structure
 
 class MT_Finished : public MT_Structure, public MT_Securable
 {
-    typedef MT_FixedLengthByteStructure<12> MTF_VerifyData;
+    typedef MT_FixedLengthByteStructure<c_cbFinishedVerifyData_Length> MTF_VerifyData;
 
     public:
     MT_Finished();
