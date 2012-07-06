@@ -82,13 +82,10 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
         CipherAlg alg,
         ALG_ID* pAlgID);
 
-    ACCESSORS(CipherInfo*, Cipher, &m_cipherInfo);
-
     private:
     ACCESSORS(KeyAndProv*, Key, &m_key);
 
     KeyAndProv m_key;
-    CipherInfo m_cipherInfo;
 };
 
 class WindowsPublicKeyCipherer : public PublicKeyCipherer

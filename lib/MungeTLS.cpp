@@ -572,18 +572,6 @@ TLSConnection::RespondToClientHello()
             goto error;
         }
 
-        // rsa + aes256cbc + sha256
-        //*(ConnParams()->CipherSuite()->at(0)) = 0x00;
-        //*(ConnParams()->CipherSuite()->at(1)) = 0x3D;
-
-        // rsa + aes128cbc + sha
-        *(ConnParams()->CipherSuite()->at(0)) = 0x00;
-        *(ConnParams()->CipherSuite()->at(1)) = 0x2F;
-
-        // rsa + rc4_128 + sha
-        //*(ConnParams()->CipherSuite()->at(0)) = 0x00;
-        //*(ConnParams()->CipherSuite()->at(1)) = 0x05;
-
         *compressionMethod.Method() = MT_CompressionMethod::MTCM_Null;
 
         {
@@ -1883,8 +1871,14 @@ CryptoInfoFromCipherSuite(
 
     if (pCipherInfo)
     {
-        if (eCSV == MTCS_TLS_RSA_WITH_RC4_128_MD5 ||
-            eCSV ==  MTCS_TLS_RSA_WITH_RC4_128_SHA)
+        if (eCSV == MTCS_TLS_RSA_WITH_NULL_MD5 ||
+            eCSV == MTCS_TLS_RSA_WITH_NULL_SHA ||
+            eCSV == MTCS_TLS_RSA_WITH_NULL_SHA256)
+        {
+            *pCipherInfo = c_CipherInfo_NULL;
+        }
+        else if (eCSV == MTCS_TLS_RSA_WITH_RC4_128_MD5 ||
+                 eCSV ==  MTCS_TLS_RSA_WITH_RC4_128_SHA)
         {
             *pCipherInfo = c_CipherInfo_RC4_128;
         }
@@ -5686,6 +5680,61 @@ MT_Alert::ToString() const
     return wsAlert;
 } // end function ToString
 
+
+/*********** SymmetricCipherer *****************/
+
+SymmetricCipherer::SymmetricCipherer()
+    : m_cipherInfo()
+{
+} // end ctor SymmetricCipherer
+
+HRESULT
+SymmetricCipherer::Initialize(
+    const ByteVector* pvbKey,
+    const CipherInfo* pCipherInfo
+)
+{
+    UNREFERENCED_PARAMETER(pvbKey);
+
+    *Cipher() = *pCipherInfo;
+    return S_OK;
+} // end function Initialize
+
+HRESULT
+SymmetricCipherer::EncryptBuffer(
+    const ByteVector* pvbCleartext,
+    const ByteVector* pvbIV,
+    ByteVector* pvbEncrypted
+) const
+{
+    UNREFERENCED_PARAMETER(pvbIV);
+
+    if (Cipher()->alg == CipherAlg_NULL)
+    {
+        *pvbEncrypted = *pvbCleartext;
+        return S_OK;
+    }
+
+    return E_NOTIMPL;
+} // end function EncryptBuffer
+
+HRESULT
+SymmetricCipherer::DecryptBuffer(
+    const ByteVector* pvbEncrypted,
+    const ByteVector* pvbIV,
+    ByteVector* pvbDecrypted
+) const
+{
+    UNREFERENCED_PARAMETER(pvbIV);
+
+    if (Cipher()->alg == CipherAlg_NULL)
+    {
+        *pvbDecrypted = *pvbEncrypted;
+        return S_OK;
+    }
+
+    return E_NOTIMPL;
+} // end function DecryptBuffer
 
 /*********** MT_Thingy *****************/
 

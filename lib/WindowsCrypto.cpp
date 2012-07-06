@@ -1031,8 +1031,8 @@ error:
 } // end function WindowsHashAlgFromMTHashInfo
 
 WindowsSymmetricCipherer::WindowsSymmetricCipherer()
-    : m_key(),
-      m_cipherInfo()
+    : SymmetricCipherer(),
+      m_key()
 {
 } // end ctor WindowsSymmetricCipherer
 
@@ -1044,6 +1044,12 @@ WindowsSymmetricCipherer::Initialize(
 {
     HRESULT hr = S_OK;
     ALG_ID algID;
+
+    hr = SymmetricCipherer::Initialize(pvbKey, pCipherInfo);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
     hr = WindowsCipherAlgFromMTCipherAlg(
              pCipherInfo->alg,
@@ -1064,8 +1070,6 @@ WindowsSymmetricCipherer::Initialize(
         goto error;
     }
 
-    *Cipher() = *pCipherInfo;
-
 done:
     return hr;
 
@@ -1080,12 +1084,24 @@ WindowsSymmetricCipherer::EncryptBuffer(
     ByteVector* pvbEncrypted
 ) const
 {
-    return MungeTLS::EncryptBuffer(
-               pvbCleartext,
-               Key()->GetKey(),
-               Cipher(),
-               pvbIV,
-               pvbEncrypted);
+    HRESULT hr = S_OK;
+
+    hr = SymmetricCipherer::EncryptBuffer(
+             pvbCleartext,
+             pvbIV,
+             pvbEncrypted);
+
+    if (hr == E_NOTIMPL)
+    {
+        hr = MungeTLS::EncryptBuffer(
+                 pvbCleartext,
+                 Key()->GetKey(),
+                 Cipher(),
+                 pvbIV,
+                 pvbEncrypted);
+    }
+
+    return hr;
 } // end function EncryptBuffer
 
 HRESULT
@@ -1095,12 +1111,24 @@ WindowsSymmetricCipherer::DecryptBuffer(
     ByteVector* pvbDecrypted
 ) const
 {
-    return MungeTLS::DecryptBuffer(
-               pvbEncrypted,
-               Key()->GetKey(),
-               Cipher(),
-               pvbIV,
-               pvbDecrypted);
+    HRESULT hr = S_OK;
+
+    hr = SymmetricCipherer::DecryptBuffer(
+             pvbEncrypted,
+             pvbIV,
+             pvbDecrypted);
+
+    if (hr == E_NOTIMPL)
+    {
+        hr = MungeTLS::DecryptBuffer(
+                 pvbEncrypted,
+                 Key()->GetKey(),
+                 Cipher(),
+                 pvbIV,
+                 pvbDecrypted);
+    }
+
+    return hr;
 } // end function DecryptBuffer
 
 HRESULT

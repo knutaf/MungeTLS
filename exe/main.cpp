@@ -520,6 +520,10 @@ HRESULT DummyServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersio
 
 HRESULT DummyServer::OnSelectCipherSuite(MT_CipherSuite* pCipherSuite)
 {
-    UNREFERENCED_PARAMETER(pCipherSuite);
+    /*
+    pCipherSuite->SetValue(MTCS_TLS_RSA_WITH_NULL_SHA);
+    return MT_S_LISTENER_HANDLED;
+    */
+
     return MT_S_LISTENER_IGNORED;
 } // end function OnSelectCipherSuite

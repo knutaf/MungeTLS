@@ -12,6 +12,7 @@ enum MT_CipherSuiteValue;
 enum CipherAlg
 {
     CipherAlg_Unknown,
+    CipherAlg_NULL,
     CipherAlg_RSA,
     CipherAlg_RC4_128,
     CipherAlg_AES_128,
@@ -37,6 +38,7 @@ struct CipherInfo
 enum HashAlg
 {
     HashAlg_Unknown,
+    HashAlg_NULL,
     HashAlg_MD5,
     HashAlg_SHA1,
     HashAlg_SHA256
@@ -54,6 +56,15 @@ const CipherInfo c_CipherInfo_RSA =
     CipherAlg_RSA,
     CipherType_Asymmetric_Block,
     16,
+    0,
+    0
+};
+
+const CipherInfo c_CipherInfo_NULL =
+{
+    CipherAlg_NULL,
+    CipherType_Stream,
+    0,
     0,
     0
 };
@@ -85,6 +96,13 @@ const CipherInfo c_CipherInfo_AES_256 =
     16
 };
 
+const HashInfo c_HashInfo_NULL =
+{
+    HashAlg_NULL,
+    0,
+    0
+};
+
 const HashInfo c_HashInfo_MD5 =
 {
     HashAlg_MD5,
@@ -109,6 +127,9 @@ const HashInfo c_HashInfo_SHA256 =
 class SymmetricCipherer
 {
     public:
+    SymmetricCipherer();
+    virtual ~SymmetricCipherer() { }
+
     virtual
     HRESULT
     Initialize(
@@ -120,14 +141,19 @@ class SymmetricCipherer
     EncryptBuffer(
         const ByteVector* pvbCleartext,
         const ByteVector* pvbIV,
-        ByteVector* pvbEncrypted) const = 0;
+        ByteVector* pvbEncrypted) const;
 
     virtual
     HRESULT
     DecryptBuffer(
         const ByteVector* pvbEncrypted,
         const ByteVector* pvbIV,
-        ByteVector* pvbDecrypted) const = 0;
+        ByteVector* pvbDecrypted) const;
+
+    ACCESSORS(CipherInfo*, Cipher, &m_cipherInfo);
+
+    private:
+    CipherInfo m_cipherInfo;
 };
 
 class PublicKeyCipherer
