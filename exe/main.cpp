@@ -517,3 +517,9 @@ HRESULT DummyServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersio
     UNREFERENCED_PARAMETER(pProtocolVersion);
     return MT_S_LISTENER_IGNORED;
 } // end function OnSelectProtocolVersion
+
+HRESULT DummyServer::OnSelectCipherSuite(MT_CipherSuite* pCipherSuite)
+{
+    UNREFERENCED_PARAMETER(pCipherSuite);
+    return MT_S_LISTENER_IGNORED;
+} // end function OnSelectCipherSuite

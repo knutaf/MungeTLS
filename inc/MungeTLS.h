@@ -25,6 +25,7 @@ const HRESULT MT_E_UNSUPPORTED_CIPHER                       = 0x8023000c;
 const HRESULT MT_E_BAD_FINISHED_HASH                        = 0x8023000d;
 const HRESULT MT_E_BAD_RECORD_MAC                           = 0x8023000e;
 const HRESULT MT_E_BAD_RECORD_PADDING                       = 0x8023000f;
+const HRESULT MT_E_NO_PREFERRED_CIPHER_SUITE                = 0x80230010;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
 const HRESULT MT_S_LISTENER_HANDLED                         = 0x00230002;
@@ -43,6 +44,9 @@ const size_t c_cbContentType_Length = 1;
 
 // uint8 major, minor;
 const size_t c_cbProtocolVersion_Length = 2;
+
+// uint8 CipherSuite[2];    /* Cryptographic suite selector */
+const size_t c_cbCipherSuite_Length = 2;
 
 // enum going from 0 - 255
 const size_t c_cbHandshakeType_Length = 1;
@@ -269,12 +273,12 @@ class MT_ProtocolVersion : public MT_Structure
     MTPV_Version m_eVersion;
 };
 
-// uint8 CipherSuite[2];    /* Cryptographic suite selector */
-class MT_CipherSuite : public MT_FixedLengthByteStructure<2>
+class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length>
 {
     public:
     HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
     HRESULT Value(MT_CipherSuiteValue* peValue) const;
+    HRESULT SetValue(MT_CipherSuiteValue eValue);
 };
 
 class MT_Random : public MT_Structure
@@ -332,6 +336,7 @@ typedef MT_VariableLengthField<MT_Extension, 2, 0, MAXFORBYTES(2)> MT_HelloExten
 
 enum MT_CipherSuiteValue
 {
+    MTCS_UNKNOWN                               = 0xFFFF,
     MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
     MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
     MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
@@ -344,8 +349,14 @@ enum MT_CipherSuiteValue
     MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256       = 0x003D
 };
 
-const MT_CipherSuiteValue* GetSupportedCipherSuites(size_t* pcCipherSuites);
+const std::vector<MT_CipherSuiteValue>* GetCipherSuitePreference();
 bool IsKnownCipherSuite(MT_CipherSuiteValue eSuite);
+
+HRESULT
+ChooseBestCipherSuite(
+    const std::vector<MT_CipherSuiteValue>* pveClientPreference,
+    const std::vector<MT_CipherSuiteValue>* pveServerPreference,
+    MT_CipherSuiteValue* pePreferredCipherSuite);
 
 // CipherSuite cipher_suites<2..2^16-1>;
 typedef MT_VariableLengthField<MT_CipherSuite, 2, 2, MAXFORBYTES(2)>
@@ -685,6 +696,7 @@ class ITLSListener
     virtual HRESULT OnSend(const ByteVector* pvb) = 0;
     virtual HRESULT OnApplicationData(const ByteVector* pvb) = 0;
     virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
+    virtual HRESULT OnSelectCipherSuite(MT_CipherSuite* pCipherSuite) = 0;
 };
 
 class TLSConnection

@@ -192,7 +192,15 @@ TLSConnection::HandleMessage(
 
             printf("parsed client hello message:\n");
             printf("version %04LX\n", *clientHello.ProtocolVersion()->Version());
-            printf("session ID %d\n", clientHello.SessionID()->Data()[0]);
+            if (clientHello.SessionID()->Count() > 0)
+            {
+                printf("session ID %d (%d)\n", clientHello.SessionID()->Data()[0]);
+            }
+            else
+            {
+                printf("no session ID specified\n");
+            }
+
             printf("%d crypto suites\n", clientHello.CipherSuites()->Count());
 
             printf("crypto suite 0: %02X %02X\n",
@@ -201,7 +209,7 @@ TLSConnection::HandleMessage(
 
             printf("%d compression methods: %d\n",
                    clientHello.CompressionMethods()->Count(),
-                   clientHello.CompressionMethods()->at(0)->Method());
+                   *clientHello.CompressionMethods()->at(0)->Method());
 
             printf("%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
 
@@ -224,6 +232,73 @@ TLSConnection::HandleMessage(
             }
 
             *ConnParams()->ClientRandom() = *(clientHello.Random());
+
+            {
+                MT_CipherSuite cipherSuite;
+
+                HRESULT hrL = Listener()->OnSelectCipherSuite(&cipherSuite);
+                if (FAILED(hrL))
+                {
+                    hr = hrL;
+                    goto error;
+                }
+
+                if (hrL == MT_S_LISTENER_IGNORED)
+                {
+                    MT_CipherSuiteValue ePreferred;
+                    vector<MT_CipherSuiteValue> vValues(ConnParams()->ClientHello()->CipherSuites()->Data()->size());
+
+                    transform(
+                        ConnParams()->ClientHello()->CipherSuites()->Data()->begin(),
+                        ConnParams()->ClientHello()->CipherSuites()->Data()->end(),
+                        vValues.begin(),
+                        [&hr](const MT_CipherSuite& rSuite)
+                        {
+                            if (hr == S_OK)
+                            {
+                                MT_CipherSuiteValue eValue;
+                                hr = rSuite.Value(&eValue);
+                                return eValue;
+                            }
+                            else
+                            {
+                                return MTCS_UNKNOWN;
+                            }
+                        }
+                    );
+
+                    if (hr != S_OK)
+                    {
+                        goto error;
+                    }
+
+                    hr = ChooseBestCipherSuite(
+                             &vValues,
+                             GetCipherSuitePreference(),
+                             &ePreferred);
+
+                    if (hr != S_OK)
+                    {
+                        goto error;
+                    }
+
+                    hr = cipherSuite.SetValue(ePreferred);
+                    if (hr != S_OK)
+                    {
+                        goto error;
+                    }
+                }
+
+                *ConnParams()->CipherSuite() = cipherSuite;
+
+                {
+                    MT_CipherSuiteValue eValue;
+                    HRESULT hrTemp = cipherSuite.Value(&eValue);
+                    assert(hrTemp == S_OK);
+
+                    printf("chosen cipher suite %04LX\n", eValue);
+                }
+            }
 
             hr = RespondToClientHello();
             if (hr != S_OK)
@@ -3689,39 +3764,75 @@ MT_PreMasterSecret::Length() const
 
 /*********** MT_CipherSuite *****************/
 
-const MT_CipherSuiteValue c_rgeSupportedCipherSuites[] =
+const MT_CipherSuiteValue c_rgeCipherSuitePreference[] =
 {
-      MTCS_TLS_RSA_WITH_RC4_128_MD5,
-      MTCS_TLS_RSA_WITH_RC4_128_SHA,
-      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA,
+      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256,
       MTCS_TLS_RSA_WITH_AES_256_CBC_SHA,
       MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256,
-      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256
+      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA,
+      MTCS_TLS_RSA_WITH_RC4_128_SHA,
+      MTCS_TLS_RSA_WITH_RC4_128_MD5
 };
 
-const ULONG c_cSupportedCipherSuites = ARRAYSIZE(c_rgeSupportedCipherSuites);
-
-const MT_CipherSuiteValue* GetSupportedCipherSuites(size_t* pcCipherSuites)
+const vector<MT_CipherSuiteValue>* GetCipherSuitePreference()
 {
-    assert(pcCipherSuites != nullptr);
-    *pcCipherSuites = c_cSupportedCipherSuites;
-    return c_rgeSupportedCipherSuites;
-} // end function GetSupportedCipherSuites
+    static vector<MT_CipherSuiteValue> s_veCipherSuiteValues;
+
+    // first time initialization
+    if (s_veCipherSuiteValues.empty())
+    {
+        s_veCipherSuiteValues.assign(
+            c_rgeCipherSuitePreference,
+            c_rgeCipherSuitePreference + ARRAYSIZE(c_rgeCipherSuitePreference));
+    }
+
+    return &s_veCipherSuiteValues;
+} // end function GetCipherSuitePreference
 
 bool
 IsKnownCipherSuite(
     MT_CipherSuiteValue eSuite
 )
 {
-    size_t cCipherSuites = 0;
-    const MT_CipherSuiteValue* rgeCipherSuites = GetSupportedCipherSuites(&cCipherSuites);
+    const vector<MT_CipherSuiteValue>* pveCipherSuites = GetCipherSuitePreference();
 
     return (find(
-                rgeCipherSuites,
-                rgeCipherSuites+cCipherSuites,
+                pveCipherSuites->begin(),
+                pveCipherSuites->end(),
                 eSuite)
-                != rgeCipherSuites+cCipherSuites);
+                != pveCipherSuites->end());
 } // end function IsKnownCipherSuite
+
+HRESULT
+ChooseBestCipherSuite(
+    const vector<MT_CipherSuiteValue>* pveClientPreference,
+    const vector<MT_CipherSuiteValue>* pveServerPreference,
+    MT_CipherSuiteValue* pePreferredCipherSuite
+)
+{
+    HRESULT hr = S_OK;
+
+    for (auto itServer = pveServerPreference->begin(); itServer != pveServerPreference->end(); itServer++)
+    {
+        for (auto itClient = pveClientPreference->begin(); itClient != pveClientPreference->end(); itClient++)
+        {
+            if (*itClient == *itServer)
+            {
+                *pePreferredCipherSuite = *itServer;
+                goto done;
+            }
+        }
+    }
+
+    hr = MT_E_NO_PREFERRED_CIPHER_SUITE;
+    goto error;
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ChooseBestCipherSuite
 
 HRESULT
 MT_CipherSuite::KeyExchangeAlgorithm(
@@ -3761,6 +3872,7 @@ MT_CipherSuite::Value(
     MT_CipherSuiteValue cs;
 
     assert(Data()->size() <= sizeof(cs));
+    assert(Data()->size() == c_cbCipherSuite_Length);
 
     HRESULT hr = ReadNetworkLong(
                      &Data()->front(),
@@ -3774,7 +3886,34 @@ MT_CipherSuite::Value(
     }
 
     return hr;
-} // end operator Value
+} // end function Value
+
+HRESULT
+MT_CipherSuite::SetValue(
+    MT_CipherSuiteValue eValue
+)
+{
+    HRESULT hr = S_OK;
+
+    ResizeVector(Data(), c_cbCipherSuite_Length);
+
+    hr = WriteNetworkLong(
+             static_cast<ULONG>(eValue),
+             Data()->size(),
+             &Data()->front(),
+             Data()->size());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SetValue
 
 /*********** MT_ClientKeyExchange *****************/
 

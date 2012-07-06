@@ -17,3 +17,4 @@ WORK:
 - functions to advance/reset sequence number. maybe?
 - change up goto style of main loop
 - maybe: in parsefrom functions, error path should unset member variables
+- MT_Random in .h file has magic number
