@@ -12,9 +12,9 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <wincrypt.h>
 #include <memory>
 #include <functional>
 
 #include "MungeTLS.h"
 #include "MungeCrypto.h"
-#include "mtls_helper.h"

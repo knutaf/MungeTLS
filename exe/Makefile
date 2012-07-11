@@ -17,11 +17,16 @@ LIBS=\
 
 MY_LIBS=\
     ..\lib\MungeTLS.lib \
+    ..\wincrypt_lib\MTLS_WinCrypt.lib \
+
+INCLUDES=\
+    $(INCLUDES) \
+    -I..\wincrypt_lib \
 
 SOURCES=$(C_FILES) $(H_FILES)
 
 $(TARGET).exe: $(SOURCES) $(MY_LIBS)
-	cl /Fe$(TARGET).exe $(C_DEFINES) -I..\inc /EHsc /Zi /W4 /Ycprecomp.h $(C_FILES) /link $(LIBS)
+	cl /Fe$(TARGET).exe $(C_DEFINES) $(INCLUDES) /EHsc /Zi /W4 /Ycprecomp.h $(C_FILES) /link $(LIBS)
 
 clean:
 	del *.exe *.obj *.pdb *.ilk *.pch

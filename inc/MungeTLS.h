@@ -471,15 +471,33 @@ class MT_ClientHello : public MT_Structure
     MT_HelloExtensions m_extensions;
 };
 
+typedef MT_VariableLengthByteField<
+            c_cbASN1Cert_LFL,
+            c_cbASN1Cert_MinLength,
+            c_cbASN1Cert_MaxLength>
+        MT_ASN1Cert;
+
+typedef MT_VariableLengthField<
+            MT_ASN1Cert,
+            c_cbASN1Certs_LFL,
+            c_cbASN1Certs_MinLength,
+            c_cbASN1Certs_MaxLength>
+        MT_CertificateList;
+
 class ConnectionParameters
 {
     public:
     ConnectionParameters();
-    ~ConnectionParameters();
+    ~ConnectionParameters() { }
 
-    HRESULT Initialize(PCCERT_CHAIN_CONTEXT pCertChain);
+    HRESULT Initialize(
+        const MT_CertificateList* pCertChain,
+        std::shared_ptr<PublicKeyCipherer> spPubKeyCipherer,
+        std::shared_ptr<SymmetricCipherer> spClientSymCipherer,
+        std::shared_ptr<SymmetricCipherer> spServerSymCipherer,
+        std::shared_ptr<Hasher> spHasher);
 
-    ACCESSORS(PCCERT_CHAIN_CONTEXT*, CertChain, &m_pCertChain);
+    ACCESSORS(MT_CertificateList*, CertChain, &m_certChain);
     ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get());
     ACCESSORS(SymmetricCipherer*, ClientSymCipherer, m_spClientSymCipherer.get());
     ACCESSORS(SymmetricCipherer*, ServerSymCipherer, m_spServerSymCipherer.get());
@@ -515,6 +533,7 @@ class ConnectionParameters
         ByteVector* pvbPRF);
 
     private:
+    MT_CertificateList m_certChain;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
     std::shared_ptr<SymmetricCipherer> m_spClientSymCipherer;
     std::shared_ptr<SymmetricCipherer> m_spServerSymCipherer;
@@ -535,7 +554,6 @@ class ConnectionParameters
     ByteVector m_vbServerWriteIV;
     MT_UINT64 m_seqNumRead;
     MT_UINT64 m_seqNumWrite;
-    PCCERT_CHAIN_CONTEXT m_pCertChain;
 
     std::vector<std::shared_ptr<MT_Structure>> m_vHandshakeMessages;
 };
@@ -742,6 +760,7 @@ class ITLSListener
     virtual HRESULT OnApplicationData(const ByteVector* pvb) = 0;
     virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
     virtual HRESULT OnSelectCipherSuite(MT_CipherSuite* pCipherSuite) = 0;
+    virtual HRESULT GetCertificateChain(MT_CertificateList* pCertChain) = 0;
 };
 
 class TLSConnection
@@ -753,7 +772,11 @@ class TLSConnection
     TLSConnection(ITLSListener* pListener);
     virtual ~TLSConnection() { }
 
-    HRESULT Initialize(PCCERT_CHAIN_CONTEXT pCertChain);
+    HRESULT Initialize(
+        std::shared_ptr<PublicKeyCipherer> spPubKeyCipherer,
+        std::shared_ptr<SymmetricCipherer> spClientSymCipherer,
+        std::shared_ptr<SymmetricCipherer> spServerSymCipherer,
+        std::shared_ptr<Hasher> spHasher);
 
     HRESULT
     HandleMessage(ByteVector* pvb);
@@ -803,19 +826,6 @@ class TLSConnection
     // TODO: absolutely not the right way to do this
     bool m_fSecureMode;
 };
-
-typedef MT_VariableLengthByteField<
-            c_cbASN1Cert_LFL,
-            c_cbASN1Cert_MinLength,
-            c_cbASN1Cert_MaxLength>
-        MT_ASN1Cert;
-
-typedef MT_VariableLengthField<
-            MT_ASN1Cert,
-            c_cbASN1Certs_LFL,
-            c_cbASN1Certs_MinLength,
-            c_cbASN1Certs_MaxLength>
-        MT_CertificateList;
 
 class MT_Certificate : public MT_Structure
 {

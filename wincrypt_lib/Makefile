@@ -1,15 +1,15 @@
-TARGET=MungeTLS
+TARGET=MTLS_WinCrypt
 C_DEFINES=/DUNICODE
 
 C_FILES=\
-    MungeTLS.cpp \
+    WindowsCrypto.cpp \
 
 O_FILES=\
-    MungeTLS.obj \
+    WindowsCrypto.obj \
 
 H_FILES=\
     $(H_FILES) \
-    mtls_helper.h  \
+    wincrypt_help.h  \
     precomp.h  \
 
 SOURCES=$(C_FILES) $(H_FILES)

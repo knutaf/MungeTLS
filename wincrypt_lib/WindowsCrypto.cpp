@@ -10,8 +10,7 @@
 
 #include "MungeTLS.h"
 #include "MungeCrypto.h"
-#include "MungeWinHelpers.h"
-#include "mtls_helper.h"
+#include "wincrypt_help.h"
 
 namespace MungeTLS
 {
@@ -1241,5 +1240,42 @@ done:
 error:
     goto done;
 } // end function ImportSymmetricKey
+
+HRESULT
+MTCertChainFromWinChain(
+    PCCERT_CHAIN_CONTEXT pWinChain,
+    MT_CertificateList* pMTChain
+)
+{
+    // what does it mean to have 2 simple chains? no support for now
+    assert(pWinChain->cChain == 1);
+
+    // might relax this restriction later, but for now make sure we don't
+    assert(pMTChain->Data()->empty());
+
+    PCERT_SIMPLE_CHAIN pSimpleChain = pWinChain->rgpChain[0];
+
+    for (DWORD i = 0; i < pSimpleChain->cElement; i++)
+    {
+        MT_ASN1Cert cert;
+
+        cert.Data()->assign(
+                 pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded,
+                 pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded +
+                   pSimpleChain->rgpElement[i]->pCertContext->cbCertEncoded);
+
+        pMTChain->Data()->push_back(cert);
+    }
+
+    return S_OK;
+} // end function MTCertChainFromWinChain
+
+ByteVector
+ReverseByteOrder(
+    const ByteVector* pvb
+)
+{
+    return ByteVector(pvb->rbegin(), pvb->rend());
+} // end function ReverseByteOrder
 
 }

@@ -12,6 +12,18 @@
 #include "MungeTLS.h"
 #include "mtls_helper.h"
 
+#define SAFE_SUB(h, l, r)              \
+{                                      \
+    (h) = SizeTSub((l), (r), &(l));    \
+    if ((h) != S_OK) { goto error; }   \
+}                                      \
+
+#define ADVANCE_PARSE()                \
+{                                      \
+    pv += cbField;                     \
+    SAFE_SUB(hr, cb, cbField);         \
+}                                      \
+
 namespace MungeTLS
 {
 
@@ -65,10 +77,38 @@ TLSConnection::TLSConnection(ITLSListener* pListener)
 
 HRESULT
 TLSConnection::Initialize(
-    PCCERT_CHAIN_CONTEXT pCertChain
+    shared_ptr<PublicKeyCipherer> spPubKeyCipherer,
+    shared_ptr<SymmetricCipherer> spClientSymCipherer,
+    shared_ptr<SymmetricCipherer> spServerSymCipherer,
+    shared_ptr<Hasher> spHasher
 )
 {
-    return ConnParams()->Initialize(pCertChain);
+    HRESULT hr = S_OK;
+    MT_CertificateList certChain;
+
+    hr = Listener()->GetCertificateChain(&certChain);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = ConnParams()->Initialize(
+             &certChain,
+             spPubKeyCipherer,
+             spClientSymCipherer,
+             spServerSymCipherer,
+             spHasher);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
 } // end function Initialize
 
 HRESULT
@@ -628,29 +668,16 @@ TLSConnection::RespondToClientHello()
         MT_Certificate certificate;
         MT_Handshake handshake;
         shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
-        PCCERT_CHAIN_CONTEXT pCertChain = *ConnParams()->CertChain();
 
-        // what does it mean to have 2 simple chains? no support for now
-        assert(pCertChain->cChain == 1);
-
-        PCERT_SIMPLE_CHAIN pSimpleChain = pCertChain->rgpChain[0];
-
-        for (DWORD i = 0; i < pSimpleChain->cElement; i++)
-        {
-            hr = certificate.AddCertificateFromMemory(
-                     pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded,
-                     pSimpleChain->rgpElement[i]->pCertContext->cbCertEncoded);
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
-        }
-
-        assert(hr == S_OK);
+        *certificate.CertificateList() = *ConnParams()->CertChain();
 
         *handshake.Type() = MT_Handshake::MTH_Certificate;
         hr = certificate.SerializeToVect(handshake.Body());
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
 
         hr = CreatePlaintext(
                  MT_ContentType::MTCT_Type_Handshake,
@@ -1399,14 +1426,6 @@ EnsureVectorSize<T>(
     }
 } // end function EnsureVectorSize
 
-ByteVector
-ReverseByteOrder(
-    const ByteVector* pvb
-)
-{
-    return ByteVector(pvb->rbegin(), pvb->rend());
-} // end function ReverseByteOrder
-
 HRESULT PrintByteVector(const ByteVector* pvb)
 {
      HRESULT hr = S_OK;
@@ -1426,7 +1445,7 @@ HRESULT PrintByteVector(const ByteVector* pvb)
 
 ConnectionParameters::ConnectionParameters()
     : m_cipherSuite(),
-      m_pCertChain(nullptr),
+      m_certChain(),
       m_spPubKeyCipherer(nullptr),
       m_spHasher(nullptr),
       m_vbMasterSecret(),
@@ -1446,51 +1465,24 @@ ConnectionParameters::ConnectionParameters()
 {
 } // end ctor ConnectionParameters
 
-ConnectionParameters::~ConnectionParameters()
-{
-    if (m_pCertChain != nullptr)
-    {
-        CertFreeCertificateChain(m_pCertChain);
-        m_pCertChain = nullptr;
-    }
-} // end dtor ConnectionParameters
-
 HRESULT
 ConnectionParameters::Initialize(
-    PCCERT_CHAIN_CONTEXT pCertChain
+    const MT_CertificateList* pCertChain,
+    std::shared_ptr<PublicKeyCipherer> spPubKeyCipherer,
+    std::shared_ptr<SymmetricCipherer> spClientSymCipherer,
+    std::shared_ptr<SymmetricCipherer> spServerSymCipherer,
+    std::shared_ptr<Hasher> spHasher
 )
 {
-    HRESULT hr = S_OK;
-    shared_ptr<WindowsPublicKeyCipherer> spPubKeyCipherer;
+    assert(CertChain()->Data()->empty());
 
-    assert(*CertChain() == nullptr);
-
-    *CertChain() = CertDuplicateCertificateChain(pCertChain);
-    if (*CertChain() == nullptr)
-    {
-        hr = E_INVALIDARG;
-        goto error;
-    }
-
-    spPubKeyCipherer.reset(new WindowsPublicKeyCipherer());
-    hr = spPubKeyCipherer->Initialize((*CertChain())->rgpChain[0]->rgpElement[0]->pCertContext);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
+    *CertChain() = *pCertChain;
     m_spPubKeyCipherer = spPubKeyCipherer;
+    m_spClientSymCipherer = spClientSymCipherer;
+    m_spServerSymCipherer = spServerSymCipherer;
+    m_spHasher = spHasher;
 
-    m_spClientSymCipherer.reset(new WindowsSymmetricCipherer());
-    m_spServerSymCipherer.reset(new WindowsSymmetricCipherer());
-
-    m_spHasher.reset(new WindowsHasher());
-
-done:
-    return hr;
-
-error:
-    goto done;
+    return S_OK;
 } // end function Initialize
 
 HRESULT

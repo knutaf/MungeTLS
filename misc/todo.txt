@@ -1,7 +1,6 @@
 BUGS:
 
 WORK:
-- customizable behavior for extensions. shouldn't just hard-code reneg info
 - implement renegotiation
 - configurable behavior about whether to encapsulate multiple handshake messages with a new plaintext message each, or to bundle them in one
 - ability to verify correct cert usages before using
@@ -15,3 +14,4 @@ WORK:
 - functions to advance/reset sequence number. maybe?
 - change up goto style of main loop
 - maybe: in parsefrom functions, error path should unset member variables
+- move all windows crypto functionality up into exe rather than lib

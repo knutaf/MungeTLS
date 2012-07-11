@@ -1,9 +1,7 @@
 #pragma once
 #include <windows.h>
-#include <vector>
+#include <wincrypt.h>
 #include <assert.h>
-#include <algorithm>
-#include <numeric>
 #include <intsafe.h>
 #include <atlbase.h>
 #include <assert.h>
@@ -12,8 +10,9 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <memory>
 #include <strsafe.h>
 
 #include "MungeTLS.h"
-#include "MungeWinHelpers.h"
+#include "wincrypt_help.h"
 #include "main.h"

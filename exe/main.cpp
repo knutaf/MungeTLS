@@ -6,13 +6,11 @@
 #include <stdlib.h>
 #include <fstream>
 #include <sstream>
-#include <algorithm>
 #include <string>
-#include <vector>
 #include <strsafe.h>
 #include "main.h"
+#include "wincrypt_help.h"
 #include "MungeTLS.h"
-#include "MungeWinHelpers.h"
 
 
 using namespace std;
@@ -124,12 +122,20 @@ HRESULT LogRead(ULONG nFile, const ByteVector* pvb)
     return LogTraffic(nFile, &wsRead, pvb);
 } // end function LogRead
 
+DummyServer::~DummyServer()
+{
+    if (m_pCertChain)
+    {
+        CertFreeCertificateChain(m_pCertChain);
+        m_pCertChain = nullptr;
+    }
+} // end dtor DummyServer
+
 HRESULT DummyServer::ProcessConnections()
 {
     HRESULT hr = S_OK;
     SOCKET sockListen = INVALID_SOCKET;
     SOCKET sockAccept = INVALID_SOCKET;
-    PCCERT_CHAIN_CONTEXT pCertChain = nullptr;
 
     //----------------------
     // Initialize Winsock.
@@ -216,14 +222,34 @@ HRESULT DummyServer::ProcessConnections()
                  CERT_SYSTEM_STORE_CURRENT_USER,
                  L"my",
                  L"mtls-test",
-                 &pCertChain);
+                 CertChain());
 
         if (hr != S_OK)
         {
             goto error;
         }
 
-        hr = Connection()->Initialize(pCertChain);
+        *PubKeyCipherer() = shared_ptr<WindowsPublicKeyCipherer>(new WindowsPublicKeyCipherer());
+
+        // the root cert in the chain
+        hr = (*PubKeyCipherer())->Initialize((*CertChain())->rgpChain[0]->rgpElement[0]->pCertContext);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        *ClientSymCipherer() = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
+        *ServerSymCipherer() = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
+
+        *HashInst() = shared_ptr<WindowsHasher>(new WindowsHasher());
+
+
+        hr = Connection()->Initialize(
+                 *PubKeyCipherer(),
+                 *ClientSymCipherer(),
+                 *ServerSymCipherer(),
+                 *HashInst());
+
         if (hr != S_OK)
         {
             goto error;
@@ -369,12 +395,6 @@ error:
     {
         closesocket(sockAccept);
         sockAccept = INVALID_SOCKET;
-    }
-
-    if (pCertChain != nullptr)
-    {
-        CertFreeCertificateChain(pCertChain);
-        pCertChain = nullptr;
     }
 
     WSACleanup();
@@ -525,5 +545,24 @@ HRESULT DummyServer::OnSelectCipherSuite(MT_CipherSuite* pCipherSuite)
     return MT_S_LISTENER_HANDLED;
     */
 
+    UNREFERENCED_PARAMETER(pCipherSuite);
     return MT_S_LISTENER_IGNORED;
 } // end function OnSelectCipherSuite
+
+HRESULT DummyServer::GetCertificateChain(MT_CertificateList* pCertChain)
+{
+    HRESULT hr = S_OK;
+
+    hr = MTCertChainFromWinChain(*CertChain(), pCertChain);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function GetCertificateChain
