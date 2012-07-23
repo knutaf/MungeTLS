@@ -91,11 +91,11 @@ HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const ByteVector* pvb)
             goto error;
         }
 
-        printf("logged %lu bytes of traffic '%s' to %s\n", cbWritten, pwsSuffix->c_str(), wsFilename.c_str());
+        wprintf(L"logged %lu bytes of traffic '%s' to %s\n", cbWritten, pwsSuffix->c_str(), wsFilename.c_str());
     }
     else
     {
-        printf("failed to create outfile: %s\n", wsFilename.c_str());
+        wprintf(L"failed to create outfile: %s\n", wsFilename.c_str());
         hr = HRESULT_FROM_WIN32(GetLastError());
         goto error;
     }
@@ -277,7 +277,7 @@ HRESULT DummyServer::ProcessConnections()
 
         while (cb > 0)
         {
-            printf("read %d bytes from the network\n", cb);
+            wprintf(L"read %d bytes from the network\n", cb);
 
             assert(cb <= vbData.size());
             cbConsumedBuffer += cb;
@@ -289,14 +289,14 @@ HRESULT DummyServer::ProcessConnections()
             hr = Connection()->HandleMessage(&vbData);
             while (hr == S_OK)
             {
-                printf("finished parsing message of size %lu\n", vbData.size());
+                wprintf(L"finished parsing message of size %lu\n", vbData.size());
                 cMessages++;
 
                 if (!PendingSends()->empty())
                 {
                     size_t cbPayload = PendingSends()->size();
 
-                    printf("responding with %d bytes\n", cbPayload);
+                    wprintf(L"responding with %d bytes\n", cbPayload);
 
                     while (cbPayload != 0)
                     {
@@ -315,7 +315,7 @@ HRESULT DummyServer::ProcessConnections()
                         if (cb == SOCKET_ERROR)
                         {
                             hr = HRESULT_FROM_WIN32(WSAGetLastError());
-                            printf("failed in send(): %08LX\n", hr);
+                            wprintf(L"failed in send(): %08LX\n", hr);
                             break;
                         }
 
@@ -334,7 +334,7 @@ HRESULT DummyServer::ProcessConnections()
                     }
                     else
                     {
-                        printf("something failed (%08LX). exiting\n", hr);
+                        wprintf(L"something failed (%08LX). exiting\n", hr);
                         break;
                     }
                 }
@@ -342,7 +342,7 @@ HRESULT DummyServer::ProcessConnections()
                 hr = Connection()->HandleMessage(&vbData);
             }
 
-            printf("failed HandleMessage (possibly expected): %08LX\n", hr);
+            wprintf(L"failed HandleMessage (possibly expected): %08LX\n", hr);
 
             _fflush_nolock(stdout);
 
@@ -359,7 +359,7 @@ HRESULT DummyServer::ProcessConnections()
             hr = SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable);
             if (hr != S_OK)
             {
-                printf("failed second SizeTToInt32. %lu - %lu\n", vbData.size(), cbConsumedBuffer);
+                wprintf(L"failed second SizeTToInt32. %lu - %lu\n", vbData.size(), cbConsumedBuffer);
                 goto error;
             }
 
@@ -377,7 +377,7 @@ HRESULT DummyServer::ProcessConnections()
 
         if (cb < 0)
         {
-            printf("failed on recv: cb=%d, err=%08LX\n", cb, WSAGetLastError());
+            wprintf(L"failed on recv: cb=%d, err=%08LX\n", cb, WSAGetLastError());
             goto error;
         }
     }
@@ -451,7 +451,7 @@ HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
                 */
                 itEndRequest = PendingRequest()->begin() + posEndRequest + strlen(rgszTerminators[i]);
 
-                printf("found terminator %d\n", i);
+                wprintf(L"found terminator %d\n", i);
 
                 break;
             }

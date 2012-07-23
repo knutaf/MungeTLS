@@ -128,11 +128,11 @@ TLSConnection::HandleMessage(
         hr = message.ParseFrom(&pvb->front(), pvb->size());
         if (hr != S_OK)
         {
-            printf("failed to parse ciphered message: %08LX\n", hr);
+            wprintf(L"failed to parse ciphered message: %08LX\n", hr);
             goto error;
         }
 
-        printf("successfully parsed TLSCiphertext. CT=%d\n", *message.ContentType()->Type());
+        wprintf(L"successfully parsed TLSCiphertext. CT=%d\n", *message.ContentType()->Type());
 
         hr = message.SetConnectionParameters(ConnParams());
         if (hr != S_OK)
@@ -143,27 +143,27 @@ TLSConnection::HandleMessage(
         hr = message.Decrypt();
         if (hr != S_OK)
         {
-            printf("failed to decrypt ciphertext: %08LX\n", hr);
+            wprintf(L"failed to decrypt ciphertext: %08LX\n", hr);
             goto error;
         }
 
         {
             ByteVector vbDecryptedFragment;
-            printf("decrypted fragment:\n");
+            wprintf(L"decrypted fragment:\n");
             PrintByteVector(message.CipherFragment()->Content());
         }
 
         hr = message.CheckSecurity();
         if (hr != S_OK)
         {
-            printf("tlsciphertext failed security check: %08LX\n", hr);
+            wprintf(L"tlsciphertext failed security check: %08LX\n", hr);
             goto error;
         }
 
         hr = message.ToTLSPlaintext(&record);
         if (hr != S_OK)
         {
-            printf("failed to assign ciphertext to plaintext: %08LX\n", hr);
+            wprintf(L"failed to assign ciphertext to plaintext: %08LX\n", hr);
             goto error;
         }
 
@@ -195,11 +195,11 @@ TLSConnection::HandleMessage(
         hr = message.ParseFrom(&pvb->front(), pvb->size());
         if (hr != S_OK)
         {
-            printf("failed to parse message: %08LX\n", hr);
+            wprintf(L"failed to parse message: %08LX\n", hr);
             goto error;
         }
 
-        printf("successfully parsed TLSPlaintext. CT=%d\n", *message.ContentType()->Type());
+        wprintf(L"successfully parsed TLSPlaintext. CT=%d\n", *message.ContentType()->Type());
 
         record = message;
         cbConsumed = message.Length();
@@ -213,11 +213,11 @@ TLSConnection::HandleMessage(
         hr = spHandshakeMessage->ParseFromVect(record.Fragment());
         if (hr != S_OK)
         {
-            printf("failed to parse handshake: %08LX\n", hr);
+            wprintf(L"failed to parse handshake: %08LX\n", hr);
             goto error;
         }
 
-        printf("successfully parsed Handshake. type=%d\n", *spHandshakeMessage->Type());
+        wprintf(L"successfully parsed Handshake. type=%d\n", *spHandshakeMessage->Type());
 
         if (*spHandshakeMessage->Type() == MT_Handshake::MTH_ClientHello)
         {
@@ -226,32 +226,32 @@ TLSConnection::HandleMessage(
             hr = clientHello.ParseFromVect(spHandshakeMessage->Body());
             if (hr != S_OK)
             {
-                printf("failed to parse client hello: %08LX\n", hr);
+                wprintf(L"failed to parse client hello: %08LX\n", hr);
                 goto error;
             }
 
-            printf("parsed client hello message:\n");
-            printf("version %04LX\n", *clientHello.ProtocolVersion()->Version());
+            wprintf(L"parsed client hello message:\n");
+            wprintf(L"version %04LX\n", *clientHello.ProtocolVersion()->Version());
             if (clientHello.SessionID()->Count() > 0)
             {
-                printf("session ID %d (%d)\n", clientHello.SessionID()->Data()[0]);
+                wprintf(L"session ID %d (%d)\n", clientHello.SessionID()->Data()[0]);
             }
             else
             {
-                printf("no session ID specified\n");
+                wprintf(L"no session ID specified\n");
             }
 
-            printf("%d crypto suites\n", clientHello.CipherSuites()->Count());
+            wprintf(L"%d crypto suites\n", clientHello.CipherSuites()->Count());
 
-            printf("crypto suite 0: %02X %02X\n",
+            wprintf(L"crypto suite 0: %02X %02X\n",
                    *(clientHello.CipherSuites()->at(0)->at(0)),
                    *(clientHello.CipherSuites()->at(0)->at(1)));
 
-            printf("%d compression methods: %d\n",
+            wprintf(L"%d compression methods: %d\n",
                    clientHello.CompressionMethods()->Count(),
                    *clientHello.CompressionMethods()->at(0)->Method());
 
-            printf("%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
+            wprintf(L"%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
 
             ConnParams()->HandshakeMessages()->push_back(spHandshakeMessage);
 
@@ -336,14 +336,14 @@ TLSConnection::HandleMessage(
                     HRESULT hrTemp = cipherSuite.Value(&eValue);
                     assert(hrTemp == S_OK);
 
-                    printf("chosen cipher suite %04LX\n", eValue);
+                    wprintf(L"chosen cipher suite %04LX\n", eValue);
                 }
             }
 
             hr = RespondToClientHello();
             if (hr != S_OK)
             {
-                printf("failed RespondToClientHello: %08LX\n", hr);
+                wprintf(L"failed RespondToClientHello: %08LX\n", hr);
                 goto error;
 
             }
@@ -358,13 +358,13 @@ TLSConnection::HandleMessage(
             hr = ConnParams()->CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg);
             if (hr != S_OK)
             {
-                printf("failed to get key exchange algorithm: %08LX\n", hr);
+                wprintf(L"failed to get key exchange algorithm: %08LX\n", hr);
                 goto error;
             }
 
             if (keyExchangeAlg != MTKEA_rsa)
             {
-                printf("unsupported key exchange type: %d\n", keyExchangeAlg);
+                wprintf(L"unsupported key exchange type: %d\n", keyExchangeAlg);
                 hr = MT_E_UNSUPPORTED_KEY_EXCHANGE;
                 goto error;
             }
@@ -373,7 +373,7 @@ TLSConnection::HandleMessage(
 
             if (hr != S_OK)
             {
-                printf("failed to parse key exchange message from handshake body: %08LX\n", hr);
+                wprintf(L"failed to parse key exchange message from handshake body: %08LX\n", hr);
                 goto error;
             }
 
@@ -382,33 +382,33 @@ TLSConnection::HandleMessage(
             hr = pExchangeKeys->DecryptStructure();
             if (hr != S_OK)
             {
-                printf("failed to decrypt structure: %08LX\n", hr);
+                wprintf(L"failed to decrypt structure: %08LX\n", hr);
                 goto error;
             }
 
             ConnParams()->HandshakeMessages()->push_back(spHandshakeMessage);
 
             pSecret = pExchangeKeys->Structure();
-            printf("version %04LX\n", *pSecret->ClientVersion()->Version());
+            wprintf(L"version %04LX\n", *pSecret->ClientVersion()->Version());
 
             hr = ComputeMasterSecret(pSecret);
             if (hr != S_OK)
             {
-                printf("failed to compute master secret: %08LX\n", hr);
+                wprintf(L"failed to compute master secret: %08LX\n", hr);
                 goto error;
             }
 
-            printf("computed master secret:\n");
+            wprintf(L"computed master secret:\n");
             PrintByteVector(ConnParams()->MasterSecret());
 
             hr = GenerateKeyMaterial();
             if (hr != S_OK)
             {
-                printf("failed to compute key material: %08LX\n", hr);
+                wprintf(L"failed to compute key material: %08LX\n", hr);
                 goto error;
             }
 
-            printf("computed key material\n");
+            wprintf(L"computed key material\n");
         }
         else if (*spHandshakeMessage->Type() == MT_Handshake::MTH_Finished)
         {
@@ -416,7 +416,7 @@ TLSConnection::HandleMessage(
             hr = finishedMessage.ParseFromVect(spHandshakeMessage->Body());
             if (hr != S_OK)
             {
-                printf("failed to parse finished message: %08LX\n", hr);
+                wprintf(L"failed to parse finished message: %08LX\n", hr);
                 goto error;
             }
 
@@ -429,7 +429,7 @@ TLSConnection::HandleMessage(
             hr = finishedMessage.CheckSecurity();
             if (hr != S_OK)
             {
-                printf("security failed on finished message: %08LX\n", hr);
+                wprintf(L"security failed on finished message: %08LX\n", hr);
                 goto error;
             }
 
@@ -438,14 +438,14 @@ TLSConnection::HandleMessage(
             hr = RespondToFinished();
             if (hr != S_OK)
             {
-                printf("failed RespondToFinished: %08LX\n", hr);
+                wprintf(L"failed RespondToFinished: %08LX\n", hr);
                 goto error;
 
             }
         }
         else
         {
-            printf("not yet supporting handshake type %d\n", *spHandshakeMessage->Type());
+            wprintf(L"not yet supporting handshake type %d\n", *spHandshakeMessage->Type());
             hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
             goto error;
         }
@@ -458,11 +458,11 @@ TLSConnection::HandleMessage(
         hr = changeCipherSpec.ParseFromVect(record.Fragment());
         if (hr != S_OK)
         {
-            printf("failed to parse change cipher spec: %08LX\n", hr);
+            wprintf(L"failed to parse change cipher spec: %08LX\n", hr);
             goto error;
         }
 
-        printf("change cipher spec found: %d\n", *(changeCipherSpec.Type()));
+        wprintf(L"change cipher spec found: %d\n", *(changeCipherSpec.Type()));
         m_fSecureMode = true;
         *ConnParams()->ReadSequenceNumber() = 0;
     }
@@ -473,7 +473,7 @@ TLSConnection::HandleMessage(
         hr = alert.ParseFromVect(record.Fragment());
         if (hr != S_OK)
         {
-            printf("failed to parse alert: %08LX\n");
+            wprintf(L"failed to parse alert: %08LX\n");
             goto error;
         }
 
@@ -483,7 +483,7 @@ TLSConnection::HandleMessage(
     }
     else if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_ApplicationData)
     {
-        printf("application data:\n");
+        wprintf(L"application data:\n");
         PrintByteVector(record.Fragment());
 
         hr = Listener()->OnApplicationData(record.Fragment());
@@ -514,7 +514,7 @@ TLSConnection::HandleMessage(
                 if (hr != S_OK)
                 {
                     // TODO: ought to just store raw bytes for this, probably
-                    printf("squashing error parsing handshake message: %08LX\n", hr);
+                    wprintf(L"squashing error parsing handshake message: %08LX\n", hr);
                     hr = S_OK;
                     return;
                 }
@@ -558,7 +558,7 @@ TLSConnection::SendQueuedMessages()
 
     if (!PendingSends()->empty())
     {
-        printf("sending %u messages\n", PendingSends()->size());
+        wprintf(L"sending %u messages\n", PendingSends()->size());
 
         hr = SerializeMessagesToVector<MT_RecordLayerMessage>(
                  PendingSends()->begin(),
@@ -874,7 +874,7 @@ TLSConnection::ComputeMasterSecret(
         goto error;
     }
 
-    printf("premaster secret:\n");
+    wprintf(L"premaster secret:\n");
     PrintByteVector(&vbPreMasterSecret);
 
     hr = ConnParams()->ClientRandom()->SerializeToVect(&vbRandoms);
@@ -923,7 +923,7 @@ TLSConnection::GenerateKeyMaterial()
     ByteVector vbRandoms;
     ByteVector vbKeyBlock;
 
-    printf("gen key material\n");
+    wprintf(L"gen key material\n");
 
     assert(!ConnParams()->MasterSecret()->empty());
 
@@ -936,7 +936,7 @@ TLSConnection::GenerateKeyMaterial()
                  (ConnParams()->Cipher()->cbKeyMaterialSize * 2) +
                  (ConnParams()->Cipher()->cbIVSize * 2);
 
-    printf("need %d bytes for key block (%d * 2) + (%d * 2) + (%d * 2)\n",
+    wprintf(L"need %d bytes for key block (%d * 2) + (%d * 2) + (%d * 2)\n",
         cbKeyBlock,
         ConnParams()->Hash()->cbHashKeySize,
         ConnParams()->Cipher()->cbKeyMaterialSize,
@@ -954,7 +954,7 @@ TLSConnection::GenerateKeyMaterial()
         goto error;
     }
 
-    printf("randoms: (%d bytes)\n", vbRandoms.size());
+    wprintf(L"randoms: (%d bytes)\n", vbRandoms.size());
     PrintByteVector(&vbRandoms);
 
     hr = ConnParams()->ComputePRF(
@@ -969,7 +969,7 @@ TLSConnection::GenerateKeyMaterial()
         goto error;
     }
 
-    printf("key block:\n");
+    wprintf(L"key block:\n");
     PrintByteVector(&vbKeyBlock);
 
     {
@@ -979,7 +979,7 @@ TLSConnection::GenerateKeyMaterial()
         ConnParams()->ClientWriteMACKey()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
-        printf("ClientWriteMACKey\n");
+        wprintf(L"ClientWriteMACKey\n");
         PrintByteVector(ConnParams()->ClientWriteMACKey());
 
         assert(itKeyBlock <= vbKeyBlock.end());
@@ -987,7 +987,7 @@ TLSConnection::GenerateKeyMaterial()
         ConnParams()->ServerWriteMACKey()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
-        printf("ServerWriteMACKey\n");
+        wprintf(L"ServerWriteMACKey\n");
         PrintByteVector(ConnParams()->ServerWriteMACKey());
 
 
@@ -997,7 +997,7 @@ TLSConnection::GenerateKeyMaterial()
         ConnParams()->ClientWriteKey()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
-        printf("ClientWriteKey\n");
+        wprintf(L"ClientWriteKey\n");
         PrintByteVector(ConnParams()->ClientWriteKey());
 
         assert(itKeyBlock <= vbKeyBlock.end());
@@ -1005,7 +1005,7 @@ TLSConnection::GenerateKeyMaterial()
         ConnParams()->ServerWriteKey()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
-        printf("ServerWriteKey\n");
+        wprintf(L"ServerWriteKey\n");
         PrintByteVector(ConnParams()->ServerWriteKey());
 
 
@@ -1015,7 +1015,7 @@ TLSConnection::GenerateKeyMaterial()
         ConnParams()->ClientWriteIV()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
-        printf("ClientWriteIV\n");
+        wprintf(L"ClientWriteIV\n");
         PrintByteVector(ConnParams()->ClientWriteIV());
 
         assert(itKeyBlock <= vbKeyBlock.end());
@@ -1023,7 +1023,7 @@ TLSConnection::GenerateKeyMaterial()
         ConnParams()->ServerWriteIV()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
-        printf("ServerWriteIV\n");
+        wprintf(L"ServerWriteIV\n");
         PrintByteVector(ConnParams()->ServerWriteIV());
 
         assert(itKeyBlock == vbKeyBlock.end());
@@ -1496,7 +1496,7 @@ ConnectionParameters::ComputePRF(
 {
     HRESULT hr = S_OK;
 
-    printf("protocol version for PRF algorithm: %04LX\n", *NegotiatedVersion()->Version());
+    wprintf(L"protocol version for PRF algorithm: %04LX\n", *NegotiatedVersion()->Version());
 
     if (*NegotiatedVersion()->Version() == MT_ProtocolVersion::MTPV_TLS10)
     {
@@ -1631,7 +1631,7 @@ ComputePRF_TLS10(
 )
 {
     HRESULT hr = S_OK;
-    printf("PRF 1.0\n");
+    wprintf(L"PRF 1.0\n");
 
     ByteVector vbLabelAndSeed;
     ByteVector vbS1;
@@ -1642,19 +1642,19 @@ ComputePRF_TLS10(
     vbLabelAndSeed.assign(szLabel, szLabel + strlen(szLabel));
     vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
 
-    printf("label + seed = (%d)\n", vbLabelAndSeed.size());
+    wprintf(L"label + seed = (%d)\n", vbLabelAndSeed.size());
     PrintByteVector(&vbLabelAndSeed);
 
     // ceil(size / 2)
     size_t cbL_S1 = (pvbSecret->size() + 1) / 2;
 
-    printf("L_S = %d, L_S1 = L_S2 = %d\n", pvbSecret->size(), cbL_S1);
+    wprintf(L"L_S = %d, L_S1 = L_S2 = %d\n", pvbSecret->size(), cbL_S1);
 
     auto itSecretMidpoint = pvbSecret->begin() + cbL_S1;
 
     vbS1.assign(pvbSecret->begin(), itSecretMidpoint);
 
-    printf("S1:\n");
+    wprintf(L"S1:\n");
     PrintByteVector(&vbS1);
 
     // makes the two halves overlap by one byte, as required in RFC
@@ -1665,7 +1665,7 @@ ComputePRF_TLS10(
 
     vbS2.assign(itSecretMidpoint, pvbSecret->end());
 
-    printf("S2:\n");
+    wprintf(L"S2:\n");
     PrintByteVector(&vbS2);
 
     assert(vbS1.size() == vbS2.size());
@@ -1774,7 +1774,7 @@ PRF_P_hash(
     // starts from A(1), not A(0)
     for (UINT i = 1; pvbResult->size() < cbMinimumLengthDesired; i++)
     {
-        printf("PRF_P generated %d out of %d bytes\n", pvbResult->size(), cbMinimumLengthDesired);
+        wprintf(L"PRF_P generated %d out of %d bytes\n", pvbResult->size(), cbMinimumLengthDesired);
 
         ByteVector vbIteration;
         ByteVector vbInnerSeed;
@@ -4146,7 +4146,7 @@ MT_Finished::CheckSecurityPriv()
         goto error;
     }
 
-    printf("Received Finished hash:\n");
+    wprintf(L"Received Finished hash:\n");
     PrintByteVector(VerifyData()->Data());
 
     if (vbComputedVerifyData != *VerifyData()->Data())
@@ -4242,7 +4242,7 @@ MT_Finished::ComputeVerifyData(
     }
     else
     {
-        printf("unrecognized version: %04LX\n", *ConnParams()->NegotiatedVersion()->Version());
+        wprintf(L"unrecognized version: %04LX\n", *ConnParams()->NegotiatedVersion()->Version());
         hr = MT_E_UNKNOWN_PROTOCOL_VERSION;
         goto error;
     }
@@ -4259,7 +4259,7 @@ MT_Finished::ComputeVerifyData(
         goto error;
     }
 
-    printf("Computed Finished hash with label \"%s\":\n", szLabel);
+    wprintf(L"Computed Finished hash with label \"%s\":\n", szLabel);
     PrintByteVector(pvbVerifyData);
 
 done:
@@ -4480,12 +4480,12 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
          c_cbRecordLayerMessage_Fragment_LFL +
          Content()->size();
 
-    printf("MAC text is %d bytes\n", cb);
+    wprintf(L"MAC text is %d bytes\n", cb);
 
     ResizeVector(&vbHashText, cb);
     pv = &vbHashText.front();
 
-    printf("sequence number: %d\n", sequenceNumber);
+    wprintf(L"sequence number: %d\n", sequenceNumber);
 
     cbField = c_cbSequenceNumber_Length;
     hr = WriteNetworkLong(
@@ -4549,7 +4549,7 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
     ADVANCE_PARSE();
     assert(cb == 0);
 
-    printf("MAC hash text:\n");
+    wprintf(L"MAC hash text:\n");
     PrintByteVector(&vbHashText);
 
     hr = ConnParams()->HashInst()->HMAC(
@@ -4593,10 +4593,10 @@ MT_GenericStreamCipher::CheckSecurity(
         goto error;
     }
 
-    printf("received MAC:\n");
+    wprintf(L"received MAC:\n");
     PrintByteVector(MAC());
 
-    printf("computed MAC:\n");
+    wprintf(L"computed MAC:\n");
     PrintByteVector(&vbMAC);
 
     if (*MAC() != vbMAC)
@@ -4840,12 +4840,12 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
          c_cbRecordLayerMessage_Fragment_LFL +
          Content()->size();
 
-    printf("MAC text is %d bytes\n", cb);
+    wprintf(L"MAC text is %d bytes\n", cb);
 
     ResizeVector(&vbHashText, cb);
     pv = &vbHashText.front();
 
-    printf("sequence number: %d\n", sequenceNumber);
+    wprintf(L"sequence number: %d\n", sequenceNumber);
 
     cbField = c_cbSequenceNumber_Length;
     hr = WriteNetworkLong(
@@ -4909,7 +4909,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
     ADVANCE_PARSE();
     assert(cb == 0);
 
-    printf("MAC hash text:\n");
+    wprintf(L"MAC hash text:\n");
     PrintByteVector(&vbHashText);
 
 
@@ -4997,10 +4997,10 @@ MT_GenericBlockCipher_TLS10::CheckSecurity(
         goto error;
     }
 
-    printf("received MAC:\n");
+    wprintf(L"received MAC:\n");
     PrintByteVector(MAC());
 
-    printf("computed MAC:\n");
+    wprintf(L"computed MAC:\n");
     PrintByteVector(&vbMAC);
 
     if (*MAC() != vbMAC)
@@ -5009,10 +5009,10 @@ MT_GenericBlockCipher_TLS10::CheckSecurity(
         goto error;
     }
 
-    printf("received padding:\n");
+    wprintf(L"received padding:\n");
     PrintByteVector(Padding());
 
-    printf("computed padding:\n");
+    wprintf(L"computed padding:\n");
     PrintByteVector(&vbPadding);
 
     if (*Padding() != vbPadding)
@@ -5274,12 +5274,12 @@ MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
          c_cbRecordLayerMessage_Fragment_LFL +
          Content()->size();
 
-    printf("MAC text is %d bytes\n", cb);
+    wprintf(L"MAC text is %d bytes\n", cb);
 
     ResizeVector(&vbHashText, cb);
     pv = &vbHashText.front();
 
-    printf("sequence number: %d\n", sequenceNumber);
+    wprintf(L"sequence number: %d\n", sequenceNumber);
 
     cbField = c_cbSequenceNumber_Length;
     hr = WriteNetworkLong(
@@ -5343,7 +5343,7 @@ MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
     ADVANCE_PARSE();
     assert(cb == 0);
 
-    printf("MAC hash text:\n");
+    wprintf(L"MAC hash text:\n");
     PrintByteVector(&vbHashText);
 
 
@@ -5432,10 +5432,10 @@ MT_GenericBlockCipher_TLS12::CheckSecurity(
         goto error;
     }
 
-    printf("received MAC:\n");
+    wprintf(L"received MAC:\n");
     PrintByteVector(MAC());
 
-    printf("computed MAC:\n");
+    wprintf(L"computed MAC:\n");
     PrintByteVector(&vbMAC);
 
     if (*MAC() != vbMAC)
@@ -5444,10 +5444,10 @@ MT_GenericBlockCipher_TLS12::CheckSecurity(
         goto error;
     }
 
-    printf("received padding:\n");
+    wprintf(L"received padding:\n");
     PrintByteVector(Padding());
 
-    printf("computed padding:\n");
+    wprintf(L"computed padding:\n");
     PrintByteVector(&vbPadding);
 
     if (*Padding() != vbPadding)
