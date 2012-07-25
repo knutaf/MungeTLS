@@ -30,6 +30,7 @@ class DummyServer : public ITLSListener
     HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);
     HRESULT OnSelectCipherSuite(MT_CipherSuite* pCipherSuite);
     HRESULT GetCertificateChain(MT_CertificateList* pCertChain);
+    HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags);
 
     ACCESSORS(ByteVector*, PendingSends, &m_vbPendingSends);
 

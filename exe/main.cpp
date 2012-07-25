@@ -566,3 +566,11 @@ done:
 error:
     goto done;
 } // end function GetCertificateChain
+
+HRESULT DummyServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags)
+{
+    UNREFERENCED_PARAMETER(pHandshake);
+    *pfFlags |= MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE;
+    //*pfFlags |= MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE;
+    return MT_S_LISTENER_HANDLED;
+} // end function OnCreatingHandshakeMessage

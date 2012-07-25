@@ -31,6 +31,9 @@ const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32
 const HRESULT MT_S_LISTENER_HANDLED                         = 0x00230002;
 const HRESULT MT_S_LISTENER_IGNORED                         = 0x00230003;
 
+const DWORD MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE         = 0x00000000;
+const DWORD MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE          = 0x00000001;
+
 /************************** Protocol Constants **********************/
 
 // A public-key-encrypted element is encoded as an opaque vector<0..2^16-1>
@@ -761,6 +764,7 @@ class ITLSListener
     virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
     virtual HRESULT OnSelectCipherSuite(MT_CipherSuite* pCipherSuite) = 0;
     virtual HRESULT GetCertificateChain(MT_CertificateList* pCertChain) = 0;
+    virtual HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags) = 0;
 };
 
 class TLSConnection
@@ -817,6 +821,12 @@ class TLSConnection
 
     HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
     HRESULT GenerateKeyMaterial();
+
+    HRESULT
+    AddHandshakeMessage(
+        MT_Handshake* pHandshake,
+        MT_ProtocolVersion::MTPV_Version version,
+        MT_TLSPlaintext** ppPlaintext);
 
     ACCESSORS(ConnectionParameters*, ConnParams, &m_connParams);
     ConnectionParameters m_connParams;
@@ -1223,6 +1233,12 @@ CryptoInfoFromCipherSuite(
     const MT_CipherSuite* pCipherSuite,
     CipherInfo* pCipherInfo,
     HashInfo* pHashInfo);
+
+template <typename T>
+HRESULT
+ParseStructures(
+    const ByteVector* pvb,
+    std::vector<T>* pvStructures);
 
 }
 #pragma warning(pop)
