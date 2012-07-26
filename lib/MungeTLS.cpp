@@ -288,7 +288,7 @@ TLSConnection::HandleMessage(
                     if (hrL == MT_S_LISTENER_IGNORED)
                     {
                         MT_CipherSuiteValue ePreferred;
-                        vector<MT_CipherSuiteValue> vValues(ConnParams()->ClientHello()->CipherSuites()->Data()->size());
+                        vector<MT_CipherSuiteValue> vValues(ConnParams()->ClientHello()->CipherSuites()->Count());
 
                         transform(
                             ConnParams()->ClientHello()->CipherSuites()->Data()->begin(),

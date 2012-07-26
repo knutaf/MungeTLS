@@ -2,11 +2,16 @@ BUGS:
 
 WORK:
 - implement renegotiation
-- ability to verify correct cert usages before using
-- don't access MT_VariableLengthField::Data. surface common operations
-- use error and done labels in all functions, not just goto error
 - go through all the code and rearrange order of functions to be more logical for read-through
-- think more about thread safety. what are the scenarios, anyway?
-- functions to advance/reset sequence number. maybe?
 - change up goto style of main loop
-- maybe: in parsefrom functions, error path should unset member variables
+
+MAYBE:
+- functions to advance/reset sequence number
+- ability to verify correct cert usages before using
+- in parsefrom functions, error path should unset member variables
+
+BY DESIGN:
+- don't access MT_VariableLengthField::Data. surface common operations
+
+WON'T FIX:
+- think more about thread safety. what are the scenarios, anyway?
