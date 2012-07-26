@@ -100,7 +100,7 @@ HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const ByteVector* pvb)
         goto error;
     }
 
-error:
+done:
     if (hOutfile != INVALID_HANDLE_VALUE)
     {
         CloseHandle(hOutfile);
@@ -108,6 +108,9 @@ error:
     }
 
     return hr;
+
+error:
+    goto done;
 } // end function LogTraffic
 
 HRESULT LogWrite(ULONG nFile, const ByteVector* pvb)
@@ -384,7 +387,7 @@ HRESULT DummyServer::ProcessConnections()
 
     wprintf(L"done reading: %d", errno);
 
-error:
+done:
     if (sockListen != INVALID_SOCKET)
     {
         closesocket(sockListen);
@@ -400,6 +403,9 @@ error:
     WSACleanup();
 
     return hr;
+
+error:
+    goto done;
 } // end function ProcessConnections
 
 HRESULT DummyServer::OnSend(const ByteVector* pvb)

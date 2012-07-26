@@ -765,8 +765,11 @@ TLSConnection::RespondToClientHello()
 
     assert(hr == S_OK);
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function RespondToClientHello
 
 HRESULT
@@ -1289,8 +1292,11 @@ ReadNetworkLong(
         cbToRead--;
     }
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ReadNetworkLong
 
 template <typename I>
@@ -1321,8 +1327,11 @@ WriteNetworkLong(
         cbToWrite--;
     }
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function WriteNetworkLong
 
 HRESULT
@@ -1411,8 +1420,11 @@ EpochTimeFromSystemTime(
     // convert from 100 ns to ms
     pLI->QuadPart /= 10000000ULL;
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function EpochTimeFromSystemTime
 
 template <typename T>
@@ -1513,8 +1525,6 @@ EnsureVectorSize<T>(
 
 HRESULT PrintByteVector(const ByteVector* pvb)
 {
-     HRESULT hr = S_OK;
-
      for_each(pvb->begin(), pvb->end(),
      [](BYTE b)
      {
@@ -1523,7 +1533,7 @@ HRESULT PrintByteVector(const ByteVector* pvb)
 
      wprintf(L"\n");
 
-     return hr;
+     return S_OK;
 } // end function PrintByteVector
 
 template <typename T>
@@ -2200,8 +2210,11 @@ MT_VariableLengthField
         SAFE_SUB(hr, cbTotalElementsSize, cbField);
     }
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 
@@ -2268,8 +2281,11 @@ MT_VariableLengthField
         ADVANCE_PARSE();
     }
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 
@@ -2322,8 +2338,11 @@ MT_VariableLengthByteField
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 template <size_t LengthFieldSize,
@@ -2374,8 +2393,11 @@ MT_VariableLengthByteField
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 /*********** MT_FixedLengthStructureBase *****************/
@@ -2439,8 +2461,11 @@ MT_FixedLengthStructure<F, Size>::ParseFromPriv(
 
     assert(Length() == Size);
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 template <typename F, size_t Size>
@@ -2468,8 +2493,11 @@ MT_FixedLengthStructure<F, Size>::SerializePriv(
         ADVANCE_PARSE();
     }
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 template <typename F, size_t Size>
@@ -2512,8 +2540,11 @@ MT_FixedLengthByteStructure<Size>::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 template <size_t Size>
@@ -2538,8 +2569,11 @@ MT_FixedLengthByteStructure<Size>::SerializePriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 template <size_t Size>
@@ -2592,8 +2626,11 @@ MT_PublicKeyEncryptedStructure<T>::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 template <typename T>
@@ -2694,8 +2731,11 @@ MT_RecordLayerMessage::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 MT_UINT16
@@ -2763,8 +2803,11 @@ MT_RecordLayerMessage::SerializePriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 /*********** MT_TLSCiphertext *****************/
@@ -3052,8 +3095,11 @@ MT_ContentType::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 HRESULT
@@ -3075,8 +3121,11 @@ MT_ContentType::SerializePriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 bool
@@ -3146,8 +3195,11 @@ MT_ProtocolVersion::SerializePriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 bool
@@ -3249,8 +3301,11 @@ MT_Handshake::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 size_t
@@ -3314,8 +3369,11 @@ MT_Handshake::SerializePriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 wstring MT_Handshake::HandshakeTypeString() const
@@ -3409,8 +3467,11 @@ MT_Random::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 HRESULT
@@ -3442,8 +3503,11 @@ MT_Random::SerializePriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 HRESULT
@@ -3482,8 +3546,11 @@ MT_Random::PopulateNow()
     }
     */
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function PopulateNow
 
 
@@ -3563,8 +3630,11 @@ MT_ClientHello::ParseFromPriv(
     cbField = Extensions()->Length();
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 }
 
 size_t
@@ -3612,8 +3682,11 @@ MT_CompressionMethod::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 HRESULT
@@ -3635,8 +3708,11 @@ MT_CompressionMethod::SerializePriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 /*********** MT_ServerHello *****************/
@@ -3734,8 +3810,11 @@ MT_ServerHello::SerializePriv(
         ADVANCE_PARSE();
     }
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 /*********** MT_Certificate *****************/
@@ -3760,8 +3839,11 @@ MT_Certificate::SerializePriv(
         goto error;
     }
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 HRESULT
@@ -3791,8 +3873,11 @@ MT_SessionID::PopulateWithRandom()
         goto error;
     }
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function PopulateWithRandom
 
 /*********** MT_PreMasterSecret *****************/
@@ -3831,8 +3916,11 @@ MT_PreMasterSecret::ParseFromPriv(
     cbField = Random()->Length();
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 HRESULT
@@ -4063,8 +4151,11 @@ MT_ClientKeyExchange<KeyType>::ParseFromPriv(
     cbField = ExchangeKeys()->Length();
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 /*********** MT_ChangeCipherSpec *****************/
@@ -4099,8 +4190,11 @@ MT_ChangeCipherSpec::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function ParseFromPriv
 
 HRESULT
@@ -4121,8 +4215,11 @@ MT_ChangeCipherSpec::SerializePriv(
 
     ADVANCE_PARSE();
 
-error:
+done:
     return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 /*********** MT_Extension *****************/
