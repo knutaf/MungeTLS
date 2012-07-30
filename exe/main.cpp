@@ -521,6 +521,14 @@ HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
                 goto error;
             }
 
+            /*
+            hr = Connection()->EnqueueStartRenegotiation();
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+            */
+
             hr = Connection()->SendQueuedMessages();
             if (hr != S_OK)
             {

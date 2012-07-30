@@ -34,6 +34,9 @@ const HRESULT MT_S_LISTENER_IGNORED                         = 0x00230003;
 const DWORD MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE         = 0x00000000;
 const DWORD MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE          = 0x00000001;
 
+const DWORD MT_ENQUEUEMESSAGE_SEQNUM_INCREMENT              = 0x00000000;
+const DWORD MT_ENQUEUEMESSAGE_SEQNUM_RESET                  = 0x00000001;
+
 /************************** Protocol Constants **********************/
 
 // A public-key-encrypted element is encoded as an opaque vector<0..2^16-1>
@@ -526,6 +529,11 @@ class ConnectionParameters
     ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
     ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
 
+    bool IsSecureRead() const { return m_fSecureRead; }
+    void SetSecureRead() { m_fSecureRead = true; }
+    bool IsSecureWrite() const { return m_fSecureWrite; }
+    void SetSecureWrite() { m_fSecureWrite = true; }
+
     const CipherInfo* Cipher() const;
     const HashInfo* Hash() const;
 
@@ -561,6 +569,8 @@ class ConnectionParameters
     MT_UINT64 m_seqNumWrite;
 
     std::vector<std::shared_ptr<MT_Structure>> m_vHandshakeMessages;
+    bool m_fSecureRead;
+    bool m_fSecureWrite;
 };
 
 class MT_Securable
@@ -627,6 +637,8 @@ class MT_ContentType : public MT_Structure
 
     static bool IsValidContentType(MTCT_Type eType);
 
+    std::wstring ToString() const;
+
     private:
     static const MTCT_Type c_rgeValidTypes[];
     static const ULONG c_cValidTypes;
@@ -678,6 +690,14 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     HRESULT Decrypt();
 
     HRESULT ToTLSPlaintext(MT_TLSPlaintext* pPlaintext) const;
+
+    static
+    HRESULT
+    FromTLSPlaintext(
+        const MT_TLSPlaintext* pPlaintext,
+        ConnectionParameters* pConnectionParams,
+        std::shared_ptr<MT_TLSCiphertext>* pspCiphertext);
+
     HRESULT SetConnectionParameters(ConnectionParameters* pConnectionParameters);
 
     HRESULT UpdateFragmentSecurity();
@@ -787,31 +807,11 @@ class TLSConnection
     HRESULT
     HandleMessage(ByteVector* pvb);
 
-    HRESULT
-    CreatePlaintext(
-        MT_ContentType::MTCT_Type eContentType,
-        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-        const MT_Structure* pFragment,
-        MT_TLSPlaintext* pPlaintext);
-
-    HRESULT
-    CreateCiphertext(
-        MT_ContentType::MTCT_Type eContentType,
-        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-        const MT_Structure* pFragment,
-        MT_TLSCiphertext* pCiphertext);
-
-    HRESULT
-    CreateCiphertext(
-        MT_ContentType::MTCT_Type eContentType,
-        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-        const ByteVector* pvbFragment,
-        MT_TLSCiphertext* pCiphertext);
-
     HRESULT EnqueueSendApplicationData(const ByteVector* pvbPayload);
     HRESULT EnqueueStartRenegotiation();
 
-    HRESULT EnqueueMessage(std::shared_ptr<MT_RecordLayerMessage> spMessage);
+    HRESULT EnqueueMessage(std::shared_ptr<MT_TLSPlaintext> spMessage, DWORD fFlags);
+    HRESULT EnqueueMessage(std::shared_ptr<MT_TLSPlaintext> spMessage);
     HRESULT SendQueuedMessages();
 
     ACCESSORS(MessageList*, PendingSends, &m_pendingSends);
@@ -835,9 +835,6 @@ class TLSConnection
     ConnectionParameters m_connParams;
     MessageList m_pendingSends;
     ITLSListener* m_pListener;
-
-    // TODO: absolutely not the right way to do this
-    bool m_fSecureMode;
 };
 
 class MT_Certificate : public MT_Structure
@@ -1256,5 +1253,34 @@ ParseStructures(
     const ByteVector* pvb,
     std::vector<T>* pvStructures);
 
+HRESULT
+CreatePlaintext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const MT_Structure* pFragment,
+    MT_TLSPlaintext* pPlaintext);
+
+HRESULT
+CreatePlaintext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const ByteVector* pvbFragment,
+    MT_TLSPlaintext* pPlaintext);
+
+HRESULT
+CreateCiphertext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const MT_Structure* pFragment,
+    ConnectionParameters* pConnectionParameters,
+    MT_TLSCiphertext* pCiphertext);
+
+HRESULT
+CreateCiphertext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const ByteVector* pvbFragment,
+    ConnectionParameters* pConnectionParameters,
+    MT_TLSCiphertext* pCiphertext);
 }
 #pragma warning(pop)

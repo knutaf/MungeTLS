@@ -70,8 +70,7 @@ PRF_A(
 TLSConnection::TLSConnection(ITLSListener* pListener)
     : m_connParams(),
       m_pendingSends(),
-      m_pListener(pListener),
-      m_fSecureMode(false)
+      m_pListener(pListener)
 {
 } // end ctor TLSConnection
 
@@ -121,11 +120,17 @@ TLSConnection::HandleMessage(
     MT_TLSPlaintext record;
     size_t cbConsumed = 0;
 
-    if (m_fSecureMode)
+    if (pvb->empty())
+    {
+        hr = S_FALSE;
+        goto done;
+    }
+
+    if (ConnParams()->IsSecureRead())
     {
         MT_TLSCiphertext message;
 
-        hr = message.ParseFrom(&pvb->front(), pvb->size());
+        hr = message.ParseFromVect(pvb);
         if (hr != S_OK)
         {
             wprintf(L"failed to parse ciphered message: %08LX\n", hr);
@@ -192,7 +197,7 @@ TLSConnection::HandleMessage(
     else
     {
         MT_TLSPlaintext message;
-        hr = message.ParseFrom(&pvb->front(), pvb->size());
+        hr = message.ParseFromVect(pvb);
         if (hr != S_OK)
         {
             wprintf(L"failed to parse message: %08LX\n", hr);
@@ -467,9 +472,10 @@ TLSConnection::HandleMessage(
         for (auto it = vStructures.begin(); it != vStructures.end(); it++)
         {
             wprintf(L"change cipher spec found: %d\n", it->Type());
-            m_fSecureMode = true;
-            *ConnParams()->ReadSequenceNumber() = 0;
+            ConnParams()->SetSecureRead();
         }
+
+        *ConnParams()->ReadSequenceNumber() = 0;
     }
     else if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_Alert)
     {
@@ -553,11 +559,51 @@ error:
 
 HRESULT
 TLSConnection::EnqueueMessage(
-    shared_ptr<MT_RecordLayerMessage> spMessage
+    shared_ptr<MT_TLSPlaintext> spPlaintext,
+    DWORD fFlags
 )
 {
-    PendingSends()->push_back(spMessage);
+    HRESULT hr = S_OK;
+    shared_ptr<MT_RecordLayerMessage> spRecord;
+
+    if (ConnParams()->IsSecureWrite())
+    {
+        shared_ptr<MT_TLSCiphertext> spCiphertext;
+
+        hr = MT_TLSCiphertext::FromTLSPlaintext(spPlaintext.get(), ConnParams(), &spCiphertext);
+
+        ConnParams()->ServerWriteIV()->assign(spCiphertext->Fragment()->end() - ConnParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
+        assert(ConnParams()->ServerWriteIV()->size() == ConnParams()->Cipher()->cbIVSize);
+
+        spRecord = spCiphertext;
+    }
+    else
+    {
+        spRecord = spPlaintext;
+    }
+
+    PendingSends()->push_back(spRecord);
+
+    if (fFlags & MT_ENQUEUEMESSAGE_SEQNUM_RESET)
+    {
+        *ConnParams()->WriteSequenceNumber() = 0;
+    }
+    else
+    {
+        (*ConnParams()->WriteSequenceNumber())++;
+    }
+
+    wprintf(L"write seq num is now %d\n", *ConnParams()->WriteSequenceNumber());
+
     return S_OK;
+} // end function EnqueueMessage
+
+HRESULT
+TLSConnection::EnqueueMessage(
+    shared_ptr<MT_TLSPlaintext> spPlaintext
+)
+{
+    return EnqueueMessage(spPlaintext, MT_ENQUEUEMESSAGE_SEQNUM_INCREMENT);
 } // end function EnqueueMessage
 
 HRESULT
@@ -569,6 +615,14 @@ TLSConnection::SendQueuedMessages()
     if (!PendingSends()->empty())
     {
         wprintf(L"sending %u messages\n", PendingSends()->size());
+
+        {
+            for_each(PendingSends()->begin(), PendingSends()->end(),
+            [](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
+            {
+                wprintf(L"    %s\n", rspStructure->ContentType()->ToString().c_str());
+            });
+        }
 
         hr = SerializeMessagesToVector<MT_RecordLayerMessage>(
                  PendingSends()->begin(),
@@ -704,8 +758,6 @@ TLSConnection::RespondToClientHello()
                 goto error;
             }
 
-            (*ConnParams()->WriteSequenceNumber())++;
-
             // take ownership of memory allocated in AddHandshakeMessage
             spPlaintext.reset(pPlaintextPass);
         }
@@ -744,8 +796,6 @@ TLSConnection::RespondToClientHello()
                 goto error;
             }
 
-            (*ConnParams()->WriteSequenceNumber())++;
-
             // take ownership of memory allocated in AddHandshakeMessage
             spPlaintext.reset(pPlaintextPass);
         }
@@ -759,8 +809,6 @@ TLSConnection::RespondToClientHello()
         {
             goto error;
         }
-
-        (*ConnParams()->WriteSequenceNumber())++;
     }
 
     assert(hr == S_OK);
@@ -795,21 +843,21 @@ TLSConnection::RespondToFinished()
             goto error;
         }
 
-        hr = EnqueueMessage(spPlaintext);
+        // ChangeCipherSpec resets sequence number
+        hr = EnqueueMessage(spPlaintext, MT_ENQUEUEMESSAGE_SEQNUM_RESET);
         if (hr != S_OK)
         {
             goto error;
         }
 
-        // ChangeCipherSpec resets sequence number
-        *ConnParams()->WriteSequenceNumber() = 0;
+        ConnParams()->SetSecureWrite();
     }
 
     // Finished
     {
         MT_Handshake handshake;
         MT_Finished finished;
-        shared_ptr<MT_TLSCiphertext> spCiphertext(new MT_TLSCiphertext());
+        shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
         hr = finished.SetConnectionParameters(ConnParams());
         if (hr != S_OK)
@@ -830,27 +878,22 @@ TLSConnection::RespondToFinished()
             goto error;
         }
 
-        hr = CreateCiphertext(
+        hr = CreatePlaintext(
                  MT_ContentType::MTCT_Type_Handshake,
                  *ConnParams()->NegotiatedVersion()->Version(),
                  &handshake,
-                 spCiphertext.get());
+                 spPlaintext.get());
 
         if (hr != S_OK)
         {
             goto error;
         }
 
-        hr = EnqueueMessage(spCiphertext);
+        hr = EnqueueMessage(spPlaintext);
         if (hr != S_OK)
         {
             goto error;
         }
-
-        (*ConnParams()->WriteSequenceNumber())++;
-
-        ConnParams()->ServerWriteIV()->assign(spCiphertext->Fragment()->end() - ConnParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
-        assert(ConnParams()->ServerWriteIV()->size() == ConnParams()->Cipher()->cbIVSize);
     }
 
 done:
@@ -916,24 +959,20 @@ TLSConnection::EnqueueSendApplicationData(
 )
 {
     HRESULT hr = S_OK;
-    shared_ptr<MT_TLSCiphertext> spCiphertext(new MT_TLSCiphertext());
+    shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
-    hr = CreateCiphertext(
+    hr = CreatePlaintext(
              MT_ContentType::MTCT_Type_ApplicationData,
              *ConnParams()->NegotiatedVersion()->Version(),
              pvb,
-             spCiphertext.get());
+             spPlaintext.get());
 
     if (hr != S_OK)
     {
         goto error;
     }
 
-    (*ConnParams()->WriteSequenceNumber())++;
-    ConnParams()->ServerWriteIV()->assign(spCiphertext->Fragment()->end() - ConnParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
-    assert(ConnParams()->ServerWriteIV()->size() == ConnParams()->Cipher()->cbIVSize);
-
-    hr = EnqueueMessage(spCiphertext);
+    hr = EnqueueMessage(spPlaintext);
     if (hr != S_OK)
     {
         goto error;
@@ -1149,123 +1188,13 @@ error:
     goto done;
 } // end function GenerateKeyMaterial
 
-
-HRESULT
-TLSConnection::CreatePlaintext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const MT_Structure* pFragment,
-    MT_TLSPlaintext* pPlaintext)
-{
-    HRESULT hr = S_OK;
-
-    MT_ContentType contentType;
-    MT_ProtocolVersion protocolVersion;
-
-    *contentType.Type() = eContentType;
-    *pPlaintext->ContentType() = contentType;
-
-    *protocolVersion.Version() = eProtocolVersion;
-    *pPlaintext->ProtocolVersion() = protocolVersion;
-
-    hr = pFragment->SerializeToVect(pPlaintext->Fragment());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function CreatePlaintext
-
-HRESULT
-TLSConnection::CreateCiphertext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const MT_Structure* pFragment,
-    MT_TLSCiphertext* pCiphertext)
-{
-    HRESULT hr = S_OK;
-    ByteVector vbFragment;
-
-    hr = pFragment->SerializeToVect(&vbFragment);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = CreateCiphertext(
-             eContentType,
-             eProtocolVersion,
-             &vbFragment,
-             pCiphertext);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function CreateCiphertext
-
-HRESULT
-TLSConnection::CreateCiphertext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const ByteVector* pvbFragment,
-    MT_TLSCiphertext* pCiphertext)
-{
-    HRESULT hr = S_OK;
-
-    MT_ContentType contentType;
-    MT_ProtocolVersion protocolVersion;
-
-    hr = pCiphertext->SetConnectionParameters(ConnParams());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    *contentType.Type() = eContentType;
-    *pCiphertext->ContentType() = contentType;
-
-    *protocolVersion.Version() = eProtocolVersion;
-    *pCiphertext->ProtocolVersion() = protocolVersion;
-    *pCiphertext->CipherFragment()->Content() = *pvbFragment;
-
-    hr = pCiphertext->UpdateFragmentSecurity();
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = pCiphertext->Encrypt();
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function CreateCiphertext
-
 HRESULT
 TLSConnection::EnqueueStartRenegotiation()
 {
     HRESULT hr = S_OK;
     MT_HelloRequest helloRequest;
     MT_Handshake handshake;
-    shared_ptr<MT_TLSCiphertext> spCiphertext(new MT_TLSCiphertext());
+    shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
     *handshake.Type() = MT_Handshake::MTH_HelloRequest;
     hr = helloRequest.SerializeToVect(handshake.Body());
@@ -1274,18 +1203,18 @@ TLSConnection::EnqueueStartRenegotiation()
         goto error;
     }
 
-    hr = CreateCiphertext(
+    hr = CreatePlaintext(
              MT_ContentType::MTCT_Type_Handshake,
              *ConnParams()->NegotiatedVersion()->Version(),
              &handshake,
-             spCiphertext.get());
+             spPlaintext.get());
 
     if (hr != S_OK)
     {
         goto error;
     }
 
-    hr = EnqueueMessage(spCiphertext);
+    hr = EnqueueMessage(spPlaintext);
     if (hr != S_OK)
     {
         goto error;
@@ -1622,6 +1551,142 @@ error:
     goto done;
 } // end function ParseStructures
 
+HRESULT
+CreatePlaintext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const MT_Structure* pFragment,
+    MT_TLSPlaintext* pPlaintext)
+{
+    HRESULT hr = S_OK;
+
+    ByteVector vbFragment;
+    hr = pFragment->SerializeToVect(&vbFragment);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = CreatePlaintext(
+             eContentType,
+             eProtocolVersion,
+             &vbFragment,
+             pPlaintext);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CreatePlaintext
+
+HRESULT
+CreatePlaintext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const ByteVector* pvbFragment,
+    MT_TLSPlaintext* pPlaintext)
+{
+    MT_ContentType contentType;
+    MT_ProtocolVersion protocolVersion;
+
+    *contentType.Type() = eContentType;
+    *pPlaintext->ContentType() = contentType;
+
+    *protocolVersion.Version() = eProtocolVersion;
+    *pPlaintext->ProtocolVersion() = protocolVersion;
+
+    *pPlaintext->Fragment() = *pvbFragment;
+
+    return S_OK;
+} // end function CreatePlaintext
+
+HRESULT
+CreateCiphertext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const MT_Structure* pFragment,
+    ConnectionParameters* pConnectionParams,
+    MT_TLSCiphertext* pCiphertext)
+{
+    HRESULT hr = S_OK;
+    ByteVector vbFragment;
+
+    hr = pFragment->SerializeToVect(&vbFragment);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = CreateCiphertext(
+             eContentType,
+             eProtocolVersion,
+             &vbFragment,
+             pConnectionParams,
+             pCiphertext);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CreateCiphertext
+
+HRESULT
+CreateCiphertext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const ByteVector* pvbFragment,
+    ConnectionParameters* pConnectionParams,
+    MT_TLSCiphertext* pCiphertext)
+{
+    HRESULT hr = S_OK;
+
+    MT_ContentType contentType;
+    MT_ProtocolVersion protocolVersion;
+
+    hr = pCiphertext->SetConnectionParameters(pConnectionParams);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    *contentType.Type() = eContentType;
+    *pCiphertext->ContentType() = contentType;
+
+    *protocolVersion.Version() = eProtocolVersion;
+    *pCiphertext->ProtocolVersion() = protocolVersion;
+    *pCiphertext->CipherFragment()->Content() = *pvbFragment;
+
+    hr = pCiphertext->UpdateFragmentSecurity();
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = pCiphertext->Encrypt();
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CreateCiphertext
+
 /*********** ConnectionParameters *****************/
 
 ConnectionParameters::ConnectionParameters()
@@ -1642,7 +1707,9 @@ ConnectionParameters::ConnectionParameters()
       m_vbServerWriteIV(),
       m_vHandshakeMessages(),
       m_seqNumRead(0),
-      m_seqNumWrite(0)
+      m_seqNumWrite(0),
+      m_fSecureRead(false),
+      m_fSecureWrite(false)
 {
 } // end ctor ConnectionParameters
 
@@ -2972,6 +3039,36 @@ MT_TLSCiphertext::ToTLSPlaintext(
 } // end function ToTLSPlaintext
 
 HRESULT
+MT_TLSCiphertext::FromTLSPlaintext(
+    const MT_TLSPlaintext* pPlaintext,
+    ConnectionParameters* pConnectionParams,
+    shared_ptr<MT_TLSCiphertext>* pspCiphertext
+)
+{
+    HRESULT hr = S_OK;
+
+    pspCiphertext->reset(new MT_TLSCiphertext());
+
+    hr = CreateCiphertext(
+             *pPlaintext->ContentType()->Type(),
+             *pPlaintext->ProtocolVersion()->Version(),
+             pPlaintext->Fragment(),
+             pConnectionParams,
+             pspCiphertext->get());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function FromTLSPlaintext
+
+HRESULT
 MT_TLSCiphertext::UpdateFragmentSecurity()
 {
     HRESULT hr = S_OK;
@@ -3104,7 +3201,6 @@ MT_ContentType::MT_ContentType()
 {
 }
 
-
 const MT_ContentType::MTCT_Type MT_ContentType::c_rgeValidTypes[] =
 {
     MTCT_Type_ChangeCipherSpec,
@@ -3176,6 +3272,33 @@ MT_ContentType::IsValidContentType(
 {
     return (find(c_rgeValidTypes, c_rgeValidTypes+c_cValidTypes, eType) != c_rgeValidTypes+c_cValidTypes);
 } // end function IsValidContentType
+
+wstring
+MT_ContentType::ToString() const
+{
+    switch (*Type())
+    {
+        case MTCT_Type_ChangeCipherSpec:
+            return wstring(L"ChangeCipherSpec");
+        break;
+
+        case MTCT_Type_Alert:
+            return wstring(L"Alert");
+        break;
+
+        case MTCT_Type_Handshake:
+            return wstring(L"Handshake");
+        break;
+
+        case MTCT_Type_ApplicationData:
+            return wstring(L"ApplicationData");
+        break;
+
+        default:
+            return wstring(L"UnknownContentType");
+        break;
+    }
+} // end function ToString
 
 
 /*********** MT_ProtocolVersion *****************/
