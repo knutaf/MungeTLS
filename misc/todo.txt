@@ -1,7 +1,10 @@
 BUGS:
 
 WORK:
+- callback for handshake completed
 - implement renegotiation
+- hello request
+- tlsconnection needs to defer to connection parameters for creating any record layer messages. it can't assume that it's in secure or non-secure mode. also move m_fSecureMode into connection parameters
 - go through all the code and rearrange order of functions to be more logical for read-through
 - change up goto style of main loop
 

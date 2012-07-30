@@ -138,13 +138,15 @@ const PCSTR c_szServerFinished_PRFLabel = "server finished";
 // For Finished messages sent by the client, the string "client finished".
 const PCSTR c_szClientFinished_PRFLabel = "client finished";
 
+// struct { } HelloRequest;
+const size_t c_cbHelloRequest_Length = 0;
+
 /************************** End Protocol Constants **********************/
 
 extern const BYTE c_abyCert[];
 extern const size_t c_cbCert;
 
 class MT_PreMasterSecret;
-class TLSConnection;
 class MT_CipherFragment;
 
 class MT_Structure
@@ -807,6 +809,7 @@ class TLSConnection
         MT_TLSCiphertext* pCiphertext);
 
     HRESULT EnqueueSendApplicationData(const ByteVector* pvbPayload);
+    HRESULT EnqueueStartRenegotiation();
 
     HRESULT EnqueueMessage(std::shared_ptr<MT_RecordLayerMessage> spMessage);
     HRESULT SendQueuedMessages();
@@ -1128,6 +1131,19 @@ class MT_Alert : public MT_Structure
 
     MT_AlertLevel m_eLevel;
     MT_AlertDescription m_eDescription;
+};
+
+class MT_HelloRequest : public MT_Structure
+{
+    public:
+    MT_HelloRequest();
+    ~MT_HelloRequest() { }
+
+    size_t Length() const { return c_cbHelloRequest_Length; }
+
+    private:
+    // HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
 
 /*

@@ -1259,6 +1259,47 @@ error:
     goto done;
 } // end function CreateCiphertext
 
+HRESULT
+TLSConnection::EnqueueStartRenegotiation()
+{
+    HRESULT hr = S_OK;
+    MT_HelloRequest helloRequest;
+    MT_Handshake handshake;
+    shared_ptr<MT_TLSCiphertext> spCiphertext(new MT_TLSCiphertext());
+
+    *handshake.Type() = MT_Handshake::MTH_HelloRequest;
+    hr = helloRequest.SerializeToVect(handshake.Body());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = CreateCiphertext(
+             MT_ContentType::MTCT_Type_Handshake,
+             *ConnParams()->NegotiatedVersion()->Version(),
+             &handshake,
+             spCiphertext.get());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = EnqueueMessage(spCiphertext);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function EnqueueStartRenegotiation
+
+
+/*********** Utility functions *****************/
 
 template <typename N>
 HRESULT
@@ -5955,6 +5996,26 @@ SymmetricCipherer::DecryptBuffer(
 
     return E_NOTIMPL;
 } // end function DecryptBuffer
+
+/*********** MT_HelloRequest *****************/
+
+MT_HelloRequest::MT_HelloRequest()
+    : MT_Structure()
+{
+} // end ctor MT_HelloRequest
+
+HRESULT
+MT_HelloRequest::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    UNREFERENCED_PARAMETER(pv);
+    UNREFERENCED_PARAMETER(cb);
+
+    // 0-byte structure
+    return S_OK;
+} // end function SerializePriv
 
 /*********** MT_Thingy *****************/
 
