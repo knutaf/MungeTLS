@@ -261,6 +261,17 @@ TLSConnection::HandleMessage(
 
                 wprintf(L"%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
 
+                {
+                    for (auto it = clientHello.Extensions()->Data()->begin(); it != clientHello.Extensions()->Data()->end(); it++)
+                    {
+                        if (*it->ExtensionType() == MT_Extension::MTEE_RenegotiationInfo)
+                        {
+                            wprintf(L"found renegotiation info:\n");
+                            PrintByteVector(it->ExtensionData());
+                        }
+                    }
+                }
+
                 ConnParams()->HandshakeMessages()->push_back(spHandshakeMessage);
 
                 *ConnParams()->ClientHello() = clientHello;
@@ -439,6 +450,8 @@ TLSConnection::HandleMessage(
                     wprintf(L"security failed on finished message: %08LX\n", hr);
                     goto error;
                 }
+
+                *ConnParams()->ClientVerifyData() = *finishedMessage.VerifyData();
 
                 ConnParams()->HandshakeMessages()->push_back(spHandshakeMessage);
 
@@ -679,12 +692,40 @@ TLSConnection::RespondToClientHello()
         *compressionMethod.Method() = MT_CompressionMethod::MTCM_Null;
 
         {
-            MT_Extension renegotiationExtension;
-
-            // a single byte, with value 0
+            MT_RenegotiationInfoExtension renegotiationExtension;
             *renegotiationExtension.ExtensionType() = MT_Extension::MTEE_RenegotiationInfo;
-            renegotiationExtension.ExtensionData()->clear();
-            renegotiationExtension.ExtensionData()->push_back(0);
+
+            // no previous verify data to use, i.e. not renegotiating
+            if (!ConnParams()->ServerVerifyData()->Data()->empty())
+            {
+                // also need client verify data
+                assert(!ConnParams()->ClientVerifyData()->Data()->empty());
+
+                renegotiationExtension.RenegotiatedConnection()->Data()->insert(
+                    renegotiationExtension.RenegotiatedConnection()->Data()->end(),
+                    ConnParams()->ClientVerifyData()->Data()->begin(),
+                    ConnParams()->ClientVerifyData()->Data()->end());
+
+                renegotiationExtension.RenegotiatedConnection()->Data()->insert(
+                    renegotiationExtension.RenegotiatedConnection()->Data()->end(),
+                    ConnParams()->ServerVerifyData()->Data()->begin(),
+                    ConnParams()->ServerVerifyData()->Data()->end());
+
+                if (renegotiationExtension.RenegotiatedConnection()->Data()->size() != c_cbFinishedVerifyData_Length * 2)
+                {
+                    wprintf(L"warning: renegotiation verify data is odd length. expected: %u, actual: %u\n", c_cbFinishedVerifyData_Length * 2, renegotiationExtension.RenegotiatedConnection()->Data()->size());
+                }
+
+                wprintf(L"adding renegotation binding information:\n");
+                PrintByteVector(renegotiationExtension.RenegotiatedConnection()->Data());
+            }
+            // else, empty renegotiated info
+
+            hr = renegotiationExtension.UpdateDerivedFields();
+            if (hr != S_OK)
+            {
+                goto error;
+            }
 
             extensions.Data()->push_back(renegotiationExtension);
         }
@@ -894,6 +935,8 @@ TLSConnection::RespondToFinished()
         {
             goto error;
         }
+
+        *ConnParams()->ServerVerifyData() = *finished.VerifyData();
     }
 
 done:
@@ -1698,6 +1741,8 @@ ConnectionParameters::ConnectionParameters()
       m_clientHello(),
       m_clientRandom(),
       m_serverRandom(),
+      m_clientVerifyData(),
+      m_serverVerifyData(),
       m_negotiatedVersion(),
       m_vbClientWriteMACKey(),
       m_vbServerWriteMACKey(),
@@ -6138,6 +6183,58 @@ MT_HelloRequest::SerializePriv(
 
     // 0-byte structure
     return S_OK;
+} // end function SerializePriv
+
+/*********** MT_RenegotiationInfoExtension *****************/
+
+MT_RenegotiationInfoExtension::MT_RenegotiationInfoExtension()
+    : MT_Extension(),
+      m_renegotiatedConnection()
+{
+} // end ctor MT_RenegotiationInfoExtension
+
+HRESULT
+MT_RenegotiationInfoExtension::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+
+    hr = MT_Extension::ParseFromPriv(pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = RenegotiatedConnection()->ParseFromVect(ExtensionData());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+HRESULT
+MT_RenegotiationInfoExtension::UpdateDerivedFields()
+{
+    HRESULT hr = S_OK;
+    hr = RenegotiatedConnection()->SerializeToVect(ExtensionData());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
 } // end function SerializePriv
 
 /*********** MT_Thingy *****************/

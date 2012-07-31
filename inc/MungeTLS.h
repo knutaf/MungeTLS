@@ -144,6 +144,11 @@ const PCSTR c_szClientFinished_PRFLabel = "client finished";
 // struct { } HelloRequest;
 const size_t c_cbHelloRequest_Length = 0;
 
+// RFC 5746 - opaque renegotiated_connection<0..255>;
+const size_t c_cbRenegotiatedConnection_LFL = 1;
+const size_t c_cbRenegotiatedConnection_MinLength = 0;
+const size_t c_cbRenegotiatedConnection_MaxLength = 255;
+
 /************************** End Protocol Constants **********************/
 
 extern const BYTE c_abyCert[];
@@ -357,19 +362,43 @@ class MT_Extension : public MT_Structure
     };
 
     MT_Extension();
-    ~MT_Extension() { }
+    virtual ~MT_Extension() { }
 
     size_t Length() const;
 
     ACCESSORS(MTE_ExtensionType*, ExtensionType, &m_extensionType);
     ACCESSORS(ByteVector*, ExtensionData, &m_vbExtensionData);
 
-    private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    protected:
+    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
+    private:
     MTE_ExtensionType m_extensionType;
     ByteVector m_vbExtensionData;
+};
+
+class MT_RenegotiationInfoExtension : public MT_Extension
+{
+    typedef MT_VariableLengthByteField<
+                c_cbRenegotiatedConnection_LFL,
+                c_cbRenegotiatedConnection_MinLength,
+                c_cbRenegotiatedConnection_MaxLength>
+            MT_RenegotiatedConnection;
+
+    public:
+    MT_RenegotiationInfoExtension();
+    ~MT_RenegotiationInfoExtension() { }
+
+    ACCESSORS(MT_RenegotiatedConnection*, RenegotiatedConnection, &m_renegotiatedConnection);
+
+    // really don't like the design of this. suggestions welcome on improvement
+    HRESULT UpdateDerivedFields();
+
+    private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+
+    MT_RenegotiatedConnection m_renegotiatedConnection;
 };
 
 typedef MT_VariableLengthField<
@@ -492,6 +521,8 @@ typedef MT_VariableLengthField<
             c_cbASN1Certs_MaxLength>
         MT_CertificateList;
 
+typedef MT_FixedLengthByteStructure<c_cbFinishedVerifyData_Length> MT_FinishedVerifyData;
+
 class ConnectionParameters
 {
     public:
@@ -516,6 +547,8 @@ class ConnectionParameters
     ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion);
     ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
     ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
+    ACCESSORS(MT_FinishedVerifyData*, ClientVerifyData, &m_clientVerifyData);
+    ACCESSORS(MT_FinishedVerifyData*, ServerVerifyData, &m_serverVerifyData);
 
     ACCESSORS(std::vector<std::shared_ptr<MT_Structure>>*, HandshakeMessages, &m_vHandshakeMessages);
     ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
@@ -557,6 +590,8 @@ class ConnectionParameters
     MT_ProtocolVersion m_negotiatedVersion;
     MT_Random m_clientRandom;
     MT_Random m_serverRandom;
+    MT_FinishedVerifyData m_clientVerifyData;
+    MT_FinishedVerifyData m_serverVerifyData;
 
     ByteVector m_vbMasterSecret;
     ByteVector m_vbClientWriteMACKey;
@@ -921,15 +956,13 @@ class MT_ChangeCipherSpec : public MT_Structure
 
 class MT_Finished : public MT_Structure, public MT_Securable
 {
-    typedef MT_FixedLengthByteStructure<c_cbFinishedVerifyData_Length> MTF_VerifyData;
-
     public:
     MT_Finished();
     ~MT_Finished() { }
 
     size_t Length() const { return VerifyData()->Length(); }
 
-    ACCESSORS(MTF_VerifyData*, VerifyData, &m_verifyData);
+    ACCESSORS(MT_FinishedVerifyData*, VerifyData, &m_verifyData);
     HRESULT ComputeVerifyData(PCSTR szLabel, ByteVector* pvbVerifyData);
 
     private:
@@ -937,7 +970,7 @@ class MT_Finished : public MT_Structure, public MT_Securable
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     HRESULT CheckSecurityPriv();
 
-    MTF_VerifyData m_verifyData;
+    MT_FinishedVerifyData m_verifyData;
 };
 
 class MT_CipherFragment : public MT_Structure, public MT_Securable
