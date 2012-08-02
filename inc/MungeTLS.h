@@ -309,6 +309,7 @@ class MT_ProtocolVersion : public MT_Structure
     ACCESSORS(MTPV_Version*, Version, &m_eVersion);
 
     size_t Length() const { return c_cbProtocolVersion_Length; }
+    bool operator==(const MT_ProtocolVersion& rOther) const { return *Version() == *rOther.Version(); }
 
     static bool IsKnownVersion(MTPV_Version eVersion);
 
@@ -325,6 +326,7 @@ class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length
     HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
     HRESULT Value(MT_CipherSuiteValue* peValue) const;
     HRESULT SetValue(MT_CipherSuiteValue eValue);
+    bool operator==(const MT_CipherSuite& rOther) const;
 };
 
 class MT_Random : public MT_Structure
@@ -537,14 +539,16 @@ class ConnectionParameters
         std::shared_ptr<Hasher> spHasher);
 
     ACCESSORS(MT_CertificateList*, CertChain, &m_certChain);
-    ACCESSORS(PublicKeyCipherer*, PubKeyCipherer, m_spPubKeyCipherer.get());
-    ACCESSORS(SymmetricCipherer*, ClientSymCipherer, m_spClientSymCipherer.get());
-    ACCESSORS(SymmetricCipherer*, ServerSymCipherer, m_spServerSymCipherer.get());
-    ACCESSORS(Hasher*, HashInst, m_spHasher.get());
+    ACCESSORS(std::shared_ptr<PublicKeyCipherer>*, PubKeyCipherer, &m_spPubKeyCipherer);
+    ACCESSORS(std::shared_ptr<SymmetricCipherer>*, ClientSymCipherer, &m_spClientSymCipherer);
+    ACCESSORS(std::shared_ptr<SymmetricCipherer>*, ServerSymCipherer, &m_spServerSymCipherer);
+    ACCESSORS(std::shared_ptr<Hasher>*, HashInst, &m_spHasher);
 
     ACCESSORS(MT_ClientHello*, ClientHello, &m_clientHello);
-    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
-    ACCESSORS(MT_ProtocolVersion*, NegotiatedVersion, &m_negotiatedVersion);
+    ACCESSORS(MT_CipherSuite*, ReadCipherSuite, &m_readCipherSuite);
+    ACCESSORS(MT_CipherSuite*, WriteCipherSuite, &m_writeCipherSuite);
+    ACCESSORS(MT_ProtocolVersion*, ReadVersion, &m_readVersion);
+    ACCESSORS(MT_ProtocolVersion*, WriteVersion, &m_writeVersion);
     ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
     ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
     ACCESSORS(MT_FinishedVerifyData*, ClientVerifyData, &m_clientVerifyData);
@@ -562,13 +566,26 @@ class ConnectionParameters
     ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
     ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
 
+    // TODO: can be const?
+    HRESULT CopyReadStateTo(ConnectionParameters* pDest);
+    HRESULT CopyWriteStateTo(ConnectionParameters* pDest);
+    HRESULT CopyOtherStateTo(ConnectionParameters* pDest);
+
+    // TODO: is this an okay basis for determination?
+    bool IsHandshakeInProgress() const { return !ReadCipherSuite()->Data()->empty(); }
+
     bool IsSecureRead() const { return m_fSecureRead; }
     void SetSecureRead() { m_fSecureRead = true; }
     bool IsSecureWrite() const { return m_fSecureWrite; }
     void SetSecureWrite() { m_fSecureWrite = true; }
 
-    const CipherInfo* Cipher() const;
-    const HashInfo* Hash() const;
+    const CipherInfo* ReadCipher() const { return Cipher(ReadCipherSuite()); }
+    const CipherInfo* WriteCipher() const { return Cipher(WriteCipherSuite()); }
+    const HashInfo* ReadHash() const { return Hash(ReadCipherSuite()); }
+    const HashInfo* WriteHash() const { return Hash(WriteCipherSuite()); }
+
+    HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
+    HRESULT GenerateKeyMaterial();
 
     HRESULT
     ComputePRF(
@@ -579,6 +596,9 @@ class ConnectionParameters
         ByteVector* pvbPRF);
 
     private:
+    const CipherInfo* Cipher(const MT_CipherSuite* pCipherSuite) const;
+    const HashInfo* Hash(const MT_CipherSuite* pCipherSuite) const;
+
     MT_CertificateList m_certChain;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
     std::shared_ptr<SymmetricCipherer> m_spClientSymCipherer;
@@ -586,8 +606,10 @@ class ConnectionParameters
     std::shared_ptr<Hasher> m_spHasher;
 
     MT_ClientHello m_clientHello;
-    MT_CipherSuite m_cipherSuite;
-    MT_ProtocolVersion m_negotiatedVersion;
+    MT_CipherSuite m_readCipherSuite;
+    MT_CipherSuite m_writeCipherSuite;
+    MT_ProtocolVersion m_readVersion;
+    MT_ProtocolVersion m_writeVersion;
     MT_Random m_clientRandom;
     MT_Random m_serverRandom;
     MT_FinishedVerifyData m_clientVerifyData;
@@ -719,6 +741,7 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     MT_TLSCiphertext();
     ~MT_TLSCiphertext() {};
 
+    // TODO: dangerous
     ACCESSORS(MT_CipherFragment*, CipherFragment, m_spCipherFragment.get());
 
     HRESULT Encrypt();
@@ -820,7 +843,16 @@ class ITLSListener
     virtual HRESULT OnApplicationData(const ByteVector* pvb) = 0;
     virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
     virtual HRESULT OnSelectCipherSuite(MT_CipherSuite* pCipherSuite) = 0;
-    virtual HRESULT GetCertificateChain(MT_CertificateList* pCertChain) = 0;
+
+    virtual
+    HRESULT
+    OnInitializeCrypto(
+        MT_CertificateList* pCertChain,
+        std::shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
+        std::shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
+        std::shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
+        std::shared_ptr<Hasher>* pspHasher) = 0;
+
     virtual HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags) = 0;
 };
 
@@ -833,14 +865,12 @@ class TLSConnection
     TLSConnection(ITLSListener* pListener);
     virtual ~TLSConnection() { }
 
-    HRESULT Initialize(
-        std::shared_ptr<PublicKeyCipherer> spPubKeyCipherer,
-        std::shared_ptr<SymmetricCipherer> spClientSymCipherer,
-        std::shared_ptr<SymmetricCipherer> spServerSymCipherer,
-        std::shared_ptr<Hasher> spHasher);
+    HRESULT Initialize();
 
-    HRESULT
-    HandleMessage(ByteVector* pvb);
+    HRESULT StartNextHandshake(const MT_ClientHello* pClientHello);
+    HRESULT FinishNextHandshake();
+
+    HRESULT HandleMessage(ByteVector* pvb);
 
     HRESULT EnqueueSendApplicationData(const ByteVector* pvbPayload);
     HRESULT EnqueueStartRenegotiation();
@@ -857,17 +887,16 @@ class TLSConnection
 
     HRESULT RespondToFinished();
 
-    HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
-    HRESULT GenerateKeyMaterial();
-
     HRESULT
     AddHandshakeMessage(
         MT_Handshake* pHandshake,
         MT_ProtocolVersion::MTPV_Version version,
         MT_TLSPlaintext** ppPlaintext);
 
-    ACCESSORS(ConnectionParameters*, ConnParams, &m_connParams);
-    ConnectionParameters m_connParams;
+    ACCESSORS(ConnectionParameters*, CurrConn, &m_currentConnection);
+    ACCESSORS(ConnectionParameters*, NextConn, &m_nextConnection);
+    ConnectionParameters m_currentConnection;
+    ConnectionParameters m_nextConnection;
     MessageList m_pendingSends;
     ITLSListener* m_pListener;
 };

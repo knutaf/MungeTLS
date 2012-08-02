@@ -1031,7 +1031,7 @@ error:
 
 WindowsSymmetricCipherer::WindowsSymmetricCipherer()
     : SymmetricCipherer(),
-      m_key()
+      m_spKey(nullptr)
 {
 } // end ctor WindowsSymmetricCipherer
 
@@ -1059,10 +1059,12 @@ WindowsSymmetricCipherer::Initialize(
         goto error;
     }
 
+    m_spKey = shared_ptr<KeyAndProv>(new KeyAndProv());
+
     hr = ImportSymmetricKey(
              pvbKey,
              algID,
-             &m_key);
+             m_spKey.get());
 
     if (hr != S_OK)
     {
@@ -1094,7 +1096,7 @@ WindowsSymmetricCipherer::EncryptBuffer(
     {
         hr = MungeTLS::EncryptBuffer(
                  pvbCleartext,
-                 Key()->GetKey(),
+                 (*Key())->GetKey(),
                  Cipher(),
                  pvbIV,
                  pvbEncrypted);
@@ -1121,7 +1123,7 @@ WindowsSymmetricCipherer::DecryptBuffer(
     {
         hr = MungeTLS::DecryptBuffer(
                  pvbEncrypted,
-                 Key()->GetKey(),
+                 (*Key())->GetKey(),
                  Cipher(),
                  pvbIV,
                  pvbDecrypted);

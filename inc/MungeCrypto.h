@@ -33,6 +33,7 @@ struct CipherInfo
     size_t cbKeyMaterialSize;
     size_t cbIVSize;
     size_t cbBlockSize;
+    bool operator==(const CipherInfo& rOther) const { return alg == rOther.alg; }
 };
 
 enum HashAlg
@@ -49,6 +50,7 @@ struct HashInfo
     HashAlg alg;
     size_t cbHashSize;
     size_t cbHashKeySize;
+    bool operator==(const HashInfo& rOther) const { return alg == rOther.alg; }
 };
 
 const CipherInfo c_CipherInfo_RSA =

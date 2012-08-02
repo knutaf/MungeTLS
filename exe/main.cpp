@@ -125,15 +125,6 @@ HRESULT LogRead(ULONG nFile, const ByteVector* pvb)
     return LogTraffic(nFile, &wsRead, pvb);
 } // end function LogRead
 
-DummyServer::~DummyServer()
-{
-    if (m_pCertChain)
-    {
-        CertFreeCertificateChain(m_pCertChain);
-        m_pCertChain = nullptr;
-    }
-} // end dtor DummyServer
-
 HRESULT DummyServer::ProcessConnections()
 {
     HRESULT hr = S_OK;
@@ -221,38 +212,8 @@ HRESULT DummyServer::ProcessConnections()
         HRESULT hr = S_OK;
         ULONG cMessages = 0;
 
-        hr = LookupCertificate(
-                 CERT_SYSTEM_STORE_CURRENT_USER,
-                 L"my",
-                 L"mtls-test",
-                 CertChain());
 
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        *PubKeyCipherer() = shared_ptr<WindowsPublicKeyCipherer>(new WindowsPublicKeyCipherer());
-
-        // the root cert in the chain
-        hr = (*PubKeyCipherer())->Initialize((*CertChain())->rgpChain[0]->rgpElement[0]->pCertContext);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        *ClientSymCipherer() = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
-        *ServerSymCipherer() = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
-
-        *HashInst() = shared_ptr<WindowsHasher>(new WindowsHasher());
-
-
-        hr = Connection()->Initialize(
-                 *PubKeyCipherer(),
-                 *ClientSymCipherer(),
-                 *ServerSymCipherer(),
-                 *HashInst());
-
+        hr = Connection()->Initialize();
         if (hr != S_OK)
         {
             goto error;
@@ -521,13 +482,11 @@ HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
                 goto error;
             }
 
-            /*
             hr = Connection()->EnqueueStartRenegotiation();
             if (hr != S_OK)
             {
                 goto error;
             }
-            */
 
             hr = Connection()->SendQueuedMessages();
             if (hr != S_OK)
@@ -563,23 +522,70 @@ HRESULT DummyServer::OnSelectCipherSuite(MT_CipherSuite* pCipherSuite)
     return MT_S_LISTENER_IGNORED;
 } // end function OnSelectCipherSuite
 
-HRESULT DummyServer::GetCertificateChain(MT_CertificateList* pCertChain)
+HRESULT
+DummyServer::OnInitializeCrypto(
+    MT_CertificateList* pCertChain,
+    shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
+    shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
+    shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
+    shared_ptr<Hasher>* pspHasher
+)
 {
     HRESULT hr = S_OK;
+    PCCERT_CHAIN_CONTEXT pCertChainCtx = nullptr;
+    shared_ptr<WindowsPublicKeyCipherer> spPubKeyCipherer;
+    shared_ptr<WindowsSymmetricCipherer> spClientSymCipherer;
+    shared_ptr<WindowsSymmetricCipherer> spServerSymCipherer;
+    shared_ptr<WindowsHasher> spHasher;
 
-    hr = MTCertChainFromWinChain(*CertChain(), pCertChain);
+    hr = LookupCertificate(
+             CERT_SYSTEM_STORE_CURRENT_USER,
+             L"my",
+             L"mtls-test",
+             &pCertChainCtx);
 
     if (hr != S_OK)
     {
         goto error;
     }
 
+    spPubKeyCipherer = shared_ptr<WindowsPublicKeyCipherer>(new WindowsPublicKeyCipherer());
+
+    // the root cert in the chain
+    hr = spPubKeyCipherer->Initialize(pCertChainCtx->rgpChain[0]->rgpElement[0]->pCertContext);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    spClientSymCipherer = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
+    spServerSymCipherer = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
+
+    spHasher = shared_ptr<WindowsHasher>(new WindowsHasher());
+
+    hr = MTCertChainFromWinChain(pCertChainCtx, pCertChain);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    *pspPubKeyCipherer = spPubKeyCipherer;
+    *pspClientSymCipherer = spClientSymCipherer;
+    *pspServerSymCipherer = spServerSymCipherer;
+    *pspHasher = spHasher;
+
 done:
+    if (pCertChainCtx)
+    {
+        CertFreeCertificateChain(pCertChainCtx);
+        pCertChainCtx = nullptr;
+    }
+
     return hr;
 
 error:
     goto done;
-} // end function GetCertificateChain
+} // end function OnInitializeCrypto
 
 HRESULT DummyServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags)
 {

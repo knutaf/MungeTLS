@@ -70,9 +70,9 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
         ALG_ID* pAlgID);
 
     private:
-    ACCESSORS(KeyAndProv*, Key, &m_key);
+    ACCESSORS(std::shared_ptr<KeyAndProv>*, Key, &m_spKey);
 
-    KeyAndProv m_key;
+    std::shared_ptr<KeyAndProv> m_spKey;
 };
 
 class WindowsPublicKeyCipherer : public PublicKeyCipherer

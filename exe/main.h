@@ -14,23 +14,25 @@ class DummyServer : public ITLSListener
     DummyServer()
         : m_vbPendingSends(),
           m_con(this), // not a copy ctor; taking this as an ITLSListener
-          m_sPendingRequest(""),
-          m_pCertChain(nullptr),
-          m_spPubKeyCipherer(),
-          m_spClientSymCipherer(),
-          m_spServerSymCipherer(),
-          m_spHasher()
+          m_sPendingRequest("")
     { }
 
-    ~DummyServer();
+    ~DummyServer() { }
 
     HRESULT ProcessConnections();
     HRESULT OnSend(const ByteVector* pvb);
     HRESULT OnApplicationData(const ByteVector* pvb);
     HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);
     HRESULT OnSelectCipherSuite(MT_CipherSuite* pCipherSuite);
-    HRESULT GetCertificateChain(MT_CertificateList* pCertChain);
     HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags);
+
+    HRESULT
+    OnInitializeCrypto(
+        MT_CertificateList* pCertChain,
+        std::shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
+        std::shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
+        std::shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
+        std::shared_ptr<Hasher>* pspHasher);
 
     ACCESSORS(ByteVector*, PendingSends, &m_vbPendingSends);
 

@@ -3,15 +3,20 @@ BUGS:
 WORK:
 - callback for handshake completed
 - implement renegotiation
-- hello request
-- tlsconnection needs to defer to connection parameters for creating any record layer messages. it can't assume that it's in secure or non-secure mode. also move m_fSecureMode into connection parameters
+- eliminate explicit secure read and write flags. instead, the cipher suite will determine this, and will be initialized to null encryption
+    - can probably eliminate RESET flag for enqueue, oto
+- trim down the dependencies on ConnParams in things like TLSCiphertext. it should only depend on read or write endpoint states, which can eliminate all the asserts about equal read and write versions, etc..
+- watch out for places where we expose an accessor on a base class, such as SymmetricCipherer
+- refactor contents of tlscon Initialize
 - go through all the code and rearrange order of functions to be more logical for read-through
 - change up goto style of main loop
 
 MAYBE:
+- public key encrypted structure should keep a shared_ptr, not a real one?
 - functions to advance/reset sequence number
 - ability to verify correct cert usages before using
 - in parsefrom functions, error path should unset member variables
+- GenerateKeyMaterial is just called by computemastersecret
 
 BY DESIGN:
 - don't access MT_VariableLengthField::Data. surface common operations
