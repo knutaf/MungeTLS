@@ -239,12 +239,12 @@ TLSConnection::HandleMessage(
 
         if (CurrConn()->ReadParams()->Cipher()->type == CipherType_Block)
         {
-            if (*CurrConn()->ReadParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+            if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
             {
                 MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(message.CipherFragment());
                 CurrConn()->ReadParams()->IV()->assign(pBlockCipher->RawContent()->end() - CurrConn()->ReadParams()->Cipher()->cbIVSize, pBlockCipher->RawContent()->end());
             }
-            else if (*CurrConn()->ReadParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+            else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
             {
                 MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(message.CipherFragment());
                 *CurrConn()->ReadParams()->IV() = *pBlockCipher->IVNext();
@@ -357,8 +357,8 @@ TLSConnection::HandleMessage(
                         goto error;
                     }
 
-                    *NextConn()->ReadParams()->Version() = protocolVersion;
-                    *NextConn()->WriteParams()->Version() = protocolVersion;
+                    *NextConn()->ReadParams()->Version() = *protocolVersion.Version();
+                    *NextConn()->WriteParams()->Version() = *protocolVersion.Version();
                 }
 
                 *NextConn()->ClientRandom() = *(clientHello.Random());
@@ -730,7 +730,7 @@ TLSConnection::RespondToClientHello()
         shared_ptr<MT_Handshake> spHandshake(new MT_Handshake());
 
         // could call back to caller for this
-        protocolVersion = *NextConn()->ReadParams()->Version();
+        *protocolVersion.Version() = *NextConn()->ReadParams()->Version();
 
         hr = random.PopulateNow();
         if (hr != S_OK)
@@ -935,7 +935,7 @@ TLSConnection::RespondToFinished()
 
         hr = CreatePlaintext(
                  MT_ContentType::MTCT_Type_ChangeCipherSpec,
-                 *NextConn()->ReadParams()->Version()->Version(),
+                 *NextConn()->ReadParams()->Version(),
                  &changeCipherSpec,
                  spPlaintext.get());
 
@@ -1002,7 +1002,7 @@ TLSConnection::RespondToFinished()
 
         hr = CreatePlaintext(
                  MT_ContentType::MTCT_Type_Handshake,
-                 *CurrConn()->WriteParams()->Version()->Version(),
+                 *CurrConn()->WriteParams()->Version(),
                  spHandshake.get(),
                  spPlaintext.get());
 
@@ -1097,7 +1097,7 @@ TLSConnection::EnqueueSendApplicationData(
 
     hr = CreatePlaintext(
              MT_ContentType::MTCT_Type_ApplicationData,
-             *CurrConn()->WriteParams()->Version()->Version(),
+             *CurrConn()->WriteParams()->Version(),
              pvb,
              spPlaintext.get());
 
@@ -1138,7 +1138,7 @@ TLSConnection::EnqueueStartRenegotiation()
 
     hr = CreatePlaintext(
              MT_ContentType::MTCT_Type_Handshake,
-             *CurrConn()->WriteParams()->Version()->Version(),
+             *CurrConn()->WriteParams()->Version(),
              &handshake,
              spPlaintext.get());
 
@@ -1626,7 +1626,7 @@ error:
 EndpointParameters::EndpointParameters()
     : m_cipherSuite(),
       m_spHasher(),
-      m_version(),
+      m_eVersion(MT_ProtocolVersion::MTPV_Unknown),
       m_vbKey(),
       m_vbMACKey(),
       m_vbIV(),
@@ -1751,9 +1751,9 @@ ConnectionParameters::ComputePRF(
     assert(*ReadParams()->Version() == *WriteParams()->Version());
     assert(*ReadParams()->Hash() == *WriteParams()->Hash());
 
-    wprintf(L"protocol version for PRF algorithm: %04LX\n", *ReadParams()->Version()->Version());
+    wprintf(L"protocol version for PRF algorithm: %04LX\n", *ReadParams()->Version());
 
-    if (*ReadParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+    if (*ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
     {
         hr = ComputePRF_TLS10(
                  ReadParams()->HashInst()->get(),
@@ -1763,7 +1763,7 @@ ConnectionParameters::ComputePRF(
                  cbLengthDesired,
                  pvbPRF);
     }
-    else if (*ReadParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+    else if (*ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
     {
         hr = ComputePRF_TLS12(
                  ReadParams()->HashInst()->get(),
@@ -3135,11 +3135,11 @@ MT_TLSCiphertext::SetSecurityParameters(
     }
     else if (EndParams()->Cipher()->type == CipherType_Block)
     {
-        if (*EndParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+        if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
         {
             m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS10());
         }
-        else if (*EndParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
         {
             m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS12());
         }
@@ -3277,7 +3277,7 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
     }
     else if (EndParams()->Cipher()->type == CipherType_Block)
     {
-        if (*EndParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+        if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
         {
             MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(CipherFragment());
 
@@ -3290,7 +3290,7 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
                 goto error;
             }
         }
-        else if (*EndParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
         {
             MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(CipherFragment());
 
@@ -3341,7 +3341,7 @@ MT_TLSCiphertext::CheckSecurityPriv()
     }
     else if (EndParams()->Cipher()->type == CipherType_Block)
     {
-        if (*EndParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+        if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
         {
             MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(CipherFragment());
             hr = pBlockCipher->CheckSecurity(
@@ -3353,7 +3353,7 @@ MT_TLSCiphertext::CheckSecurityPriv()
                 goto error;
             }
         }
-        else if (*EndParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
         {
             MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(CipherFragment());
             hr = pBlockCipher->CheckSecurity(
@@ -4800,7 +4800,7 @@ MT_Finished::ComputeVerifyData(
         goto error;
     }
 
-    if (*EndParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+    if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
     {
         ByteVector vbMD5HandshakeHash;
         ByteVector vbSHA1HandshakeHash;
@@ -4832,7 +4832,7 @@ MT_Finished::ComputeVerifyData(
             vbSHA1HandshakeHash.begin(),
             vbSHA1HandshakeHash.end());
     }
-    else if (*EndParams()->Version()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+    else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
     {
         hr = (*EndParams()->HashInst())->Hash(
                  &c_HashInfo_SHA256,
@@ -4846,7 +4846,7 @@ MT_Finished::ComputeVerifyData(
     }
     else
     {
-        wprintf(L"unrecognized version: %04LX\n", *EndParams()->Version()->Version());
+        wprintf(L"unrecognized version: %04LX\n", *EndParams()->Version());
         hr = MT_E_UNKNOWN_PROTOCOL_VERSION;
         goto error;
     }

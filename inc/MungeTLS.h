@@ -535,7 +535,7 @@ class EndpointParameters
     ACCESSORS(std::shared_ptr<SymmetricCipherer>*, SymCipherer, &m_spSymCipherer);
     ACCESSORS(std::shared_ptr<Hasher>*, HashInst, &m_spHasher);
     ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
-    ACCESSORS(MT_ProtocolVersion*, Version, &m_version);
+    ACCESSORS(MT_ProtocolVersion::MTPV_Version*, Version, &m_eVersion);
     ACCESSORS(MT_UINT64*, SequenceNumber, &m_seqNum);
     ACCESSORS(ByteVector*, Key, &m_vbKey);
     ACCESSORS(ByteVector*, MACKey, &m_vbMACKey);
@@ -547,8 +547,7 @@ class EndpointParameters
     void SetSecure() { m_fIsSecure = true; }
 
     private:
-
-    MT_ProtocolVersion m_version;
+    MT_ProtocolVersion::MTPV_Version m_eVersion;
     std::shared_ptr<Hasher> m_spHasher;
     MT_CipherSuite m_cipherSuite;
     std::shared_ptr<SymmetricCipherer> m_spSymCipherer;
