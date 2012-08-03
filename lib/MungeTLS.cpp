@@ -570,13 +570,8 @@ TLSConnection::HandleMessage(
         for (auto it = vStructures.begin(); it != vStructures.end(); it++)
         {
             wprintf(L"change cipher spec found: %d\n", *it->Type());
-            hr = NextConn()->CopyReadStateTo(CurrConn());
-            if (hr != S_OK)
-            {
-                goto error;
-            }
-
-            CurrConn()->ReadParams()->SetSecure();
+            NextConn()->ReadParams()->SetSecure();
+            *CurrConn()->ReadParams() = *NextConn()->ReadParams();
         }
 
         /*
@@ -956,19 +951,14 @@ TLSConnection::RespondToFinished()
             goto error;
         }
 
-        hr = NextConn()->CopyWriteStateTo(CurrConn());
+        NextConn()->WriteParams()->SetSecure();
+        *CurrConn()->WriteParams() = *NextConn()->WriteParams();
+
+        hr = NextConn()->CopyCommonParamsTo(CurrConn());
         if (hr != S_OK)
         {
             goto error;
         }
-
-        hr = NextConn()->CopyOtherStateTo(CurrConn());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        CurrConn()->WriteParams()->SetSecure();
 
         /*
         ** newly copied new connection state should have its initial value of
@@ -2008,27 +1998,8 @@ error:
     goto done;
 } // end function GenerateKeyMaterial
 
-// TODO: consider removing these functions entirely
 HRESULT
-ConnectionParameters::CopyReadStateTo(
-    ConnectionParameters* pDest
-)
-{
-    *pDest->ReadParams() = *ReadParams();
-    return S_OK;
-} // end function CopyReadStateTo
-
-HRESULT
-ConnectionParameters::CopyWriteStateTo(
-    ConnectionParameters* pDest
-)
-{
-    *pDest->WriteParams() = *WriteParams();
-    return S_OK;
-} // end function CopyWriteStateTo
-
-HRESULT
-ConnectionParameters::CopyOtherStateTo(
+ConnectionParameters::CopyCommonParamsTo(
     ConnectionParameters* pDest
 )
 {
@@ -2042,7 +2013,7 @@ ConnectionParameters::CopyOtherStateTo(
     *pDest->HandshakeMessages() = *HandshakeMessages();
     *pDest->MasterSecret() = *MasterSecret();
     return S_OK;
-} // end function CopyOtherStateTo
+} // end function CopyCommonParamsTo
 
 /*********** crypto stuff *****************/
 

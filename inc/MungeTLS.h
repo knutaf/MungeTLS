@@ -586,10 +586,7 @@ class ConnectionParameters
     ACCESSORS(std::vector<std::shared_ptr<MT_Structure>>*, HandshakeMessages, &m_vHandshakeMessages);
     ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
 
-    // TODO: can be const?
-    HRESULT CopyReadStateTo(ConnectionParameters* pDest);
-    HRESULT CopyWriteStateTo(ConnectionParameters* pDest);
-    HRESULT CopyOtherStateTo(ConnectionParameters* pDest);
+    HRESULT CopyCommonParamsTo(ConnectionParameters* pDest);
 
     // TODO: is this an okay basis for determination?
     bool IsHandshakeInProgress() const { return !HandshakeMessages()->empty(); }

@@ -4,7 +4,6 @@ WORK:
 - callback for handshake completed
 - implement renegotiation
 - eliminate explicit secure read and write flags. instead, the cipher suite will determine this, and will be initialized to null encryption
-    - can probably eliminate RESET flag for enqueue, oto
 - watch out for places where we expose an accessor on a base class, such as SymmetricCipherer
 - refactor contents of tlscon Initialize
 - go through all the code and rearrange order of functions to be more logical for read-through
