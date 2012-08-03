@@ -639,8 +639,7 @@ error:
 
 HRESULT
 TLSConnection::EnqueueMessage(
-    shared_ptr<MT_TLSPlaintext> spPlaintext,
-    DWORD fFlags
+    shared_ptr<MT_TLSPlaintext> spPlaintext
 )
 {
     HRESULT hr = S_OK;
@@ -666,27 +665,11 @@ TLSConnection::EnqueueMessage(
     }
 
     PendingSends()->push_back(spRecord);
-
-    if (fFlags & MT_ENQUEUEMESSAGE_SEQNUM_RESET)
-    {
-        *CurrConn()->WriteParams()->SequenceNumber() = 0;
-    }
-    else
-    {
-        (*CurrConn()->WriteParams()->SequenceNumber())++;
-    }
+    (*CurrConn()->WriteParams()->SequenceNumber())++;
 
     wprintf(L"write seq num is now %d\n", *CurrConn()->WriteParams()->SequenceNumber());
 
     return S_OK;
-} // end function EnqueueMessage
-
-HRESULT
-TLSConnection::EnqueueMessage(
-    shared_ptr<MT_TLSPlaintext> spPlaintext
-)
-{
-    return EnqueueMessage(spPlaintext, MT_ENQUEUEMESSAGE_SEQNUM_INCREMENT);
 } // end function EnqueueMessage
 
 HRESULT

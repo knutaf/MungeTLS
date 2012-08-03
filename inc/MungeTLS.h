@@ -34,9 +34,6 @@ const HRESULT MT_S_LISTENER_IGNORED                         = 0x00230003;
 const DWORD MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE         = 0x00000000;
 const DWORD MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE          = 0x00000001;
 
-const DWORD MT_ENQUEUEMESSAGE_SEQNUM_INCREMENT              = 0x00000000;
-const DWORD MT_ENQUEUEMESSAGE_SEQNUM_RESET                  = 0x00000001;
-
 /************************** Protocol Constants **********************/
 
 // A public-key-encrypted element is encoded as an opaque vector<0..2^16-1>
@@ -873,7 +870,6 @@ class TLSConnection
     HRESULT EnqueueSendApplicationData(const ByteVector* pvbPayload);
     HRESULT EnqueueStartRenegotiation();
 
-    HRESULT EnqueueMessage(std::shared_ptr<MT_TLSPlaintext> spMessage, DWORD fFlags);
     HRESULT EnqueueMessage(std::shared_ptr<MT_TLSPlaintext> spMessage);
     HRESULT SendQueuedMessages();
 
