@@ -188,7 +188,7 @@ class Hasher
     Hash(
         const HashInfo* pHashInfo,
         const ByteVector* pvbText,
-        ByteVector* pvbHash) = 0;
+        ByteVector* pvbHash);
 
     virtual
     HRESULT
@@ -196,7 +196,7 @@ class Hasher
         const HashInfo* pHashInfo,
         const ByteVector* pvbKey,
         const ByteVector* pvbText,
-        ByteVector* pvbHMAC) = 0;
+        ByteVector* pvbHMAC);
 };
 
 }

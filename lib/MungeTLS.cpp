@@ -182,6 +182,7 @@ TLSConnection::HandleMessage(
 {
     HRESULT hr = S_OK;
 
+    MT_TLSCiphertext message;
     MT_TLSPlaintext record;
     size_t cbConsumed = 0;
 
@@ -191,90 +192,69 @@ TLSConnection::HandleMessage(
         goto done;
     }
 
-    if (CurrConn()->ReadParams()->IsSecure())
+    hr = message.ParseFromVect(pvb);
+    if (hr != S_OK)
     {
-        MT_TLSCiphertext message;
-
-        hr = message.ParseFromVect(pvb);
-        if (hr != S_OK)
-        {
-            wprintf(L"failed to parse ciphered message: %08LX\n", hr);
-            goto error;
-        }
-
-        wprintf(L"successfully parsed TLSCiphertext. CT=%d\n", *message.ContentType()->Type());
-
-        hr = message.SetSecurityParameters(CurrConn()->ReadParams());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        hr = message.Decrypt();
-        if (hr != S_OK)
-        {
-            wprintf(L"failed to decrypt ciphertext: %08LX\n", hr);
-            goto error;
-        }
-
-        {
-            ByteVector vbDecryptedFragment;
-            wprintf(L"decrypted fragment:\n");
-            PrintByteVector(message.CipherFragment()->Content());
-        }
-
-        hr = message.CheckSecurity();
-        if (hr != S_OK)
-        {
-            wprintf(L"tlsciphertext failed security check: %08LX\n", hr);
-            goto error;
-        }
-
-        hr = message.ToTLSPlaintext(&record);
-        if (hr != S_OK)
-        {
-            wprintf(L"failed to assign ciphertext to plaintext: %08LX\n", hr);
-            goto error;
-        }
-
-        if (CurrConn()->ReadParams()->Cipher()->type == CipherType_Block)
-        {
-            if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
-            {
-                MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(message.CipherFragment());
-                CurrConn()->ReadParams()->IV()->assign(pBlockCipher->RawContent()->end() - CurrConn()->ReadParams()->Cipher()->cbIVSize, pBlockCipher->RawContent()->end());
-            }
-            else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
-            {
-                MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(message.CipherFragment());
-                *CurrConn()->ReadParams()->IV() = *pBlockCipher->IVNext();
-            }
-            else
-            {
-                assert(false);
-            }
-        }
-
-        assert(CurrConn()->ReadParams()->IV()->size() == CurrConn()->ReadParams()->Cipher()->cbIVSize);
-
-        cbConsumed = message.Length();
-    }
-    else
-    {
-        MT_TLSPlaintext message;
-        hr = message.ParseFromVect(pvb);
-        if (hr != S_OK)
-        {
-            wprintf(L"failed to parse message: %08LX\n", hr);
-            goto error;
-        }
-
-        wprintf(L"successfully parsed TLSPlaintext. CT=%d\n", *message.ContentType()->Type());
-
-        record = message;
-        cbConsumed = message.Length();
+        wprintf(L"failed to parse ciphered message: %08LX\n", hr);
+        goto error;
     }
 
+    wprintf(L"successfully parsed TLSCiphertext. CT=%d\n", *message.ContentType()->Type());
+
+    hr = message.SetSecurityParameters(CurrConn()->ReadParams());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = message.Decrypt();
+    if (hr != S_OK)
+    {
+        wprintf(L"failed to decrypt ciphertext: %08LX\n", hr);
+        goto error;
+    }
+
+    {
+        ByteVector vbDecryptedFragment;
+        wprintf(L"decrypted fragment:\n");
+        PrintByteVector(message.CipherFragment()->Content());
+    }
+
+    hr = message.CheckSecurity();
+    if (hr != S_OK)
+    {
+        wprintf(L"tlsciphertext failed security check: %08LX\n", hr);
+        goto error;
+    }
+
+    hr = message.ToTLSPlaintext(&record);
+    if (hr != S_OK)
+    {
+        wprintf(L"failed to assign ciphertext to plaintext: %08LX\n", hr);
+        goto error;
+    }
+
+    if (CurrConn()->ReadParams()->Cipher()->type == CipherType_Block)
+    {
+        if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+        {
+            MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(message.CipherFragment());
+            CurrConn()->ReadParams()->IV()->assign(pBlockCipher->RawContent()->end() - CurrConn()->ReadParams()->Cipher()->cbIVSize, pBlockCipher->RawContent()->end());
+        }
+        else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+        {
+            MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(message.CipherFragment());
+            *CurrConn()->ReadParams()->IV() = *pBlockCipher->IVNext();
+        }
+        else
+        {
+            assert(false);
+        }
+    }
+
+    assert(CurrConn()->ReadParams()->IV()->size() == CurrConn()->ReadParams()->Cipher()->cbIVSize);
+
+    cbConsumed = message.Length();
 
     if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
     {
@@ -570,7 +550,6 @@ TLSConnection::HandleMessage(
         for (auto it = vStructures.begin(); it != vStructures.end(); it++)
         {
             wprintf(L"change cipher spec found: %d\n", *it->Type());
-            NextConn()->ReadParams()->SetSecure();
             *CurrConn()->ReadParams() = *NextConn()->ReadParams();
         }
 
@@ -638,28 +617,18 @@ TLSConnection::EnqueueMessage(
 )
 {
     HRESULT hr = S_OK;
-    shared_ptr<MT_RecordLayerMessage> spRecord;
 
-    if (CurrConn()->WriteParams()->IsSecure())
-    {
-        shared_ptr<MT_TLSCiphertext> spCiphertext;
+    shared_ptr<MT_TLSCiphertext> spCiphertext;
 
-        hr = MT_TLSCiphertext::FromTLSPlaintext(
-                 spPlaintext.get(),
-                 CurrConn()->WriteParams(),
-                 &spCiphertext);
+    hr = MT_TLSCiphertext::FromTLSPlaintext(
+             spPlaintext.get(),
+             CurrConn()->WriteParams(),
+             &spCiphertext);
 
-        CurrConn()->WriteParams()->IV()->assign(spCiphertext->Fragment()->end() - CurrConn()->WriteParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
-        assert(CurrConn()->WriteParams()->IV()->size() == CurrConn()->WriteParams()->Cipher()->cbIVSize);
+    CurrConn()->WriteParams()->IV()->assign(spCiphertext->Fragment()->end() - CurrConn()->WriteParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
+    assert(CurrConn()->WriteParams()->IV()->size() == CurrConn()->WriteParams()->Cipher()->cbIVSize);
 
-        spRecord = spCiphertext;
-    }
-    else
-    {
-        spRecord = spPlaintext;
-    }
-
-    PendingSends()->push_back(spRecord);
+    PendingSends()->push_back(spCiphertext);
     (*CurrConn()->WriteParams()->SequenceNumber())++;
 
     wprintf(L"write seq num is now %d\n", *CurrConn()->WriteParams()->SequenceNumber());
@@ -951,7 +920,6 @@ TLSConnection::RespondToFinished()
             goto error;
         }
 
-        NextConn()->WriteParams()->SetSecure();
         *CurrConn()->WriteParams() = *NextConn()->WriteParams();
 
         hr = NextConn()->CopyCommonParamsTo(CurrConn());
@@ -1624,14 +1592,13 @@ error:
 /*********** EndpointParameters *****************/
 
 EndpointParameters::EndpointParameters()
-    : m_cipherSuite(),
+    : m_cipherSuite(MTCS_TLS_RSA_WITH_NULL_NULL),
       m_spHasher(),
       m_eVersion(MT_ProtocolVersion::MTPV_Unknown),
       m_vbKey(),
       m_vbMACKey(),
       m_vbIV(),
-      m_seqNum(0),
-      m_fIsSecure(false)
+      m_seqNum(0)
 {
 } // end ctor EndpointParameters
 
@@ -1658,11 +1625,8 @@ EndpointParameters::Cipher() const
         0
     };
 
-    if (cipherInfo.alg == CipherAlg_Unknown)
-    {
-        HRESULT hr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, nullptr);
-        assert(hr == S_OK);
-    }
+    HRESULT hr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, nullptr);
+    assert(hr == S_OK);
 
     return &cipherInfo;
 } // end function Cipher
@@ -1677,11 +1641,8 @@ EndpointParameters::Hash() const
         0
     };
 
-    if (hashInfo.alg == HashAlg_Unknown)
-    {
-        HRESULT hr = CryptoInfoFromCipherSuite(CipherSuite(), nullptr, &hashInfo);
-        assert(hr == S_OK);
-    }
+    HRESULT hr = CryptoInfoFromCipherSuite(CipherSuite(), nullptr, &hashInfo);
+    assert(hr == S_OK);
 
     return &hashInfo;
 } // end function Hash
@@ -1716,6 +1677,24 @@ ConnectionParameters::Initialize(
 
     *CertChain() = *pCertChain;
     m_spPubKeyCipherer = spPubKeyCipherer;
+
+    hr = spClientSymCipherer->Initialize(
+             ReadParams()->Key(),
+             ReadParams()->Cipher());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = spServerSymCipherer->Initialize(
+             WriteParams()->Key(),
+             WriteParams()->Cipher());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
     // for now passing same hasher into both endpoints. could split up
     hr = ReadParams()->Initialize(spClientSymCipherer, spHasher);
@@ -2277,11 +2256,15 @@ CryptoInfoFromCipherSuite(
 
     if (pHashInfo)
     {
-        if (eCSV == MTCS_TLS_RSA_WITH_NULL_SHA ||
-            eCSV == MTCS_TLS_RSA_WITH_RC4_128_SHA ||
-            eCSV == MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA ||
-            eCSV == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
-            eCSV == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA)
+        if (eCSV == MTCS_TLS_RSA_WITH_NULL_NULL)
+        {
+            *pHashInfo = c_HashInfo_NULL;
+        }
+        else if (eCSV == MTCS_TLS_RSA_WITH_NULL_SHA ||
+                 eCSV == MTCS_TLS_RSA_WITH_RC4_128_SHA ||
+                 eCSV == MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA ||
+                 eCSV == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
+                 eCSV == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA)
         {
             *pHashInfo = c_HashInfo_SHA1;
         }
@@ -2300,7 +2283,8 @@ CryptoInfoFromCipherSuite(
 
     if (pCipherInfo)
     {
-        if (eCSV == MTCS_TLS_RSA_WITH_NULL_MD5 ||
+        if (eCSV == MTCS_TLS_RSA_WITH_NULL_NULL ||
+            eCSV == MTCS_TLS_RSA_WITH_NULL_MD5 ||
             eCSV == MTCS_TLS_RSA_WITH_NULL_SHA ||
             eCSV == MTCS_TLS_RSA_WITH_NULL_SHA256)
         {
@@ -4392,6 +4376,18 @@ error:
     goto done;
 } // end function ChooseBestCipherSuite
 
+MT_CipherSuite::MT_CipherSuite()
+    : MT_FixedLengthByteStructure()
+{
+} // end ctor MT_CipherSuite
+
+MT_CipherSuite::MT_CipherSuite(MT_CipherSuiteValue eValue)
+    : MT_FixedLengthByteStructure()
+{
+    HRESULT hr = SetValue(eValue);
+    assert(hr == S_OK);
+} // end ctor MT_CipherSuite
+
 HRESULT
 MT_CipherSuite::KeyExchangeAlgorithm(
     MT_KeyExchangeAlgorithm* pAlg
@@ -6346,6 +6342,46 @@ SymmetricCipherer::DecryptBuffer(
 
     return E_NOTIMPL;
 } // end function DecryptBuffer
+
+/*********** Hasher *****************/
+
+HRESULT
+Hasher::Hash(
+    const HashInfo* pHashInfo,
+    const ByteVector* pvbText,
+    ByteVector* pvbHash)
+{
+    UNREFERENCED_PARAMETER(pvbText);
+
+    if (pHashInfo->alg == HashAlg_NULL)
+    {
+        // 0 byte hash
+        pvbHash->clear();
+        return S_OK;
+    }
+
+    return E_NOTIMPL;
+} // end function Hash
+
+HRESULT
+Hasher::HMAC(
+    const HashInfo* pHashInfo,
+    const ByteVector* pvbKey,
+    const ByteVector* pvbText,
+    ByteVector* pvbHMAC)
+{
+    UNREFERENCED_PARAMETER(pvbKey);
+    UNREFERENCED_PARAMETER(pvbText);
+
+    if (pHashInfo->alg == HashAlg_NULL)
+    {
+        // 0 byte hash
+        pvbHMAC->clear();
+        return S_OK;
+    }
+
+    return E_NOTIMPL;
+} // end function HMAC
 
 /*********** MT_HelloRequest *****************/
 

@@ -320,6 +320,9 @@ class MT_ProtocolVersion : public MT_Structure
 class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length>
 {
     public:
+    MT_CipherSuite();
+    MT_CipherSuite(MT_CipherSuiteValue eValue);
+
     HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
     HRESULT Value(MT_CipherSuiteValue* peValue) const;
     HRESULT SetValue(MT_CipherSuiteValue eValue);
@@ -410,6 +413,7 @@ typedef MT_VariableLengthField<
 enum MT_CipherSuiteValue
 {
     MTCS_UNKNOWN                               = 0xFFFF,
+    MTCS_TLS_RSA_WITH_NULL_NULL                = 0x0000,
     MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
     MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
     MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
@@ -543,8 +547,6 @@ class EndpointParameters
 
     const CipherInfo* Cipher() const;
     const HashInfo* Hash() const;
-    bool IsSecure() const { return m_fIsSecure; }
-    void SetSecure() { m_fIsSecure = true; }
 
     private:
     MT_ProtocolVersion::MTPV_Version m_eVersion;
@@ -555,7 +557,6 @@ class EndpointParameters
     ByteVector m_vbMACKey;
     ByteVector m_vbIV;
     MT_UINT64 m_seqNum;
-    bool m_fIsSecure;
 };
 
 class ConnectionParameters

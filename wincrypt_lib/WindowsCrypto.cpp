@@ -782,6 +782,12 @@ WindowsHasher::Hash(
     DWORD cbText = 0;
     ALG_ID algID;
 
+    hr = Hasher::Hash(pHashInfo, pvbText, pvbHash);
+    if (hr == S_OK)
+    {
+        goto done;
+    }
+
     hr = WindowsHashAlgFromMTHashInfo(pHashInfo, &algID);
     if (hr != S_OK)
     {
@@ -905,6 +911,12 @@ WindowsHasher::HMAC(
     DWORD cbTextSize = 0;
     KeyAndProv kp;
     HMAC_INFO hinfo = {0};
+
+    hr = Hasher::HMAC(pHashInfo, pvbKey, pvbText, pvbHMAC);
+    if (hr == S_OK)
+    {
+        goto done;
+    }
 
     hr = WindowsHashAlgFromMTHashInfo(pHashInfo, &hinfo.HashAlgid);
     if (hr != S_OK)
@@ -1054,7 +1066,12 @@ WindowsSymmetricCipherer::Initialize(
              pCipherInfo->alg,
              &algID);
 
-    if (hr != S_OK)
+    if (hr == S_FALSE)
+    {
+        hr = S_OK;
+        goto done;
+    }
+    else if (hr != S_OK)
     {
         goto error;
     }
@@ -1151,6 +1168,10 @@ WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
     else if (alg == CipherAlg_AES_256)
     {
         *pAlgID = CALG_AES_256;
+    }
+    else if (alg == CipherAlg_NULL)
+    {
+        hr = S_FALSE;
     }
     else
     {
