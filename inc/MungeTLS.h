@@ -525,6 +525,43 @@ typedef MT_VariableLengthField<
 
 typedef MT_FixedLengthByteStructure<c_cbFinishedVerifyData_Length> MT_FinishedVerifyData;
 
+class EndpointParameters
+{
+    public:
+    EndpointParameters();
+    ~EndpointParameters() { }
+
+    HRESULT Initialize(
+        std::shared_ptr<SymmetricCipherer> spSymCipherer,
+        std::shared_ptr<Hasher> spHasher);
+
+    ACCESSORS(std::shared_ptr<SymmetricCipherer>*, SymCipherer, &m_spSymCipherer);
+    ACCESSORS(std::shared_ptr<Hasher>*, HashInst, &m_spHasher);
+    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
+    ACCESSORS(MT_ProtocolVersion*, Version, &m_version);
+    ACCESSORS(MT_UINT64*, SequenceNumber, &m_seqNum);
+    ACCESSORS(ByteVector*, Key, &m_vbKey);
+    ACCESSORS(ByteVector*, MACKey, &m_vbMACKey);
+    ACCESSORS(ByteVector*, IV, &m_vbIV);
+
+    const CipherInfo* Cipher() const;
+    const HashInfo* Hash() const;
+    bool IsSecure() const { return m_fIsSecure; }
+    void SetSecure() { m_fIsSecure = true; }
+
+    private:
+
+    MT_ProtocolVersion m_version;
+    std::shared_ptr<Hasher> m_spHasher;
+    MT_CipherSuite m_cipherSuite;
+    std::shared_ptr<SymmetricCipherer> m_spSymCipherer;
+    ByteVector m_vbKey;
+    ByteVector m_vbMACKey;
+    ByteVector m_vbIV;
+    MT_UINT64 m_seqNum;
+    bool m_fIsSecure;
+};
+
 class ConnectionParameters
 {
     public:
@@ -540,31 +577,17 @@ class ConnectionParameters
 
     ACCESSORS(MT_CertificateList*, CertChain, &m_certChain);
     ACCESSORS(std::shared_ptr<PublicKeyCipherer>*, PubKeyCipherer, &m_spPubKeyCipherer);
-    ACCESSORS(std::shared_ptr<SymmetricCipherer>*, ClientSymCipherer, &m_spClientSymCipherer);
-    ACCESSORS(std::shared_ptr<SymmetricCipherer>*, ServerSymCipherer, &m_spServerSymCipherer);
-    ACCESSORS(std::shared_ptr<Hasher>*, HashInst, &m_spHasher);
-
     ACCESSORS(MT_ClientHello*, ClientHello, &m_clientHello);
-    ACCESSORS(MT_CipherSuite*, ReadCipherSuite, &m_readCipherSuite);
-    ACCESSORS(MT_CipherSuite*, WriteCipherSuite, &m_writeCipherSuite);
-    ACCESSORS(MT_ProtocolVersion*, ReadVersion, &m_readVersion);
-    ACCESSORS(MT_ProtocolVersion*, WriteVersion, &m_writeVersion);
     ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
     ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
     ACCESSORS(MT_FinishedVerifyData*, ClientVerifyData, &m_clientVerifyData);
     ACCESSORS(MT_FinishedVerifyData*, ServerVerifyData, &m_serverVerifyData);
 
+    ACCESSORS(EndpointParameters*, ReadParams, &m_readParams);
+    ACCESSORS(EndpointParameters*, WriteParams, &m_writeParams);
+
     ACCESSORS(std::vector<std::shared_ptr<MT_Structure>>*, HandshakeMessages, &m_vHandshakeMessages);
     ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
-    ACCESSORS(MT_UINT64*, ReadSequenceNumber, &m_seqNumRead);
-    ACCESSORS(MT_UINT64*, WriteSequenceNumber, &m_seqNumWrite);
-
-    ACCESSORS(ByteVector*, ClientWriteMACKey, &m_vbClientWriteMACKey);
-    ACCESSORS(ByteVector*, ServerWriteMACKey, &m_vbServerWriteMACKey);
-    ACCESSORS(ByteVector*, ClientWriteKey, &m_vbClientWriteKey);
-    ACCESSORS(ByteVector*, ServerWriteKey, &m_vbServerWriteKey);
-    ACCESSORS(ByteVector*, ClientWriteIV, &m_vbClientWriteIV);
-    ACCESSORS(ByteVector*, ServerWriteIV, &m_vbServerWriteIV);
 
     // TODO: can be const?
     HRESULT CopyReadStateTo(ConnectionParameters* pDest);
@@ -572,17 +595,7 @@ class ConnectionParameters
     HRESULT CopyOtherStateTo(ConnectionParameters* pDest);
 
     // TODO: is this an okay basis for determination?
-    bool IsHandshakeInProgress() const { return !ReadCipherSuite()->Data()->empty(); }
-
-    bool IsSecureRead() const { return m_fSecureRead; }
-    void SetSecureRead() { m_fSecureRead = true; }
-    bool IsSecureWrite() const { return m_fSecureWrite; }
-    void SetSecureWrite() { m_fSecureWrite = true; }
-
-    const CipherInfo* ReadCipher() const { return Cipher(ReadCipherSuite()); }
-    const CipherInfo* WriteCipher() const { return Cipher(WriteCipherSuite()); }
-    const HashInfo* ReadHash() const { return Hash(ReadCipherSuite()); }
-    const HashInfo* WriteHash() const { return Hash(WriteCipherSuite()); }
+    bool IsHandshakeInProgress() const { return !HandshakeMessages()->empty(); }
 
     HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
     HRESULT GenerateKeyMaterial();
@@ -596,38 +609,23 @@ class ConnectionParameters
         ByteVector* pvbPRF);
 
     private:
-    const CipherInfo* Cipher(const MT_CipherSuite* pCipherSuite) const;
-    const HashInfo* Hash(const MT_CipherSuite* pCipherSuite) const;
-
     MT_CertificateList m_certChain;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
-    std::shared_ptr<SymmetricCipherer> m_spClientSymCipherer;
-    std::shared_ptr<SymmetricCipherer> m_spServerSymCipherer;
-    std::shared_ptr<Hasher> m_spHasher;
 
     MT_ClientHello m_clientHello;
-    MT_CipherSuite m_readCipherSuite;
-    MT_CipherSuite m_writeCipherSuite;
-    MT_ProtocolVersion m_readVersion;
-    MT_ProtocolVersion m_writeVersion;
     MT_Random m_clientRandom;
     MT_Random m_serverRandom;
     MT_FinishedVerifyData m_clientVerifyData;
     MT_FinishedVerifyData m_serverVerifyData;
 
     ByteVector m_vbMasterSecret;
-    ByteVector m_vbClientWriteMACKey;
-    ByteVector m_vbServerWriteMACKey;
     ByteVector m_vbClientWriteKey;
     ByteVector m_vbServerWriteKey;
-    ByteVector m_vbClientWriteIV;
-    ByteVector m_vbServerWriteIV;
-    MT_UINT64 m_seqNumRead;
-    MT_UINT64 m_seqNumWrite;
+
+    EndpointParameters m_readParams;
+    EndpointParameters m_writeParams;
 
     std::vector<std::shared_ptr<MT_Structure>> m_vHandshakeMessages;
-    bool m_fSecureRead;
-    bool m_fSecureWrite;
 };
 
 class MT_Securable
@@ -637,14 +635,14 @@ class MT_Securable
     virtual ~MT_Securable() { }
     HRESULT CheckSecurity();
 
-    const ConnectionParameters* ConnParams() const { return m_pConnParams; }
-    ConnectionParameters* ConnParams() { return const_cast<ConnectionParameters*>(static_cast<const MT_Securable*>(this)->ConnParams()); }
-    virtual HRESULT SetConnectionParameters(ConnectionParameters* pSecurityParameters) { m_pConnParams = pSecurityParameters; return S_OK; }
+    const EndpointParameters* EndParams() const { return m_pEndParams; }
+    EndpointParameters* EndParams() { return const_cast<EndpointParameters*>(static_cast<const MT_Securable*>(this)->EndParams()); }
+    virtual HRESULT SetSecurityParameters(EndpointParameters* pEndParams) { m_pEndParams = pEndParams; return S_OK; }
 
     private:
     virtual HRESULT CheckSecurityPriv() = 0;
 
-    ConnectionParameters* m_pConnParams;
+    EndpointParameters* m_pEndParams;
 };
 
 template <typename T>
@@ -753,10 +751,10 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     HRESULT
     FromTLSPlaintext(
         const MT_TLSPlaintext* pPlaintext,
-        ConnectionParameters* pConnectionParams,
+        EndpointParameters* pEndParams,
         std::shared_ptr<MT_TLSCiphertext>* pspCiphertext);
 
-    HRESULT SetConnectionParameters(ConnectionParameters* pConnectionParameters);
+    HRESULT SetSecurityParameters(EndpointParameters* pEndParams);
 
     HRESULT UpdateFragmentSecurity();
 
@@ -994,11 +992,16 @@ class MT_Finished : public MT_Structure, public MT_Securable
     ACCESSORS(MT_FinishedVerifyData*, VerifyData, &m_verifyData);
     HRESULT ComputeVerifyData(PCSTR szLabel, ByteVector* pvbVerifyData);
 
+    HRESULT SetConnectionParameters(const ConnectionParameters* pConnectionParams) { m_pConnectionParams = pConnectionParams; return S_OK; }
+
     private:
+    ACCESSORS(ConnectionParameters*, ConnParams, m_pConnectionParams);
+
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     HRESULT CheckSecurityPriv();
 
+    const ConnectionParameters* m_pConnectionParams;
     MT_FinishedVerifyData m_verifyData;
 };
 
@@ -1334,7 +1337,7 @@ CreateCiphertext(
     MT_ContentType::MTCT_Type eContentType,
     MT_ProtocolVersion::MTPV_Version eProtocolVersion,
     const MT_Structure* pFragment,
-    ConnectionParameters* pConnectionParameters,
+    EndpointParameters* pEndParams,
     MT_TLSCiphertext* pCiphertext);
 
 HRESULT
@@ -1342,7 +1345,7 @@ CreateCiphertext(
     MT_ContentType::MTCT_Type eContentType,
     MT_ProtocolVersion::MTPV_Version eProtocolVersion,
     const ByteVector* pvbFragment,
-    ConnectionParameters* pConnectionParameters,
+    EndpointParameters* pEndParams,
     MT_TLSCiphertext* pCiphertext);
 }
 #pragma warning(pop)
