@@ -14,7 +14,9 @@ class DummyServer : public ITLSListener
     DummyServer()
         : m_vbPendingSends(),
           m_con(this), // not a copy ctor; taking this as an ITLSListener
-          m_sPendingRequest("")
+          m_sPendingRequest(""),
+          m_iCipherSelected(0),
+          m_cMessages(0)
     { }
 
     ~DummyServer() { }
@@ -25,6 +27,8 @@ class DummyServer : public ITLSListener
     HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);
     HRESULT OnSelectCipherSuite(MT_CipherSuite* pCipherSuite);
     HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags);
+    HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext);
+    HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext);
 
     HRESULT
     OnInitializeCrypto(
@@ -37,6 +41,8 @@ class DummyServer : public ITLSListener
     ACCESSORS(ByteVector*, PendingSends, &m_vbPendingSends);
 
     private:
+    static const MT_CipherSuiteValue c_rgCipherSuites[];
+
     ACCESSORS(TLSConnection*, Connection, &m_con);
     ACCESSORS(std::string*, PendingRequest, &m_sPendingRequest);
     ACCESSORS(PCCERT_CHAIN_CONTEXT*, CertChain, &m_pCertChain);
@@ -50,6 +56,8 @@ class DummyServer : public ITLSListener
     TLSConnection m_con;
     std::string m_sPendingRequest;
     PCCERT_CHAIN_CONTEXT m_pCertChain;
+    ULONG m_iCipherSelected;
+    ULONG m_cMessages;
 
     std::shared_ptr<WindowsPublicKeyCipherer> m_spPubKeyCipherer;
     std::shared_ptr<WindowsSymmetricCipherer> m_spClientSymCipherer;

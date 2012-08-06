@@ -248,7 +248,7 @@ HRESULT DummyServer::ProcessConnections()
             assert(cbConsumedBuffer <= vbData.size());
             vbData.resize(cbConsumedBuffer);
 
-            LogRead(cMessages, &vbData);
+            //LogRead(cMessages, &vbData);
 
             hr = Connection()->HandleMessage(&vbData);
             while (hr == S_OK)
@@ -266,7 +266,7 @@ HRESULT DummyServer::ProcessConnections()
                     {
                         assert(cbPayload == PendingSends()->size());
 
-                        LogWrite(cMessages, PendingSends());
+                        //LogWrite(cMessages, PendingSends());
                         cMessages++;
 
                         assert(cbPayload <= INT_MAX);
@@ -511,15 +511,31 @@ HRESULT DummyServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersio
     return MT_S_LISTENER_IGNORED;
 } // end function OnSelectProtocolVersion
 
+const MT_CipherSuiteValue DummyServer::c_rgCipherSuites[] =
+{
+    //MTCS_UNKNOWN,
+    //MTCS_TLS_RSA_WITH_RC4_128_SHA
+    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
+    //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA
+    //,MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256
+    //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256
+};
+
 HRESULT DummyServer::OnSelectCipherSuite(MT_CipherSuite* pCipherSuite)
 {
-    /*
-    pCipherSuite->SetValue(MTCS_TLS_RSA_WITH_NULL_SHA);
-    return MT_S_LISTENER_HANDLED;
-    */
+    HRESULT hr = MT_S_LISTENER_IGNORED;
 
-    UNREFERENCED_PARAMETER(pCipherSuite);
-    return MT_S_LISTENER_IGNORED;
+    MT_CipherSuiteValue csv = c_rgCipherSuites[m_iCipherSelected];
+
+    if (csv != MTCS_UNKNOWN)
+    {
+        pCipherSuite->SetValue(csv);
+        hr = MT_S_LISTENER_HANDLED;
+    }
+
+    m_iCipherSelected = (m_iCipherSelected + 1) % ARRAYSIZE(c_rgCipherSuites);
+
+    return hr;
 } // end function OnSelectCipherSuite
 
 HRESULT
@@ -590,7 +606,55 @@ error:
 HRESULT DummyServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags)
 {
     UNREFERENCED_PARAMETER(pHandshake);
-    *pfFlags |= MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE;
-    //*pfFlags |= MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE;
+    //*pfFlags |= MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE;
+    *pfFlags |= MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE;
     return MT_S_LISTENER_HANDLED;
 } // end function OnCreatingHandshakeMessage
+
+HRESULT DummyServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext)
+{
+    HRESULT hr = S_OK;
+    ByteVector vb;
+
+    hr = pPlaintext->SerializeToVect(&vb);
+    assert(hr != E_NOTIMPL);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = LogWrite(m_cMessages, &vb);
+    assert(hr == S_OK);
+    m_cMessages++;
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function OnEnqueuePlaintext
+
+HRESULT DummyServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext)
+{
+    HRESULT hr = S_OK;
+    ByteVector vb;
+
+    hr = pPlaintext->SerializeToVect(&vb);
+    assert(hr != E_NOTIMPL);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = LogRead(m_cMessages, &vb);
+    assert(hr == S_OK);
+    m_cMessages++;
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function OnReceivingPlaintext

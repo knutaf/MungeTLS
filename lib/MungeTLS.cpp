@@ -234,6 +234,12 @@ TLSConnection::HandleMessage(
         goto error;
     }
 
+    hr = Listener()->OnReceivingPlaintext(&record);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
     if (CurrConn()->ReadParams()->Cipher()->type == CipherType_Block)
     {
         if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
@@ -625,6 +631,11 @@ TLSConnection::EnqueueMessage(
              CurrConn()->WriteParams(),
              &spCiphertext);
 
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
     CurrConn()->WriteParams()->IV()->assign(spCiphertext->Fragment()->end() - CurrConn()->WriteParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
     assert(CurrConn()->WriteParams()->IV()->size() == CurrConn()->WriteParams()->Cipher()->cbIVSize);
 
@@ -633,7 +644,17 @@ TLSConnection::EnqueueMessage(
 
     wprintf(L"write seq num is now %d\n", *CurrConn()->WriteParams()->SequenceNumber());
 
-    return S_OK;
+    hr = Listener()->OnEnqueuePlaintext(spPlaintext.get());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
 } // end function EnqueueMessage
 
 HRESULT
@@ -5054,6 +5075,8 @@ MT_GenericStreamCipher::UpdateWriteSecurity(
         goto error;
     }
 
+    assert(!RawContent()->empty());
+
 done:
     return hr;
 
@@ -5340,12 +5363,12 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity(
     ByteVector vbDecryptedStruct;
 
     hr = ComputeSecurityInfo(
-              *EndParams()->SequenceNumber(),
-              EndParams()->MACKey(),
-              pContentType,
-              pProtocolVersion,
-              MAC(),
-              Padding());
+             *EndParams()->SequenceNumber(),
+             EndParams()->MACKey(),
+             pContentType,
+             pProtocolVersion,
+             MAC(),
+             Padding());
 
     if (hr != S_OK)
     {
@@ -5406,6 +5429,8 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity(
     {
         goto error;
     }
+
+    assert(!RawContent()->empty());
 
 done:
     return hr;
@@ -5845,6 +5870,8 @@ MT_GenericBlockCipher_TLS12::UpdateWriteSecurity(
     {
         goto error;
     }
+
+    assert(!RawContent()->empty());
 
 done:
     return hr;

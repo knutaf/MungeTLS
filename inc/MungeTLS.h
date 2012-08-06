@@ -846,6 +846,9 @@ class ITLSListener
         std::shared_ptr<Hasher>* pspHasher) = 0;
 
     virtual HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags) = 0;
+
+    virtual HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext) = 0;
+    virtual HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext) = 0;
 };
 
 class TLSConnection
