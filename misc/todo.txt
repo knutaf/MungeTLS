@@ -1,5 +1,6 @@
 BUGS:
 - crash in IE when doing repeated renegotiations
+- workaround chrome bug with mismatched TLS version in clienthello
 
 WORK:
 - watch out for places where we expose an accessor on a base class, such as SymmetricCipherer

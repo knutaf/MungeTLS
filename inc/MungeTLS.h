@@ -297,6 +297,7 @@ class MT_ProtocolVersion : public MT_Structure
     {
         MTPV_Unknown = 0,
         MTPV_TLS10 = 0x0301,
+        MTPV_TLS11 = 0x0302,
         MTPV_TLS12 = 0x0303,
     };
 
@@ -1092,11 +1093,11 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
     ByteVector m_vbPadding;
 };
 
-class MT_GenericBlockCipher_TLS12 : public MT_CipherFragment
+class MT_GenericBlockCipher_TLS11 : public MT_CipherFragment
 {
     public:
-    MT_GenericBlockCipher_TLS12();
-    ~MT_GenericBlockCipher_TLS12() { }
+    MT_GenericBlockCipher_TLS11();
+    ~MT_GenericBlockCipher_TLS11() { }
 
     ACCESSORS(ByteVector*, IVNext, &m_vbIVNext);
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
@@ -1129,6 +1130,9 @@ class MT_GenericBlockCipher_TLS12 : public MT_CipherFragment
     ByteVector m_vbMAC;
     ByteVector m_vbPadding;
 };
+
+// same block structure format between 1.1 and 1.2
+typedef MT_GenericBlockCipher_TLS11 MT_GenericBlockCipher_TLS12;
 
 enum MT_AlertLevel
 {

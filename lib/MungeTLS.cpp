@@ -47,6 +47,9 @@ ComputePRF_TLS10(
     size_t cbLengthDesired,
     ByteVector* pvbPRF);
 
+// same PRF used for both 1.0 and 1.1
+auto ComputePRF_TLS11 = ComputePRF_TLS10;
+
 HRESULT
 PRF_P_hash(
     Hasher* pHasher,
@@ -263,6 +266,11 @@ TLSConnection::HandleMessage(
         {
             MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(message.CipherFragment());
             CurrConn()->ReadParams()->IV()->assign(pBlockCipher->RawContent()->end() - CurrConn()->ReadParams()->Cipher()->cbIVSize, pBlockCipher->RawContent()->end());
+        }
+        else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
+        {
+            MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(message.CipherFragment());
+            *CurrConn()->ReadParams()->IV() = *pBlockCipher->IVNext();
         }
         else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
         {
@@ -1143,6 +1151,8 @@ TLSConnection::EnqueueStartRenegotiation()
     MT_Handshake handshake;
     shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
+    wprintf(L"starting renegotiation\n");
+
     *handshake.Type() = MT_Handshake::MTH_HelloRequest;
     hr = helloRequest.SerializeToVect(handshake.Body());
     if (hr != S_OK)
@@ -1783,6 +1793,16 @@ ConnectionParameters::ComputePRF(
     if (*ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
     {
         hr = ComputePRF_TLS10(
+                 ReadParams()->HashInst()->get(),
+                 pvbSecret,
+                 szLabel,
+                 pvbSeed,
+                 cbLengthDesired,
+                 pvbPRF);
+    }
+    else if (*ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
+    {
+        hr = ComputePRF_TLS11(
                  ReadParams()->HashInst()->get(),
                  pvbSecret,
                  szLabel,
@@ -3171,6 +3191,10 @@ MT_TLSCiphertext::SetSecurityParameters(
         {
             m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS10());
         }
+        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
+        {
+            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS11());
+        }
         else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
         {
             m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS12());
@@ -3322,6 +3346,21 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
                 goto error;
             }
         }
+        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
+        {
+            MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(CipherFragment());
+
+            *pBlockCipher->IVNext() = *EndParams()->IV();
+
+            hr = pBlockCipher->UpdateWriteSecurity(
+                      ContentType(),
+                      ProtocolVersion());
+
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+        }
         else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
         {
             MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(CipherFragment());
@@ -3376,6 +3415,18 @@ MT_TLSCiphertext::CheckSecurityPriv()
         if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
         {
             MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(CipherFragment());
+            hr = pBlockCipher->CheckSecurity(
+                     ContentType(),
+                     ProtocolVersion());
+
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+        }
+        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
+        {
+            MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(CipherFragment());
             hr = pBlockCipher->CheckSecurity(
                      ContentType(),
                      ProtocolVersion());
@@ -3593,6 +3644,7 @@ MT_ProtocolVersion::IsKnownVersion(
 )
 {
     return (eVersion == MTPV_TLS10 ||
+            eVersion == MTPV_TLS11 ||
             eVersion == MTPV_TLS12);
 } // end function IsKnownVersion
 
@@ -4844,7 +4896,8 @@ MT_Finished::ComputeVerifyData(
         goto error;
     }
 
-    if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+    if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10 ||
+        *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
     {
         ByteVector vbMD5HandshakeHash;
         ByteVector vbSHA1HandshakeHash;
@@ -5690,18 +5743,18 @@ error:
     goto done;
 } // end function CheckSecurity
 
-/*********** MT_GenericBlockCipher_TLS12 *****************/
+/*********** MT_GenericBlockCipher_TLS11 *****************/
 
-MT_GenericBlockCipher_TLS12::MT_GenericBlockCipher_TLS12()
+MT_GenericBlockCipher_TLS11::MT_GenericBlockCipher_TLS11()
     : MT_CipherFragment(),
       m_vbIVNext(),
       m_vbMAC(),
       m_vbPadding()
 {
-} // end ctor MT_GenericBlockCipher_TLS12
+} // end ctor MT_GenericBlockCipher_TLS11
 
 HRESULT
-MT_GenericBlockCipher_TLS12::ParseFromPriv(
+MT_GenericBlockCipher_TLS11::ParseFromPriv(
     const BYTE* pv,
     size_t cb
 )
@@ -5807,7 +5860,7 @@ error:
 } // end function ParseFromPriv
 
 HRESULT
-MT_GenericBlockCipher_TLS12::UpdateWriteSecurity(
+MT_GenericBlockCipher_TLS11::UpdateWriteSecurity(
     const MT_ContentType* pContentType,
     const MT_ProtocolVersion* pProtocolVersion)
 {
@@ -5908,7 +5961,7 @@ error:
 } // end function UpdateWriteSecurity
 
 MT_UINT8
-MT_GenericBlockCipher_TLS12::PaddingLength() const
+MT_GenericBlockCipher_TLS11::PaddingLength() const
 {
     HRESULT hr = S_OK;
     BYTE b = 0;
@@ -5918,7 +5971,7 @@ MT_GenericBlockCipher_TLS12::PaddingLength() const
 } // end function PaddingLength
 
 HRESULT
-MT_GenericBlockCipher_TLS12::ComputeSecurityInfo(
+MT_GenericBlockCipher_TLS11::ComputeSecurityInfo(
     MT_UINT64 sequenceNumber,
     const ByteVector* pvbMACKey,
     const MT_ContentType* pContentType,
@@ -6078,7 +6131,7 @@ error:
 } // end function ComputeSecurityInfo
 
 HRESULT
-MT_GenericBlockCipher_TLS12::CheckSecurity(
+MT_GenericBlockCipher_TLS11::CheckSecurity(
     const MT_ContentType* pContentType,
     const MT_ProtocolVersion* pProtocolVersion
 )
