@@ -256,23 +256,26 @@ HRESULT DummyServer::ProcessConnections()
                 wprintf(L"finished parsing message of size %lu\n", vbData.size());
                 cMessages++;
 
-                if (!PendingSends()->empty())
+                while (!PendingSends()->empty())
                 {
-                    size_t cbPayload = PendingSends()->size();
+                    ByteVector vb(PendingSends()->front());
+                    size_t cbPayload = vb.size();
+
+                    PendingSends()->erase(PendingSends()->begin());
 
                     wprintf(L"responding with %d bytes\n", cbPayload);
 
                     while (cbPayload != 0)
                     {
-                        assert(cbPayload == PendingSends()->size());
+                        assert(cbPayload == vb.size());
 
-                        //LogWrite(cMessages, PendingSends());
+                        //LogWrite(cMessages, &vb);
                         cMessages++;
 
                         assert(cbPayload <= INT_MAX);
 
                         cb = send(sockAccept,
-                                  reinterpret_cast<char*>(&PendingSends()->front()),
+                                  reinterpret_cast<char*>(&vb.front()),
                                   static_cast<int>(cbPayload),
                                   0);
 
@@ -283,24 +286,28 @@ HRESULT DummyServer::ProcessConnections()
                             break;
                         }
 
+                        wprintf(L"sent %u bytes\n", cb);
+
                         assert(cb >= 0);
                         assert(static_cast<ULONG>(cb) <= cbPayload);
 
                         cbPayload -= cb;
-                        PendingSends()->erase(
-                            PendingSends()->begin(),
-                            PendingSends()->begin() + cb);
+                        vb.erase(
+                            vb.begin(),
+                            vb.begin() + cb);
                     }
 
                     if (hr == S_OK)
                     {
-                        assert(PendingSends()->empty());
+                        assert(vb.empty());
                     }
                     else
                     {
                         wprintf(L"something failed (%08LX). exiting\n", hr);
                         break;
                     }
+
+                    Sleep(500);
                 }
 
                 hr = Connection()->HandleMessage(&vbData);
@@ -372,7 +379,7 @@ error:
 HRESULT DummyServer::OnSend(const ByteVector* pvb)
 {
     wprintf(L"queueing up %d bytes of data to send\n", pvb->size());
-    PendingSends()->insert(PendingSends()->end(), pvb->begin(), pvb->end());
+    PendingSends()->push_back(*pvb);
     return S_OK;
 } // end function OnSend
 
@@ -436,6 +443,7 @@ HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
                 "HTTP/1.1 200 OK\r\n"
                 "Content-Length: %d\r\n"
                 "Content-Type: text/plain\r\n"
+                "Connection: Keep-Alive\r\n"
                 "\r\n";
 
             /*
@@ -476,16 +484,25 @@ HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
                 PendingRequest()->begin(),
                 itEndRequest);
 
-            hr = Connection()->EnqueueSendApplicationData(&vbApplicationData);
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            m_cAppDataReceived++;
 
-            hr = Connection()->EnqueueStartRenegotiation();
-            if (hr != S_OK)
+            if (m_cAppDataReceived > 1)
             {
-                goto error;
+                hr = Connection()->EnqueueStartRenegotiation();
+                if (hr != S_OK)
+                {
+                    goto error;
+                }
+
+                *PendingAppData() = vbApplicationData;
+            }
+            else
+            {
+                hr = Connection()->EnqueueSendApplicationData(&vbApplicationData);
+                if (hr != S_OK)
+                {
+                    goto error;
+                }
             }
 
             hr = Connection()->SendQueuedMessages();
@@ -514,8 +531,8 @@ HRESULT DummyServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersio
 const MT_CipherSuiteValue DummyServer::c_rgCipherSuites[] =
 {
     //MTCS_UNKNOWN,
-    //MTCS_TLS_RSA_WITH_RC4_128_SHA
-    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
+    MTCS_TLS_RSA_WITH_RC4_128_SHA
+    ,MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
     //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA
     //,MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256
     //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256
@@ -658,3 +675,27 @@ done:
 error:
     goto done;
 } // end function OnReceivingPlaintext
+
+HRESULT DummyServer::OnHandshakeComplete()
+{
+    HRESULT hr = S_OK;
+
+    if (!PendingAppData()->empty())
+    {
+        hr = Connection()->EnqueueSendApplicationData(PendingAppData());
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        PendingAppData()->clear();
+    }
+
+    hr = MT_S_LISTENER_HANDLED;
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function OnHandshakeComplete

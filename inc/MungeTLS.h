@@ -849,6 +849,7 @@ class ITLSListener
 
     virtual HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext) = 0;
     virtual HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext) = 0;
+    virtual HRESULT OnHandshakeComplete() = 0;
 };
 
 class TLSConnection

@@ -171,8 +171,25 @@ error:
 HRESULT
 TLSConnection::FinishNextHandshake()
 {
+    HRESULT hr = S_OK;
+
     *NextConn() = ConnectionParameters();
-    return S_OK;
+
+    hr = Listener()->OnHandshakeComplete();
+    if (FAILED(hr))
+    {
+        goto error;
+    }
+    else
+    {
+        hr = S_OK;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
 } // end function FinishNextHandshake
 
 HRESULT
@@ -661,7 +678,6 @@ HRESULT
 TLSConnection::SendQueuedMessages()
 {
     HRESULT hr = S_OK;
-    ByteVector vbResponse;
 
     if (!PendingSends()->empty())
     {
@@ -675,21 +691,32 @@ TLSConnection::SendQueuedMessages()
             });
         }
 
-        hr = SerializeMessagesToVector<MT_RecordLayerMessage>(
-                 PendingSends()->begin(),
-                 PendingSends()->end(),
-                 &vbResponse);
+        for_each(PendingSends()->begin(), PendingSends()->end(),
+        [&hr, this](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
+        {
+            if (hr == S_OK)
+            {
+                ByteVector vbResponse;
+
+                hr = rspStructure->SerializeToVect(&vbResponse);
+                if (hr == S_OK)
+                {
+                    hr = Listener()->OnSend(&vbResponse);
+                    if (hr != S_OK)
+                    {
+                        wprintf(L"warning: error in OnSend with listener: %08LX\n", hr);
+                    }
+                }
+                else
+                {
+                    wprintf(L"failed to serialize message: %08LX\n", hr);
+                }
+            }
+        });
 
         if (hr != S_OK)
         {
-            wprintf(L"failed to serialize messages: %08LX\n", hr);
             goto error;
-        }
-
-        hr = Listener()->OnSend(&vbResponse);
-        if (hr != S_OK)
-        {
-            wprintf(L"warning: error in OnSend with listener: %08LX\n", hr);
         }
 
         PendingSends()->clear();

@@ -1,9 +1,7 @@
 BUGS:
 - crash in IE when doing repeated renegotiations
-- IE spins forever upon some renegotiations. might be going from AES -> RC4
 
 WORK:
-- callback for handshake completed
 - watch out for places where we expose an accessor on a base class, such as SymmetricCipherer
 - refactor contents of tlscon Initialize
 - go through all the code and rearrange order of functions to be more logical for read-through
