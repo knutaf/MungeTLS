@@ -932,6 +932,8 @@ class TLSConnection
         MT_TLSCiphertext* pCiphertext);
 
     private:
+    HRESULT InitializeConnection(ConnectionParameters* pParams);
+
     HRESULT RespondToClientHello();
 
     HRESULT RespondToFinished();

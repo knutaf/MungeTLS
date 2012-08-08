@@ -81,43 +81,7 @@ TLSConnection::TLSConnection(ITLSListener* pListener)
 HRESULT
 TLSConnection::Initialize()
 {
-    HRESULT hr = S_OK;
-
-    MT_CertificateList certChain;
-    shared_ptr<PublicKeyCipherer> spPubKeyCipherer;
-    shared_ptr<SymmetricCipherer> spClientSymCipherer;
-    shared_ptr<SymmetricCipherer> spServerSymCipherer;
-    shared_ptr<Hasher> spHasher;
-
-    hr = Listener()->OnInitializeCrypto(
-             &certChain,
-             &spPubKeyCipherer,
-             &spClientSymCipherer,
-             &spServerSymCipherer,
-             &spHasher);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = CurrConn()->Initialize(
-             &certChain,
-             spPubKeyCipherer,
-             spClientSymCipherer,
-             spServerSymCipherer,
-             spHasher);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
+    return InitializeConnection(CurrConn());
 } // end function Initialize
 
 HRESULT
@@ -128,37 +92,13 @@ TLSConnection::StartNextHandshake(const MT_ClientHello* pClientHello)
     // could pass this to OnInitializeCrypto
     UNREFERENCED_PARAMETER(pClientHello);
 
-    MT_CertificateList certChain;
-    shared_ptr<PublicKeyCipherer> spPubKeyCipherer;
-    shared_ptr<SymmetricCipherer> spClientSymCipherer;
-    shared_ptr<SymmetricCipherer> spServerSymCipherer;
-    shared_ptr<Hasher> spHasher;
-
     if (NextConn()->IsHandshakeInProgress())
     {
         // TODO: may lift this restriction if okay...
         assert(false);
     }
 
-    hr = Listener()->OnInitializeCrypto(
-             &certChain,
-             &spPubKeyCipherer,
-             &spClientSymCipherer,
-             &spServerSymCipherer,
-             &spHasher);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = NextConn()->Initialize(
-             &certChain,
-             spPubKeyCipherer,
-             spClientSymCipherer,
-             spServerSymCipherer,
-             spHasher);
-
+    hr = InitializeConnection(NextConn());
     if (hr != S_OK)
     {
         goto error;
@@ -194,6 +134,50 @@ done:
 error:
     goto done;
 } // end function FinishNextHandshake
+
+HRESULT
+TLSConnection::InitializeConnection(
+    ConnectionParameters* pParams
+)
+{
+    HRESULT hr = S_OK;
+
+    MT_CertificateList certChain;
+    shared_ptr<PublicKeyCipherer> spPubKeyCipherer;
+    shared_ptr<SymmetricCipherer> spClientSymCipherer;
+    shared_ptr<SymmetricCipherer> spServerSymCipherer;
+    shared_ptr<Hasher> spHasher;
+
+    hr = Listener()->OnInitializeCrypto(
+             &certChain,
+             &spPubKeyCipherer,
+             &spClientSymCipherer,
+             &spServerSymCipherer,
+             &spHasher);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = pParams->Initialize(
+             &certChain,
+             spPubKeyCipherer,
+             spClientSymCipherer,
+             spServerSymCipherer,
+             spHasher);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function InitializeConnection
 
 HRESULT
 TLSConnection::HandleMessage(

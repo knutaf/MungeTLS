@@ -3,7 +3,6 @@ BUGS:
 
 WORK:
 - watch out for places where we expose an accessor on a base class, such as SymmetricCipherer
-- refactor contents of tlscon Initialize
 - go through all the code and rearrange order of functions to be more logical for read-through
 - change up goto style of main loop
 - try to replace MT_Securable's accessor with a proper accessor
