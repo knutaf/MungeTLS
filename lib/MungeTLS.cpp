@@ -212,6 +212,8 @@ TLSConnection::HandleMessage(
         goto done;
     }
 
+    *message.Conn() = this;
+
     hr = message.ParseFromVect(pvb);
     if (hr != S_OK)
     {
@@ -1186,6 +1188,148 @@ error:
     goto done;
 } // end function EnqueueStartRenegotiation
 
+HRESULT
+TLSConnection::CreatePlaintext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const MT_Structure* pFragment,
+    MT_TLSPlaintext* pPlaintext)
+{
+    HRESULT hr = S_OK;
+
+    ByteVector vbFragment;
+    hr = pFragment->SerializeToVect(&vbFragment);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = CreatePlaintext(
+             eContentType,
+             eProtocolVersion,
+             &vbFragment,
+             pPlaintext);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CreatePlaintext
+
+HRESULT
+TLSConnection::CreatePlaintext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const ByteVector* pvbFragment,
+    MT_TLSPlaintext* pPlaintext)
+{
+    MT_ContentType contentType;
+    MT_ProtocolVersion protocolVersion;
+
+    *contentType.Type() = eContentType;
+    *pPlaintext->ContentType() = contentType;
+
+    *protocolVersion.Version() = eProtocolVersion;
+    *pPlaintext->ProtocolVersion() = protocolVersion;
+
+    *pPlaintext->Fragment() = *pvbFragment;
+
+    assert(*pPlaintext->Conn() == nullptr);
+    *pPlaintext->Conn() = this;
+
+    return S_OK;
+} // end function CreatePlaintext
+
+HRESULT
+TLSConnection::CreateCiphertext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const MT_Structure* pFragment,
+    EndpointParameters* pEndParams,
+    MT_TLSCiphertext* pCiphertext)
+{
+    HRESULT hr = S_OK;
+    ByteVector vbFragment;
+
+    hr = pFragment->SerializeToVect(&vbFragment);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = CreateCiphertext(
+             eContentType,
+             eProtocolVersion,
+             &vbFragment,
+             pEndParams,
+             pCiphertext);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CreateCiphertext
+
+HRESULT
+TLSConnection::CreateCiphertext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const ByteVector* pvbFragment,
+    EndpointParameters* pEndParams,
+    MT_TLSCiphertext* pCiphertext)
+{
+    HRESULT hr = S_OK;
+
+    MT_ContentType contentType;
+    MT_ProtocolVersion protocolVersion;
+
+    assert(*pCiphertext->Conn() == nullptr);
+    *pCiphertext->Conn() = this;
+
+    hr = pCiphertext->SetSecurityParameters(pEndParams);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    *contentType.Type() = eContentType;
+    *pCiphertext->ContentType() = contentType;
+
+    *protocolVersion.Version() = eProtocolVersion;
+    *pCiphertext->ProtocolVersion() = protocolVersion;
+    *pCiphertext->CipherFragment()->Content() = *pvbFragment;
+
+    hr = pCiphertext->UpdateFragmentSecurity();
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = pCiphertext->Encrypt();
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CreateCiphertext
+
 
 /*********** Utility functions *****************/
 
@@ -1510,141 +1654,6 @@ error:
     goto done;
 } // end function ParseStructures
 
-HRESULT
-CreatePlaintext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const MT_Structure* pFragment,
-    MT_TLSPlaintext* pPlaintext)
-{
-    HRESULT hr = S_OK;
-
-    ByteVector vbFragment;
-    hr = pFragment->SerializeToVect(&vbFragment);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = CreatePlaintext(
-             eContentType,
-             eProtocolVersion,
-             &vbFragment,
-             pPlaintext);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function CreatePlaintext
-
-HRESULT
-CreatePlaintext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const ByteVector* pvbFragment,
-    MT_TLSPlaintext* pPlaintext)
-{
-    MT_ContentType contentType;
-    MT_ProtocolVersion protocolVersion;
-
-    *contentType.Type() = eContentType;
-    *pPlaintext->ContentType() = contentType;
-
-    *protocolVersion.Version() = eProtocolVersion;
-    *pPlaintext->ProtocolVersion() = protocolVersion;
-
-    *pPlaintext->Fragment() = *pvbFragment;
-
-    return S_OK;
-} // end function CreatePlaintext
-
-HRESULT
-CreateCiphertext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const MT_Structure* pFragment,
-    EndpointParameters* pEndParams,
-    MT_TLSCiphertext* pCiphertext)
-{
-    HRESULT hr = S_OK;
-    ByteVector vbFragment;
-
-    hr = pFragment->SerializeToVect(&vbFragment);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = CreateCiphertext(
-             eContentType,
-             eProtocolVersion,
-             &vbFragment,
-             pEndParams,
-             pCiphertext);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function CreateCiphertext
-
-HRESULT
-CreateCiphertext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const ByteVector* pvbFragment,
-    EndpointParameters* pEndParams,
-    MT_TLSCiphertext* pCiphertext)
-{
-    HRESULT hr = S_OK;
-
-    MT_ContentType contentType;
-    MT_ProtocolVersion protocolVersion;
-
-    hr = pCiphertext->SetSecurityParameters(pEndParams);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    *contentType.Type() = eContentType;
-    *pCiphertext->ContentType() = contentType;
-
-    *protocolVersion.Version() = eProtocolVersion;
-    *pCiphertext->ProtocolVersion() = protocolVersion;
-    *pCiphertext->CipherFragment()->Content() = *pvbFragment;
-
-    hr = pCiphertext->UpdateFragmentSecurity();
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = pCiphertext->Encrypt();
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function CreateCiphertext
 
 
 /*********** EndpointParameters *****************/
@@ -3025,6 +3034,7 @@ error:
 
 MT_RecordLayerMessage::MT_RecordLayerMessage()
     : MT_Structure(),
+      MT_ConnectionAware(),
       m_contentType(),
       m_protocolVersion(),
       m_vbFragment()
@@ -3272,8 +3282,11 @@ error:
 HRESULT
 MT_TLSCiphertext::ToTLSPlaintext(
     MT_TLSPlaintext* pPlaintext
-) const
+)
 {
+    assert(*pPlaintext->Conn() == nullptr);
+    *pPlaintext->Conn() = *Conn();
+
     *(pPlaintext->ContentType()) = *ContentType();
     *(pPlaintext->ProtocolVersion()) = *ProtocolVersion();
 
@@ -3285,7 +3298,7 @@ MT_TLSCiphertext::ToTLSPlaintext(
 
 HRESULT
 MT_TLSCiphertext::FromTLSPlaintext(
-    const MT_TLSPlaintext* pPlaintext,
+    MT_TLSPlaintext* pPlaintext,
     EndpointParameters* pEndParams,
     shared_ptr<MT_TLSCiphertext>* pspCiphertext
 )
@@ -3294,7 +3307,7 @@ MT_TLSCiphertext::FromTLSPlaintext(
 
     pspCiphertext->reset(new MT_TLSCiphertext());
 
-    hr = CreateCiphertext(
+    hr = (*pPlaintext->Conn())->CreateCiphertext(
              *pPlaintext->ContentType()->Type(),
              *pPlaintext->ProtocolVersion()->Version(),
              pPlaintext->Fragment(),
@@ -3397,13 +3410,47 @@ HRESULT
 MT_TLSCiphertext::CheckSecurityPriv()
 {
     HRESULT hr = S_OK;
+    MT_ProtocolVersion hashVersion(*ProtocolVersion());
+
+    /*
+    ** there is a bug in chrome in which the clienthello sometimes has a
+    ** different version specified in its record layer than in its handshake
+    ** layer. normally we could handle this, but it also incorrectly passes the
+    ** handshake layer's version to the MAC function.
+    **
+    ** if we detect such a mismatch here, we ask the app if it wants to
+    ** reconcile it. the default behavior is to strictly follow the RFC and use
+    ** the record layer version
+    */
+    if (*EndParams()->Version() != *hashVersion.Version())
+    {
+        MT_ProtocolVersion::MTPV_Version ver;
+
+        wprintf(L"reconciling version mismatch between conn:%04LX and record:%04LX\n", *EndParams()->Version(), *hashVersion.Version());
+
+        hr = (*Conn())->Listener()->OnReconcileSecurityVersion(
+                 this,
+                 *EndParams()->Version(),
+                 *hashVersion.Version(),
+                 &ver);
+
+        if (hr == MT_S_LISTENER_HANDLED)
+        {
+            *hashVersion.Version() = ver;
+        }
+        else if (hr != MT_S_LISTENER_IGNORED)
+        {
+            goto error;
+        }
+        // else retain current record's protocol version
+    }
 
     if (EndParams()->Cipher()->type == CipherType_Stream)
     {
         MT_GenericStreamCipher* pStreamCipher = static_cast<MT_GenericStreamCipher*>(CipherFragment());
         hr = pStreamCipher->CheckSecurity(
                  ContentType(),
-                 ProtocolVersion());
+                 &hashVersion);
 
         if (hr != S_OK)
         {
@@ -3417,7 +3464,7 @@ MT_TLSCiphertext::CheckSecurityPriv()
             MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(CipherFragment());
             hr = pBlockCipher->CheckSecurity(
                      ContentType(),
-                     ProtocolVersion());
+                     &hashVersion);
 
             if (hr != S_OK)
             {
@@ -3429,7 +3476,7 @@ MT_TLSCiphertext::CheckSecurityPriv()
             MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(CipherFragment());
             hr = pBlockCipher->CheckSecurity(
                      ContentType(),
-                     ProtocolVersion());
+                     &hashVersion);
 
             if (hr != S_OK)
             {
@@ -3441,7 +3488,7 @@ MT_TLSCiphertext::CheckSecurityPriv()
             MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(CipherFragment());
             hr = pBlockCipher->CheckSecurity(
                      ContentType(),
-                     ProtocolVersion());
+                     &hashVersion);
 
             if (hr != S_OK)
             {

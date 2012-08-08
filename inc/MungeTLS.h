@@ -153,6 +153,7 @@ extern const size_t c_cbCert;
 
 class MT_PreMasterSecret;
 class MT_CipherFragment;
+class TLSConnection;
 
 class MT_Structure
 {
@@ -640,6 +641,19 @@ class MT_Securable
     EndpointParameters* m_pEndParams;
 };
 
+class MT_ConnectionAware
+{
+    public:
+    MT_ConnectionAware() : m_pConnection(nullptr) { }
+    virtual ~MT_ConnectionAware() { }
+
+    const TLSConnection* const* Conn() const { return &m_pConnection; }
+    TLSConnection** Conn() { return const_cast<TLSConnection**>(static_cast<const MT_ConnectionAware*>(this)->Conn()); }
+
+    private:
+    TLSConnection* m_pConnection;
+};
+
 template <typename T>
 class MT_PublicKeyEncryptedStructure : public MT_Structure
 {
@@ -699,7 +713,7 @@ class MT_ContentType : public MT_Structure
     MTCT_Type m_eType;
 };
 
-class MT_RecordLayerMessage : public MT_Structure
+class MT_RecordLayerMessage : public MT_Structure, public MT_ConnectionAware
 {
     public:
     MT_RecordLayerMessage();
@@ -740,12 +754,12 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     HRESULT Encrypt();
     HRESULT Decrypt();
 
-    HRESULT ToTLSPlaintext(MT_TLSPlaintext* pPlaintext) const;
+    HRESULT ToTLSPlaintext(MT_TLSPlaintext* pPlaintext);
 
     static
     HRESULT
     FromTLSPlaintext(
-        const MT_TLSPlaintext* pPlaintext,
+        MT_TLSPlaintext* pPlaintext,
         EndpointParameters* pEndParams,
         std::shared_ptr<MT_TLSCiphertext>* pspCiphertext);
 
@@ -851,6 +865,14 @@ class ITLSListener
     virtual HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext) = 0;
     virtual HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext) = 0;
     virtual HRESULT OnHandshakeComplete() = 0;
+
+    virtual
+    HRESULT
+    OnReconcileSecurityVersion(
+        MT_TLSCiphertext* pCiphertext,
+        MT_ProtocolVersion::MTPV_Version connVersion,
+        MT_ProtocolVersion::MTPV_Version recordVersion,
+        MT_ProtocolVersion::MTPV_Version* pOverrideVersion) = 0;
 };
 
 class TLSConnection
@@ -877,6 +899,36 @@ class TLSConnection
 
     ACCESSORS(MessageList*, PendingSends, &m_pendingSends);
     ITLSListener* Listener() { return m_pListener; }
+
+    HRESULT
+    CreatePlaintext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        const MT_Structure* pFragment,
+        MT_TLSPlaintext* pPlaintext);
+
+    HRESULT
+    CreatePlaintext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        const ByteVector* pvbFragment,
+        MT_TLSPlaintext* pPlaintext);
+
+    HRESULT
+    CreateCiphertext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        const MT_Structure* pFragment,
+        EndpointParameters* pEndParams,
+        MT_TLSCiphertext* pCiphertext);
+
+    HRESULT
+    CreateCiphertext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        const ByteVector* pvbFragment,
+        EndpointParameters* pEndParams,
+        MT_TLSCiphertext* pCiphertext);
 
     private:
     HRESULT RespondToClientHello();
@@ -1318,35 +1370,5 @@ HRESULT
 ParseStructures(
     const ByteVector* pvb,
     std::vector<T>* pvStructures);
-
-HRESULT
-CreatePlaintext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const MT_Structure* pFragment,
-    MT_TLSPlaintext* pPlaintext);
-
-HRESULT
-CreatePlaintext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const ByteVector* pvbFragment,
-    MT_TLSPlaintext* pPlaintext);
-
-HRESULT
-CreateCiphertext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const MT_Structure* pFragment,
-    EndpointParameters* pEndParams,
-    MT_TLSCiphertext* pCiphertext);
-
-HRESULT
-CreateCiphertext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const ByteVector* pvbFragment,
-    EndpointParameters* pEndParams,
-    MT_TLSCiphertext* pCiphertext);
 }
 #pragma warning(pop)

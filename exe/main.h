@@ -41,6 +41,13 @@ class DummyServer : public ITLSListener
         std::shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
         std::shared_ptr<Hasher>* pspHasher);
 
+    HRESULT
+    OnReconcileSecurityVersion(
+        MT_TLSCiphertext* pCiphertext,
+        MT_ProtocolVersion::MTPV_Version connVersion,
+        MT_ProtocolVersion::MTPV_Version recordVersion,
+        MT_ProtocolVersion::MTPV_Version* pOverrideVersion);
+
     ACCESSORS(std::vector<ByteVector>*, PendingSends, &m_vPendingSends);
     ACCESSORS(ByteVector*, PendingAppData, &m_vbPendingAppData);
 

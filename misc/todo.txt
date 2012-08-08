@@ -8,6 +8,8 @@ WORK:
 - go through all the code and rearrange order of functions to be more logical for read-through
 - change up goto style of main loop
 - log decrypted traffic with a flag for munge2netmon to find
+- try to replace MT_Securable's accessor with a proper accessor
+  - same with MT_ConnectionAware
 
 MAYBE:
 - make internal static for Cipher and Hash return by value instead?

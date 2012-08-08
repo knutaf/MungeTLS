@@ -699,3 +699,23 @@ done:
 error:
     goto done;
 } // end function OnHandshakeComplete
+
+HRESULT
+DummyServer::OnReconcileSecurityVersion(
+    MT_TLSCiphertext* pCiphertext,
+    MT_ProtocolVersion::MTPV_Version connVersion,
+    MT_ProtocolVersion::MTPV_Version recordVersion,
+    MT_ProtocolVersion::MTPV_Version* pOverrideVersion)
+{
+    UNREFERENCED_PARAMETER(pCiphertext);
+
+    // detecting chrome bug and working around. could also have sniffed UA str
+    if (connVersion == MT_ProtocolVersion::MTPV_TLS11 &&
+        recordVersion == MT_ProtocolVersion::MTPV_TLS10)
+    {
+        *pOverrideVersion = connVersion;
+        return MT_S_LISTENER_HANDLED;
+    }
+
+    return MT_S_LISTENER_IGNORED;
+} // end function OnReconcileSecurityVersion
