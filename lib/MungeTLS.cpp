@@ -2068,6 +2068,12 @@ ConnectionParameters::CopyCommonParamsTo(
     return S_OK;
 } // end function CopyCommonParamsTo
 
+bool
+ConnectionParameters::IsHandshakeInProgress() const
+{
+    return !HandshakeMessages()->empty();
+} // end function IsHandshakeInProgress
+
 /*********** crypto stuff *****************/
 
 HRESULT

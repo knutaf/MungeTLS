@@ -591,8 +591,7 @@ class ConnectionParameters
 
     HRESULT CopyCommonParamsTo(ConnectionParameters* pDest);
 
-    // TODO: is this an okay basis for determination?
-    bool IsHandshakeInProgress() const { return !HandshakeMessages()->empty(); }
+    bool IsHandshakeInProgress() const;
 
     HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
     HRESULT GenerateKeyMaterial();
