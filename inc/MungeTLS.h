@@ -549,6 +549,7 @@ class EndpointParameters
 
     const CipherInfo* Cipher() const;
     const HashInfo* Hash() const;
+    bool IsEncrypted() const;
 
     private:
     MT_ProtocolVersion::MTPV_Version m_eVersion;
@@ -862,8 +863,8 @@ class ITLSListener
 
     virtual HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags) = 0;
 
-    virtual HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext) = 0;
-    virtual HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext) = 0;
+    virtual HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
+    virtual HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
     virtual HRESULT OnHandshakeComplete() = 0;
 
     virtual

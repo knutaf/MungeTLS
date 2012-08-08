@@ -13,14 +13,22 @@
 #include <functional>
 #include <fstream>
 #include <assert.h>
+#include <regex>
 
 #include <Ntddndis.h>
 
 #include <nmapi.h>
 
-const NDIS_MEDIUM MediumMungeTLS = static_cast<NDIS_MEDIUM>(0x2323);
-
 using namespace std;
+
+const NDIS_MEDIUM MediumMungeTLS = static_cast<NDIS_MEDIUM>(0x2323);
+static const wregex c_rxRead(L".*_r_.*");
+static const wregex c_rxWrite(L".*_w_.*");
+static const wregex c_rxEncrypted(L".*_c_.*");
+
+const BYTE c_bFlags_Receive = 0x0;
+const BYTE c_bFlags_Send = 0x1;
+const BYTE c_bFlags_Encrypted = 0x2;
 
 void Usage()
 {
@@ -170,18 +178,25 @@ HRESULT ConvertTrafficFiles(PCWSTR wszDir)
 
         hr = GetFileContents(wsFilePath.c_str(), pFindData->nFileSizeLow, &vbFrame);
 
-        if (wsFilePath.back() == L'r')
+        if (regex_match(wsFilePath, c_rxRead))
         {
-            bFrameFlags = 0;
+            bFrameFlags |= c_bFlags_Receive;
         }
-        else if (wsFilePath.back() == L'w')
+        else if (regex_match(wsFilePath, c_rxWrite))
         {
-            bFrameFlags = 1;
+            bFrameFlags |= c_bFlags_Send;
         }
         else
         {
             assert(false);
         }
+
+        if (regex_match(wsFilePath, c_rxEncrypted))
+        {
+            bFrameFlags |= c_bFlags_Encrypted;
+        }
+
+        wprintf(L"flags: %02X\n", bFrameFlags);
 
         vbFrame.insert(vbFrame.begin(), bFrameFlags);
 

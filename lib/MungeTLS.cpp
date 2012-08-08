@@ -256,7 +256,10 @@ TLSConnection::HandleMessage(
         goto error;
     }
 
-    hr = Listener()->OnReceivingPlaintext(&record);
+    hr = Listener()->OnReceivingPlaintext(
+             &record,
+             message.EndParams()->IsEncrypted());
+
     if (hr != S_OK)
     {
         goto error;
@@ -671,7 +674,11 @@ TLSConnection::EnqueueMessage(
 
     wprintf(L"write seq num is now %d\n", *CurrConn()->WriteParams()->SequenceNumber());
 
-    hr = Listener()->OnEnqueuePlaintext(spPlaintext.get());
+
+    hr = Listener()->OnEnqueuePlaintext(
+             spPlaintext.get(),
+             spCiphertext->EndParams()->IsEncrypted());
+
     if (hr != S_OK)
     {
         goto error;
@@ -1713,6 +1720,12 @@ EndpointParameters::Hash() const
 
     return &hashInfo;
 } // end function Hash
+
+bool
+EndpointParameters::IsEncrypted() const
+{
+    return (Cipher()->alg != CipherAlg_NULL);
+} // end function IsEncrypted
 
 /*********** ConnectionParameters *****************/
 

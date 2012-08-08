@@ -3,17 +3,23 @@ const Flags_Receive = 0x0;
 const Flags_Send = 0x1;
 const Flags_Mask_SendReceive = 0x1;
 
+const Flags_NotEncrypted = 0x0;
+const Flags_Encrypted = 0x2;
+const Flags_Mask_Encrypted = 0x2;
+
 [ RegisterAfter(Frame.NetworkInfoEx, MungeTLS, MediumMungeTLS) ]
 Protocol MungeTLS
 {
     [
       Property.Source = MTLS_Source(Flags & Flags_Mask_SendReceive),
-      Property.Destination = MTLS_Destination(Flags & Flags_Mask_SendReceive)
+      Property.Destination = MTLS_Destination(Flags & Flags_Mask_SendReceive),
+      Property.Encrypted = Flags & Flags_Mask_Encrypted
     ]
     UINT8 Flags
     {
-        UINT8 Unused:7;
-        UINT8 SendReceive:1 = FormatString("%s (0x%X)", MTLS_Flags_Table(this), this);
+        UINT8 Unused:6;
+        UINT8 Encrypted:1   = FormatString("  (%s) %s", this.ToBitString, this ? "Encrypted" : "");
+        UINT8 SendReceive:1 = FormatString("(%s) %s", this.ToBitString, this ? "Send" : "Receive");
     }
 
     TLS InnerTLS;
@@ -39,7 +45,7 @@ Table MTLS_Destination
 
 Table MTLS_Flags_Table
 {
-    switch (value)
+    switch (value & Flags_Mask_SendReceive)
     {
         case Flags_Receive : "R";
         case Flags_Send : "S";

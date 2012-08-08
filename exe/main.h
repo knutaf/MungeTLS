@@ -29,8 +29,8 @@ class DummyServer : public ITLSListener
     HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);
     HRESULT OnSelectCipherSuite(MT_CipherSuite* pCipherSuite);
     HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags);
-    HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext);
-    HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext);
+    HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
+    HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
     HRESULT OnHandshakeComplete();
 
     HRESULT

@@ -59,6 +59,7 @@ HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const ByteVector* pvb)
     wsFilename += StringFromInt(nFile);
     wsFilename += L"_";
     wsFilename += *pwsSuffix;
+    wsFilename += L"_";
 
     hOutfile = CreateFileW(
                    wsFilename.c_str(),
@@ -112,18 +113,6 @@ done:
 error:
     goto done;
 } // end function LogTraffic
-
-HRESULT LogWrite(ULONG nFile, const ByteVector* pvb)
-{
-    static const wstring wsWrite(L"w");
-    return LogTraffic(nFile, &wsWrite, pvb);
-} // end function LogWrite
-
-HRESULT LogRead(ULONG nFile, const ByteVector* pvb)
-{
-    static const wstring wsRead(L"r");
-    return LogTraffic(nFile, &wsRead, pvb);
-} // end function LogRead
 
 HRESULT DummyServer::ProcessConnections()
 {
@@ -628,10 +617,11 @@ HRESULT DummyServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD*
     return MT_S_LISTENER_HANDLED;
 } // end function OnCreatingHandshakeMessage
 
-HRESULT DummyServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext)
+HRESULT DummyServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
     HRESULT hr = S_OK;
     ByteVector vb;
+    wstring wsLogPrefix(L"w");
 
     hr = pPlaintext->SerializeToVect(&vb);
     assert(hr != E_NOTIMPL);
@@ -641,7 +631,12 @@ HRESULT DummyServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext)
         goto error;
     }
 
-    hr = LogWrite(m_cMessages, &vb);
+    if (fActuallyEncrypted)
+    {
+        wsLogPrefix += L"_c";
+    }
+
+    hr = LogTraffic(m_cMessages, &wsLogPrefix, &vb);
     assert(hr == S_OK);
     m_cMessages++;
 
@@ -652,10 +647,11 @@ error:
     goto done;
 } // end function OnEnqueuePlaintext
 
-HRESULT DummyServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext)
+HRESULT DummyServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
     HRESULT hr = S_OK;
     ByteVector vb;
+    wstring wsLogPrefix(L"r");
 
     hr = pPlaintext->SerializeToVect(&vb);
     assert(hr != E_NOTIMPL);
@@ -665,7 +661,12 @@ HRESULT DummyServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext)
         goto error;
     }
 
-    hr = LogRead(m_cMessages, &vb);
+    if (fActuallyEncrypted)
+    {
+        wsLogPrefix += L"_c";
+    }
+
+    hr = LogTraffic(m_cMessages, &wsLogPrefix, &vb);
     assert(hr == S_OK);
     m_cMessages++;
 
