@@ -94,7 +94,7 @@ TLSConnection::StartNextHandshake(const MT_ClientHello* pClientHello)
 
     if (NextConn()->IsHandshakeInProgress())
     {
-        // TODO: may lift this restriction if okay...
+        // may lift this restriction if okay...
         assert(false);
     }
 
@@ -475,7 +475,7 @@ TLSConnection::HandleMessage(
                 }
 
                 pExchangeKeys = keyExchange.ExchangeKeys();
-                pExchangeKeys->SetCipherer(NextConn()->PubKeyCipherer()->get());
+                *pExchangeKeys->Cipherer() = *NextConn()->PubKeyCipherer();
                 hr = pExchangeKeys->DecryptStructure();
                 if (hr != S_OK)
                 {
@@ -1715,7 +1715,7 @@ EndpointParameters::IsEncrypted() const
 
 ConnectionParameters::ConnectionParameters()
     : m_certChain(),
-      m_spPubKeyCipherer(nullptr),
+      m_spPubKeyCipherer(),
       m_vbMasterSecret(),
       m_clientHello(),
       m_clientRandom(),
@@ -2947,7 +2947,7 @@ MT_PublicKeyEncryptedStructure<T>::MT_PublicKeyEncryptedStructure()
       m_structure(),
       m_vbEncryptedStructure(),
       m_vbPlaintextStructure(),
-      m_pCipherer(nullptr)
+      m_spCipherer()
 {
 } // end ctor MT_PublicKeyEncryptedStructure
 
@@ -3003,7 +3003,7 @@ MT_PublicKeyEncryptedStructure<T>::DecryptStructure()
     HRESULT hr = S_OK;
     PlaintextStructure()->clear();
 
-    hr = GetCipherer()->DecryptBufferWithPrivateKey(
+    hr = (*Cipherer())->DecryptBufferWithPrivateKey(
              EncryptedStructure(),
              PlaintextStructure());
 

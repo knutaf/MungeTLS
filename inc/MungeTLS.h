@@ -665,7 +665,7 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     virtual size_t Length() const;
 
     HRESULT DecryptStructure();
-    HRESULT SetCipherer(const PublicKeyCipherer* pCipherer) { m_pCipherer = pCipherer; return S_OK; }
+    ACCESSORS(std::shared_ptr<PublicKeyCipherer>*, Cipherer, &m_spCipherer);
 
     ACCESSORS(T*, Structure, &m_structure);
     ACCESSORS(ByteVector*, EncryptedStructure, &m_vbEncryptedStructure);
@@ -674,12 +674,10 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     ACCESSORS(ByteVector*, PlaintextStructure, &m_vbPlaintextStructure);
 
-    const PublicKeyCipherer* GetCipherer() const { return m_pCipherer; }
-
     T m_structure;
     ByteVector m_vbPlaintextStructure;
     ByteVector m_vbEncryptedStructure;
-    const PublicKeyCipherer* m_pCipherer;
+    std::shared_ptr<PublicKeyCipherer> m_spCipherer;
 };
 
 class MT_ContentType : public MT_Structure

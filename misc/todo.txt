@@ -1,24 +1,26 @@
 BUGS:
-- crash in IE when doing repeated renegotiations
 
 WORK:
 - watch out for places where we expose an accessor on a base class, such as SymmetricCipherer
 - go through all the code and rearrange order of functions to be more logical for read-through
 - change up goto style of main loop
-- try to replace MT_Securable's accessor with a proper accessor
-  - same with MT_ConnectionAware
 
 MAYBE:
 - make internal static for Cipher and Hash return by value instead?
-- public key encrypted structure should keep a shared_ptr, not a real one?
-- functions to advance/reset sequence number
-- ability to verify correct cert usages before using
 - in parsefrom functions, error path should unset member variables
 - GenerateKeyMaterial is just called by computemastersecret
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon
+- what do we want to do about renegotiations while one is already going on?
 
 BY DESIGN:
 - don't access MT_VariableLengthField::Data. surface common operations
+- functions to advance/reset sequence number
+- ability to verify correct cert usages before using - caller is already picking the certs. they should check it as need be
 
 WON'T FIX:
 - think more about thread safety. what are the scenarios, anyway?
+- try to replace MT_Securable's accessor with a proper accessor - requires a shared_ptr to be used here
+  - same with MT_ConnectionAware
+
+NO REPRO:
+- crash in IE when doing repeated renegotiations
