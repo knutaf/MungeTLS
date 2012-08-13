@@ -16,8 +16,6 @@
 using namespace std;
 using namespace MungeTLS;
 
-HRESULT ProcessConnections();
-
 int __cdecl wmain(int argc, wchar_t* argv[])
 {
     UNREFERENCED_PARAMETER(argc);
@@ -25,7 +23,11 @@ int __cdecl wmain(int argc, wchar_t* argv[])
 
     HRESULT hr = S_OK;
 
-    DummyServer ds;
+    /*
+    ** this simple web server is attached to the TLS connection and implements
+    ** all its callbacks
+    */
+    SimpleHTTPServer ds;
 
     hr = ds.ProcessConnections();
 
@@ -40,6 +42,11 @@ wstring StringFromInt(N n)
     return s.str();
 } // end function StringFromInt
 
+/*
+** log traffic with a specific format that makes it suitable for parsing by
+** the "munge2netmon" companion tool, which can take the raw traffic and turn
+** it into a netmon capture, which can be viewed for debugging goodness
+*/
 HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const ByteVector* pvb)
 {
     HRESULT hr = S_OK;
@@ -114,7 +121,14 @@ error:
     goto done;
 } // end function LogTraffic
 
-HRESULT DummyServer::ProcessConnections()
+/*
+** opens a socket and listens for connections. when it receives one, channels
+** data to and from TLSConnection instance, presuming it to be TLS traffic.
+**
+** Much of this is taken with little modification from an MSDN sockets sample,
+** so the coding style differs a little from all the other code in the project.
+*/
+HRESULT SimpleHTTPServer::ProcessConnections()
 {
     HRESULT hr = S_OK;
     SOCKET sockListen = INVALID_SOCKET;
@@ -199,7 +213,6 @@ HRESULT DummyServer::ProcessConnections()
         int cb;
         int cbAvailable;
         HRESULT hr = S_OK;
-        ULONG cMessages = 0;
 
 
         hr = Connection()->Initialize();
@@ -217,17 +230,20 @@ HRESULT DummyServer::ProcessConnections()
             goto error;
         }
 
+        // even if our buffer size is bigger, limit how much we receive
         if (cbAvailable > c_cbMaxRecvSize)
         {
             cbAvailable = c_cbMaxRecvSize;
         }
 
+        // start reading at the next valid spot in the buffer
         cb = recv(
                  sockAccept,
                  reinterpret_cast<char*>(&vbData.front() + cbConsumedBuffer),
                  cbAvailable,
                  0);
 
+        // cb < 0 means failure. cb == 0 means end of stream
         while (cb > 0)
         {
             wprintf(L"read %d bytes from the network\n", cb);
@@ -237,14 +253,15 @@ HRESULT DummyServer::ProcessConnections()
             assert(cbConsumedBuffer <= vbData.size());
             vbData.resize(cbConsumedBuffer);
 
-            //LogRead(cMessages, &vbData);
-
+            // keep processing messages until we can't anymore
             hr = Connection()->HandleMessage(&vbData);
             while (hr == S_OK)
             {
-                wprintf(L"finished parsing message of size %lu\n", vbData.size());
-                cMessages++;
-
+                /*
+                ** HandleMessage reenters SimpleHTTPServer in callbacks, which can
+                ** result in queuing up traffic to send. check right now and
+                ** send any pending traffic
+                */
                 while (!PendingSends()->empty())
                 {
                     ByteVector vb(PendingSends()->front());
@@ -254,12 +271,10 @@ HRESULT DummyServer::ProcessConnections()
 
                     wprintf(L"responding with %d bytes\n", cbPayload);
 
+                    // this loop sends the whole buffer, in pieces
                     while (cbPayload != 0)
                     {
                         assert(cbPayload == vb.size());
-
-                        //LogWrite(cMessages, &vb);
-                        cMessages++;
 
                         assert(cbPayload <= INT_MAX);
 
@@ -295,8 +310,6 @@ HRESULT DummyServer::ProcessConnections()
                         wprintf(L"something failed (%08LX). exiting\n", hr);
                         break;
                     }
-
-                    Sleep(500);
                 }
 
                 hr = Connection()->HandleMessage(&vbData);
@@ -304,9 +317,17 @@ HRESULT DummyServer::ProcessConnections()
 
             wprintf(L"failed HandleMessage (possibly expected): %08LX\n", hr);
 
+            // flush logging messages
             _fflush_nolock(stdout);
 
             assert(vbData.size() <= c_cbReadBuffer);
+
+            /*
+            ** SUCCEEDED instead of S_OK because HandleMessage returns S_FALSE
+            ** if it handles an empty message
+            */
+            assert(SUCCEEDED(hr));
+            hr = S_OK;
 
             /*
             ** HandleMessage, if it succeeds, resizes vector, so update our
@@ -323,11 +344,13 @@ HRESULT DummyServer::ProcessConnections()
                 goto error;
             }
 
+            // even if our buffer size is bigger, limit how much we receive
             if (cbAvailable > c_cbMaxRecvSize)
             {
                 cbAvailable = c_cbMaxRecvSize;
             }
 
+            // again, start reading at latest unused spot in buffer
             cb = recv(
                      sockAccept,
                      reinterpret_cast<char*>(&vbData.front() + cbConsumedBuffer),
@@ -365,31 +388,32 @@ error:
     goto done;
 } // end function ProcessConnections
 
-HRESULT DummyServer::OnSend(const ByteVector* pvb)
+// called when the TLS connection has some bytes to be sent over the network
+HRESULT SimpleHTTPServer::OnSend(const ByteVector* pvb)
 {
     wprintf(L"queueing up %d bytes of data to send\n", pvb->size());
     PendingSends()->push_back(*pvb);
     return S_OK;
 } // end function OnSend
 
-HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
+// pvb is the plaintext application data that's been received
+HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
 {
     HRESULT hr = S_OK;
 
     wprintf(L"got %d bytes of application data\n", pvb->size());
 
+    // sometimes the other party sends us empty messages. ok. just ignore them.
     if (!pvb->empty())
     {
-        // first just append the new data to the pending request
+        // first just append the new data to the pending incoming HTTP request
         PendingRequest()->insert(
             PendingRequest()->end(),
             pvb->begin(),
             pvb->end());
 
-        // do this after the insert, which invalidates iterators
-        string::iterator itEndRequest(PendingRequest()->begin());
-
-        const PCSTR rgszTerminators[] =
+        // NB: sorted by length
+        static const PCSTR c_rgszHTTPHeadersTerminators[] =
         {
             "\r\n\r\n",
             "\r\r",
@@ -399,30 +423,37 @@ HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
         /*
         ** try all the terminators to see if the request is complete. this is
         ** simplistic because it doesn't handle things like content-length in
-        ** the request.
+        ** the request, so the client can't send any request body
         */
-        for (ULONG i = 0; i < ARRAYSIZE(rgszTerminators); i++)
+
+        // iterator to search for end of request headers
+        string::iterator itEndRequest(PendingRequest()->begin());
+
+        for (ULONG i = 0; i < ARRAYSIZE(c_rgszHTTPHeadersTerminators); i++)
         {
             // find the end terminator
-            string::size_type posEndRequest = PendingRequest()->find(rgszTerminators[i]);
+            string::size_type posEndRequest = PendingRequest()->find(c_rgszHTTPHeadersTerminators[i]);
 
+            /*
+            ** found terminator. posEndRequest is the index of the first char
+            ** of the terminator string
+            */
             if (posEndRequest != string::npos)
             {
                 /*
                 ** if it's found, set an iterator for the spot 1 past the end
                 ** of the terminating string.
                 */
-                itEndRequest = PendingRequest()->begin() + posEndRequest + strlen(rgszTerminators[i]);
-
-                wprintf(L"found terminator %d\n", i);
-
+                itEndRequest = PendingRequest()->begin() + posEndRequest + strlen(c_rgszHTTPHeadersTerminators[i]);
                 break;
             }
         }
 
         /*
-        ** the response body is going to be a copy of the request body. do this
-        ** only if a whole request is found at this point (non-empty request)
+        ** this simple web server echoes back the request headers in the
+        ** response body. if we've found a non-empty request at this point--
+        ** i.e. the previous search for a terminator succeeded--construct and
+        ** send the response now.
         */
         if (itEndRequest - PendingRequest()->begin() > 0)
         {
@@ -439,6 +470,9 @@ HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
             ** reserve (more than) enough space, and trim down later. the *2
             ** is the generous part of the size, and accounts for the content
             ** length in the string above. it is really *very* generous.
+            **
+            ** we don't resize() at this point, because that would change
+            ** begin(), end(), etc.. those will get updated as we insert/append
             */
             vbApplicationData.reserve(
                 ARRAYSIZE(szApplicationDataTemplate) * 2 +
@@ -473,9 +507,19 @@ HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
                 PendingRequest()->begin(),
                 itEndRequest);
 
-            m_cAppDataReceived++;
+            m_cRequestsReceived++;
 
-            if (m_cAppDataReceived > 1)
+            /*
+            ** if we reach this point, we have received a request and prepared
+            ** a response to send. however, since this is a test server, on the
+            ** second and subsequent requests we receive, first do a
+            ** renegotiation, THEN send the response. hee hee
+            **
+            ** the renegotiation process is not synchronous right here, so we
+            ** have to save off that response and send it after it's indicated
+            ** that the handshake is complete (OnHandshakeComplete).
+            */
+            if (m_cRequestsReceived > 1)
             {
                 hr = Connection()->EnqueueStartRenegotiation();
                 if (hr != S_OK)
@@ -483,8 +527,10 @@ HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
                     goto error;
                 }
 
-                *PendingAppData() = vbApplicationData;
+                *PendingResponse() = vbApplicationData;
             }
+
+            // on first response, just send it now. no fancy tricks
             else
             {
                 hr = Connection()->EnqueueSendApplicationData(&vbApplicationData);
@@ -494,11 +540,17 @@ HRESULT DummyServer::OnApplicationData(const ByteVector* pvb)
                 }
             }
 
+            // this would send any appdata OR renegotiation request
             hr = Connection()->SendQueuedMessages();
             if (hr != S_OK)
             {
                 goto error;
             }
+        }
+        else
+        {
+            // if this ever fails, need to hoist the above SendQueuedMessages
+            assert(Connection()->PendingSends()->empty());
         }
 
         printf("pending request is: %s\n", PendingRequest()->c_str());
@@ -509,27 +561,42 @@ done:
 
 error:
     goto done;
-} // end function OnApplicationData
+} // end function OnReceivedApplicationData
 
-HRESULT DummyServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion)
+/*
+** called during handshake to choose the protocol version to use in ServerHello
+** default is to use ClientHello.version
+*/
+HRESULT SimpleHTTPServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion)
 {
     UNREFERENCED_PARAMETER(pProtocolVersion);
     return MT_S_LISTENER_IGNORED;
 } // end function OnSelectProtocolVersion
 
-const MT_CipherSuiteValue DummyServer::c_rgCipherSuites[] =
+/*
+** called during handshake to pick the cipher suite to send in the ServerHello.
+** the default is to take a hard-coded server preference that the client also
+** advertises.
+**
+** this client implementation helps testing renegotation by choosing a
+** different cipher suite round-robin from a list of choices.
+*/
+HRESULT SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite)
 {
-    //MTCS_UNKNOWN,
-    MTCS_TLS_RSA_WITH_RC4_128_SHA
-    ,MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
-    //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA
-    //,MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256
-    //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256
-};
+    // negotiations will cycle through this list. "unknown" means use default
+    static const MT_CipherSuiteValue c_rgCipherSuites[] =
+    {
+        //MTCS_UNKNOWN,
+        MTCS_TLS_RSA_WITH_RC4_128_SHA
+        ,MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
+        //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA
+        //,MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256
+        //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256
+    };
 
-HRESULT DummyServer::OnSelectCipherSuite(MT_CipherSuite* pCipherSuite)
-{
     HRESULT hr = MT_S_LISTENER_IGNORED;
+
+    UNREFERENCED_PARAMETER(pClientHello);
 
     MT_CipherSuiteValue csv = c_rgCipherSuites[m_iCipherSelected];
 
@@ -544,8 +611,19 @@ HRESULT DummyServer::OnSelectCipherSuite(MT_CipherSuite* pCipherSuite)
     return hr;
 } // end function OnSelectCipherSuite
 
+/*
+** called when initializing the cryptographic objects needed for a new
+** handshake. for this simple server, we need to fetch the certificate chain
+** and configure the public key cipherer with the certificate private key. on
+** other platforms they may also need to configure the symmetric cipherers or
+** hasher.
+**
+** for now we have a hard-coded certificate name. Note that LookupCertificate
+** is Windows-specific code, but that's okay, because it's contained in the
+** application (rather than lib) portion.
+*/
 HRESULT
-DummyServer::OnInitializeCrypto(
+SimpleHTTPServer::OnInitializeCrypto(
     MT_CertificateList* pCertChain,
     shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
     shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
@@ -573,7 +651,10 @@ DummyServer::OnInitializeCrypto(
 
     spPubKeyCipherer = shared_ptr<WindowsPublicKeyCipherer>(new WindowsPublicKeyCipherer());
 
-    // the root cert in the chain
+    /*
+    ** the root cert context in the chain. it knows how to lookup the private
+    ** key from this.
+    */
     hr = spPubKeyCipherer->Initialize(pCertChainCtx->rgpChain[0]->rgpElement[0]->pCertContext);
     if (hr != S_OK)
     {
@@ -585,6 +666,7 @@ DummyServer::OnInitializeCrypto(
 
     spHasher = shared_ptr<WindowsHasher>(new WindowsHasher());
 
+    // convert to internal MT_CertificateList
     hr = MTCertChainFromWinChain(pCertChainCtx, pCertChain);
     if (hr != S_OK)
     {
@@ -609,7 +691,13 @@ error:
     goto done;
 } // end function OnInitializeCrypto
 
-HRESULT DummyServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags)
+/*
+** called when creating each handshake message for sending. we could package
+** each message in a separate record layer message, or combine several into the
+** same record layer message, since they're all of the same content type
+** default is to do separate records
+*/
+HRESULT SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags)
 {
     UNREFERENCED_PARAMETER(pHandshake);
     //*pfFlags |= MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE;
@@ -617,7 +705,12 @@ HRESULT DummyServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD*
     return MT_S_LISTENER_HANDLED;
 } // end function OnCreatingHandshakeMessage
 
-HRESULT DummyServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
+/*
+** called whenever the server has readied a plaintext message for the purpose
+** of being sent, either in its plaintext form or after conversion to
+** ciphertext. this is primarily used for logging traffic
+*/
+HRESULT SimpleHTTPServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
     HRESULT hr = S_OK;
     ByteVector vb;
@@ -647,7 +740,8 @@ error:
     goto done;
 } // end function OnEnqueuePlaintext
 
-HRESULT DummyServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
+// the "receiving" equivalent of OnEnqueuePlaintext. primarily used for logging
+HRESULT SimpleHTTPServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
     HRESULT hr = S_OK;
     ByteVector vb;
@@ -677,19 +771,24 @@ error:
     goto done;
 } // end function OnReceivingPlaintext
 
-HRESULT DummyServer::OnHandshakeComplete()
+/*
+** notifies the application that a handshake is complete, and it's safe to send
+** application data. here we send the data we saved off back in
+** OnReceivedApplicationData before the renegotiation.
+*/
+HRESULT SimpleHTTPServer::OnHandshakeComplete()
 {
     HRESULT hr = S_OK;
 
-    if (!PendingAppData()->empty())
+    if (!PendingResponse()->empty())
     {
-        hr = Connection()->EnqueueSendApplicationData(PendingAppData());
+        hr = Connection()->EnqueueSendApplicationData(PendingResponse());
         if (hr != S_OK)
         {
             goto error;
         }
 
-        PendingAppData()->clear();
+        PendingResponse()->clear();
     }
 
     hr = MT_S_LISTENER_HANDLED;
@@ -701,8 +800,16 @@ error:
     goto done;
 } // end function OnHandshakeComplete
 
+/*
+** if we ever encounter a record with a different version specified than the
+** currently negotiated version, the application has a chance to reconcile it
+** and choose the version that's used for "security" operations like MAC
+** computation.
+**
+** In particular, there's a Chrome bug that we need to account for.
+*/
 HRESULT
-DummyServer::OnReconcileSecurityVersion(
+SimpleHTTPServer::OnReconcileSecurityVersion(
     MT_TLSCiphertext* pCiphertext,
     MT_ProtocolVersion::MTPV_Version connVersion,
     MT_ProtocolVersion::MTPV_Version recordVersion,

@@ -366,7 +366,7 @@ TLSConnection::HandleMessage(
                 {
                     MT_CipherSuite cipherSuite;
 
-                    HRESULT hrL = Listener()->OnSelectCipherSuite(&cipherSuite);
+                    HRESULT hrL = Listener()->OnSelectCipherSuite(&clientHello, &cipherSuite);
                     if (FAILED(hrL))
                     {
                         hr = hrL;
@@ -600,10 +600,10 @@ TLSConnection::HandleMessage(
         wprintf(L"application data:\n");
         PrintByteVector(record.Fragment());
 
-        hr = Listener()->OnApplicationData(record.Fragment());
+        hr = Listener()->OnReceivedApplicationData(record.Fragment());
         if (hr != S_OK)
         {
-            wprintf(L"warning: error in OnApplicationData with listener: %08LX\n", hr);
+            wprintf(L"warning: error in OnReceivedApplicationData with listener: %08LX\n", hr);
         }
 
         (*CurrConn()->ReadParams()->SequenceNumber())++;
@@ -629,7 +629,7 @@ done:
 
 error:
     goto done;
-} // end function ParseMessage
+} // end function HandleMessage
 
 HRESULT
 TLSConnection::EnqueueMessage(

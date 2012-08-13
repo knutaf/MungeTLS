@@ -8,26 +8,26 @@
 
 using namespace MungeTLS;
 
-class DummyServer : public ITLSListener
+class SimpleHTTPServer : public ITLSListener
 {
     public:
-    DummyServer()
+    SimpleHTTPServer()
         : m_vPendingSends(),
           m_con(this), // not a copy ctor; taking this as an ITLSListener
           m_sPendingRequest(""),
           m_iCipherSelected(0),
           m_cMessages(0),
-          m_cAppDataReceived(0),
+          m_cRequestsReceived(0),
           m_vbPendingAppData()
     { }
 
-    ~DummyServer() { }
+    ~SimpleHTTPServer() { }
 
     HRESULT ProcessConnections();
     HRESULT OnSend(const ByteVector* pvb);
-    HRESULT OnApplicationData(const ByteVector* pvb);
+    HRESULT OnReceivedApplicationData(const ByteVector* pvb);
     HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);
-    HRESULT OnSelectCipherSuite(MT_CipherSuite* pCipherSuite);
+    HRESULT OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite);
     HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags);
     HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
     HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
@@ -49,11 +49,9 @@ class DummyServer : public ITLSListener
         MT_ProtocolVersion::MTPV_Version* pOverrideVersion);
 
     ACCESSORS(std::vector<ByteVector>*, PendingSends, &m_vPendingSends);
-    ACCESSORS(ByteVector*, PendingAppData, &m_vbPendingAppData);
+    ACCESSORS(ByteVector*, PendingResponse, &m_vbPendingAppData);
 
     private:
-    static const MT_CipherSuiteValue c_rgCipherSuites[];
-
     ACCESSORS(TLSConnection*, Connection, &m_con);
     ACCESSORS(std::string*, PendingRequest, &m_sPendingRequest);
     ACCESSORS(PCCERT_CHAIN_CONTEXT*, CertChain, &m_pCertChain);
@@ -69,7 +67,7 @@ class DummyServer : public ITLSListener
     PCCERT_CHAIN_CONTEXT m_pCertChain;
     ULONG m_iCipherSelected;
     ULONG m_cMessages;
-    ULONG m_cAppDataReceived;
+    ULONG m_cRequestsReceived;
     ByteVector m_vbPendingAppData;
 
     std::shared_ptr<WindowsPublicKeyCipherer> m_spPubKeyCipherer;

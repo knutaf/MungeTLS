@@ -552,10 +552,10 @@ class EndpointParameters
     bool IsEncrypted() const;
 
     private:
-    MT_ProtocolVersion::MTPV_Version m_eVersion;
     std::shared_ptr<Hasher> m_spHasher;
-    MT_CipherSuite m_cipherSuite;
     std::shared_ptr<SymmetricCipherer> m_spSymCipherer;
+    MT_ProtocolVersion::MTPV_Version m_eVersion;
+    MT_CipherSuite m_cipherSuite;
     ByteVector m_vbKey;
     ByteVector m_vbMACKey;
     ByteVector m_vbIV;
@@ -845,9 +845,9 @@ class ITLSListener
 {
     public:
     virtual HRESULT OnSend(const ByteVector* pvb) = 0;
-    virtual HRESULT OnApplicationData(const ByteVector* pvb) = 0;
+    virtual HRESULT OnReceivedApplicationData(const ByteVector* pvb) = 0;
     virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
-    virtual HRESULT OnSelectCipherSuite(MT_CipherSuite* pCipherSuite) = 0;
+    virtual HRESULT OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite) = 0;
 
     virtual
     HRESULT

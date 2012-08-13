@@ -1,26 +1,38 @@
 BUGS:
 
 WORK:
+- TLS CLIENT
 - watch out for places where we expose an accessor on a base class, such as SymmetricCipherer
 - go through all the code and rearrange order of functions to be more logical for read-through
 - change up goto style of main loop
+- if we have our own client impl, we can also implement some wonky compression scheme
+- give app the choice of whether batch up application data messages
 
 MAYBE:
-- make internal static for Cipher and Hash return by value instead?
-- in parsefrom functions, error path should unset member variables
-- GenerateKeyMaterial is just called by computemastersecret
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon
 - what do we want to do about renegotiations while one is already going on?
+
+
+
+
+
+
+
+
+
 
 BY DESIGN:
 - don't access MT_VariableLengthField::Data. surface common operations
 - functions to advance/reset sequence number
 - ability to verify correct cert usages before using - caller is already picking the certs. they should check it as need be
+- GenerateKeyMaterial is just called by computemastersecret - seems fine. what's the problem?
+- make internal static for Cipher and Hash return by value instead? fine as is
 
 WON'T FIX:
 - think more about thread safety. what are the scenarios, anyway?
 - try to replace MT_Securable's accessor with a proper accessor - requires a shared_ptr to be used here
   - same with MT_ConnectionAware
+- in parsefrom functions, error path should unset member variables - these errors just bubble up anyway, and the caller shouldn't use the object if parse fails
 
 NO REPRO:
 - crash in IE when doing repeated renegotiations
