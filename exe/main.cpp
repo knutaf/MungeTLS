@@ -222,7 +222,7 @@ HRESULT SimpleHTTPServer::ProcessConnections()
         }
 
         vbData.reserve(c_cbReadBuffer);
-        vbData.resize(c_cbReadBuffer);
+        ResizeVector(&vbData, c_cbReadBuffer);
 
         hr = SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable);
         if (hr != S_OK)
@@ -251,7 +251,7 @@ HRESULT SimpleHTTPServer::ProcessConnections()
             assert(cb <= vbData.size());
             cbConsumedBuffer += cb;
             assert(cbConsumedBuffer <= vbData.size());
-            vbData.resize(cbConsumedBuffer);
+            ResizeVector(&vbData, cbConsumedBuffer);
 
             // keep processing messages until we can't anymore
             hr = Connection()->HandleMessage(&vbData);
@@ -335,7 +335,7 @@ HRESULT SimpleHTTPServer::ProcessConnections()
             ** inflate it to the buffer size
             */
             cbConsumedBuffer = vbData.size();
-            vbData.resize(c_cbReadBuffer);
+            ResizeVector(&vbData, c_cbReadBuffer);
 
             hr = SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable);
             if (hr != S_OK)
@@ -479,7 +479,7 @@ HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
                 (itEndRequest - PendingRequest()->begin()));
 
             // first get enough space for just the template part
-            vbApplicationData.resize(ARRAYSIZE(szApplicationDataTemplate) * 2);
+            ResizeVector(&vbApplicationData, ARRAYSIZE(szApplicationDataTemplate) * 2);
 
             // substituting in the real content length
             hr = StringCchPrintfA(
@@ -494,7 +494,7 @@ HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             }
 
             // trim to just the part we sprintf'd. excludes null terminator
-            vbApplicationData.resize(strlen(reinterpret_cast<PSTR>(&vbApplicationData.front())));
+            ResizeVector(&vbApplicationData, strlen(reinterpret_cast<PSTR>(&vbApplicationData.front())));
 
             // append the request
             vbApplicationData.insert(
