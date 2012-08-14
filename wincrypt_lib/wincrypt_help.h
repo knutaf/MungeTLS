@@ -31,6 +31,29 @@ class KeyAndProv
 };
 
 HRESULT
+EncryptBuffer(
+    const ByteVector* pvbCleartext,
+    HCRYPTKEY hKey,
+    const CipherInfo* pCipherInfo,
+    const ByteVector* pvbIV,
+    ByteVector* pvbEncrypted);
+
+HRESULT
+DecryptBuffer(
+    const ByteVector* pvbEncrypted,
+    HCRYPTKEY hKey,
+    const CipherInfo* pCipherInfo,
+    const ByteVector* pvbIV,
+    ByteVector* pvbDecrypted);
+
+HRESULT
+LookupCertificate(
+    DWORD dwCertStoreFlags,
+    PCWSTR wszStoreName,
+    PCWSTR wszSubjectName,
+    PCCERT_CHAIN_CONTEXT* ppCertChain);
+
+HRESULT
 GetPrivateKeyFromCertificate(
     PCCERT_CONTEXT pCertContext,
     KeyAndProv* pPrivateKey);
@@ -40,40 +63,18 @@ GetPublicKeyFromCertificate(
     PCCERT_CONTEXT pCertContext,
     KeyAndProv* pPublicKey);
 
-class WindowsSymmetricCipherer : public SymmetricCipherer
-{
-    public:
-    WindowsSymmetricCipherer();
-    ~WindowsSymmetricCipherer() { }
+HRESULT
+MTCertChainFromWinChain(
+    PCCERT_CHAIN_CONTEXT pWinChain,
+    MT_CertificateList* pMTChain);
 
-    HRESULT
-    Initialize(
-        const ByteVector* pvbKey,
-        const CipherInfo* pCipherInfo);
+HRESULT
+ImportSymmetricKey(
+    const ByteVector* pvbKey,
+    ALG_ID algID,
+    KeyAndProv* pKey);
 
-    HRESULT
-    EncryptBuffer(
-        const ByteVector* pvbCleartext,
-        const ByteVector* pvbIV,
-        ByteVector* pvbEncrypted);
 
-    HRESULT
-    DecryptBuffer(
-        const ByteVector* pvbEncrypted,
-        const ByteVector* pvbIV,
-        ByteVector* pvbDecrypted);
-
-    static
-    HRESULT
-    WindowsCipherAlgFromMTCipherAlg(
-        CipherAlg alg,
-        ALG_ID* pAlgID);
-
-    private:
-    ACCESSORS(std::shared_ptr<KeyAndProv>*, Key, &m_spKey);
-
-    std::shared_ptr<KeyAndProv> m_spKey;
-};
 
 class WindowsPublicKeyCipherer : public PublicKeyCipherer
 {
@@ -113,6 +114,41 @@ class WindowsPublicKeyCipherer : public PublicKeyCipherer
     std::shared_ptr<KeyAndProv> m_spPrivateKeyProv;
 };
 
+class WindowsSymmetricCipherer : public SymmetricCipherer
+{
+    public:
+    WindowsSymmetricCipherer();
+    ~WindowsSymmetricCipherer() { }
+
+    HRESULT
+    Initialize(
+        const ByteVector* pvbKey,
+        const CipherInfo* pCipherInfo);
+
+    HRESULT
+    EncryptBuffer(
+        const ByteVector* pvbCleartext,
+        const ByteVector* pvbIV,
+        ByteVector* pvbEncrypted);
+
+    HRESULT
+    DecryptBuffer(
+        const ByteVector* pvbEncrypted,
+        const ByteVector* pvbIV,
+        ByteVector* pvbDecrypted);
+
+    static
+    HRESULT
+    WindowsCipherAlgFromMTCipherAlg(
+        CipherAlg alg,
+        ALG_ID* pAlgID);
+
+    private:
+    ACCESSORS(std::shared_ptr<KeyAndProv>*, Key, &m_spKey);
+
+    std::shared_ptr<KeyAndProv> m_spKey;
+};
+
 class WindowsHasher : public Hasher
 {
     public:
@@ -135,43 +171,5 @@ class WindowsHasher : public Hasher
         const HashInfo* pHashInfo,
         ALG_ID* pAlg);
 };
-
-HRESULT
-EncryptBuffer(
-    const ByteVector* pvbCleartext,
-    HCRYPTKEY hKey,
-    const CipherInfo* pCipherInfo,
-    const ByteVector* pvbIV,
-    ByteVector* pvbEncrypted);
-
-HRESULT
-DecryptBuffer(
-    const ByteVector* pvbEncrypted,
-    HCRYPTKEY hKey,
-    const CipherInfo* pCipherInfo,
-    const ByteVector* pvbIV,
-    ByteVector* pvbDecrypted);
-
-ByteVector ReverseByteOrder(const ByteVector* pvb);
-
-extern HRESULT PrintByteVector(const ByteVector* pvb);
-
-HRESULT
-ImportSymmetricKey(
-    const ByteVector* pvbKey,
-    ALG_ID algID,
-    KeyAndProv* pKey);
-
-HRESULT
-LookupCertificate(
-    DWORD dwCertStoreFlags,
-    PCWSTR wszStoreName,
-    PCWSTR wszSubjectName,
-    PCCERT_CHAIN_CONTEXT* ppCertChain);
-
-HRESULT
-MTCertChainFromWinChain(
-    PCCERT_CHAIN_CONTEXT pWinChain,
-    MT_CertificateList* pMTChain);
 
 }

@@ -35,301 +35,75 @@ struct PlaintextKey
     BYTE rgbKeyData[1];
 };
 
-/*
-** dwCertStoreFlags tells user/machine store, like
-** CERT_SYSTEM_STORE_CURRENT_USER
-**
-** wszStoreName is like "my"
-** wszSubjectName is the subject the certificat is issued to
-**
-** I'm not sure this handles multiple certificates with the same subject well.
-** from this, you get the whole cert chain that can be walked up to the root.
-*/
-HRESULT
-LookupCertificate(
-    DWORD dwCertStoreFlags,
-    PCWSTR wszStoreName,
-    PCWSTR wszSubjectName,
-    PCCERT_CHAIN_CONTEXT* ppCertChain)
+ByteVector ReverseByteOrder(const ByteVector* pvb);
+extern HRESULT PrintByteVector(const ByteVector* pvb);
+
+
+/*********** KeyAndProv *****************/
+
+KeyAndProv::KeyAndProv()
+    : m_hProv(NULL),
+      m_fCallerFree(FALSE),
+      m_hKey(NULL)
 {
-    HRESULT hr = S_OK;
-    PCCERT_CONTEXT pCertContext = NULL;
-    PCCERT_CHAIN_CONTEXT pCertChain = NULL;
-    CERT_CHAIN_PARA chainPara = {0};
+} // end ctor KeyAndProv
 
-    HCERTSTORE hCertStore = CertOpenStore(
-                                CERT_STORE_PROV_SYSTEM_W,
-                                0,
-                                NULL,
-                                dwCertStoreFlags,
-                                wszStoreName);
-
-    if (hCertStore == NULL)
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
-
-    wprintf(L"done openstore\n");
-
-    pCertContext = CertFindCertificateInStore(
-                       hCertStore,
-                       X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
-                       0,
-                       CERT_FIND_SUBJECT_STR_W,
-                       wszSubjectName,
-                       NULL);
-
-    if (pCertContext == NULL)
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
-
-    chainPara.cbSize = sizeof(chainPara);
-    // indicates not to use this member
-    chainPara.RequestedUsage.dwType = USAGE_MATCH_TYPE_AND;
-
-    if (!CertGetCertificateChain(
-             NULL,
-             pCertContext,
-             NULL,
-             NULL,
-             &chainPara,
-             0,
-             NULL,
-             &pCertChain))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
-
-    *ppCertChain = pCertChain;
-
-done:
-    if (pCertContext != NULL)
-    {
-        CertFreeCertificateContext(pCertContext);
-        pCertContext = NULL;
-    }
-
-    if (hCertStore != NULL)
-    {
-        CertCloseStore(hCertStore, 0);
-        hCertStore = NULL;
-    }
-
-    return hr;
-
-error:
-    if (pCertChain != NULL)
-    {
-        CertFreeCertificateChain(pCertChain);
-        pCertChain = NULL;
-    }
-
-    goto done;
-} // end function LookupCertificate
-
-/*
-** given a cert context, fetch a crypto provider + the private key. Of course,
-** you have to have imported the private key previously for this to work.
-*/
-HRESULT
-GetPrivateKeyFromCertificate(
-    PCCERT_CONTEXT pCertContext,
-    KeyAndProv* pPrivateKey)
+KeyAndProv& KeyAndProv::operator=(const KeyAndProv& rOther)
 {
-    HRESULT hr = S_OK;
-    HCRYPTKEY hKey = NULL;
-    KeyAndProv kp;
+    Release();
+    m_hProv = rOther.m_hProv;
+    m_fCallerFree = rOther.m_fCallerFree;
+    m_hKey = rOther.m_hKey;
+    return *this;
+} // end operator=
 
-    HCRYPTPROV hProv = NULL;
-    DWORD keySpec = 0;
-    BOOL fCallerFree = FALSE;
-
-    wprintf(L"get private\n");
-
-    // this gets the crypto provider for the private key, not the key itself
-    if (!CryptAcquireCertificatePrivateKey(
-             pCertContext,
-             CRYPT_ACQUIRE_SILENT_FLAG,
-             NULL,
-             &hProv,
-             &keySpec,
-             &fCallerFree))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
-
-    kp.Init(hProv, fCallerFree);
-
-    // signature keys not supported here
-    if (keySpec != AT_KEYEXCHANGE)
-    {
-        wprintf(L"got unexpected keyspec: %u\n", keySpec);
-        hr = E_FAIL;
-        goto error;
-    }
-
-    wprintf(L"done privkey\n");
-
-    // gets the actual private key handle
-    if (!CryptGetUserKey(
-             hProv,
-             AT_KEYEXCHANGE,
-             &hKey))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
-
-    kp.SetKey(hKey);
-    *pPrivateKey = kp;
-    kp.Detach();
-
-    wprintf(L"done getuserkey\n");
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function GetPrivateKeyFromCertificate
-
-/*
-** the hoops this function has to jump through to get the public key are just
-** silly.
-**
-** 1. acquire the private key provider
-** 2. use that to get the public key (???)
-** 3. export the public key as a blob
-** 4. import the public key into an ephemeral key container
-**
-** why can't we just get at the public key directly? I don't get it.
-*/
-HRESULT
-GetPublicKeyFromCertificate(
-    PCCERT_CONTEXT pCertContext,
-    KeyAndProv* pPublicKey)
+void
+KeyAndProv::Init(
+    HCRYPTPROV hProv,
+    BOOL fCallerFree)
 {
-    HRESULT hr = S_OK;
-    HCRYPTPROV hProv = NULL;
-    HCRYPTPROV hPubProv = NULL;
-    BOOL fCallerFree = FALSE;
-    HCRYPTKEY hPubKey = NULL;
-    ByteVector vbPublicKeyInfo;
-    KeyAndProv kp;
-    KeyAndProv kpPub;
+    Release();
 
-    wprintf(L"get public\n");
+    m_hProv = hProv;
+    m_fCallerFree = fCallerFree;
+} // end function Init
 
-    DWORD keySpec;
-    if (!CryptAcquireCertificatePrivateKey(
-             pCertContext,
-             CRYPT_ACQUIRE_SILENT_FLAG,
-             NULL,
-             &hProv,
-             &keySpec,
-             &fCallerFree))
+void KeyAndProv::Release()
+{
+    if (m_hKey != NULL)
     {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
+        CryptDestroyKey(m_hKey);
+        m_hKey = NULL;
     }
 
-    kp.Init(hProv, fCallerFree);
-
-    if (keySpec != AT_KEYEXCHANGE)
+    if (m_fCallerFree && m_hProv != NULL)
     {
-        wprintf(L"got unexpected keyspec: %u\n", keySpec);
-        hr = E_FAIL;
-        goto error;
+        CryptReleaseContext(m_hProv, 0);
     }
 
-    wprintf(L"done privkey\n");
+    m_hProv = NULL;
+} // end function Release
 
-    // fetch size needed for public key
-    DWORD cbPublicKeyInfo = 0;
-    if (!CryptExportPublicKeyInfoEx(
-             hProv,
-             AT_KEYEXCHANGE,
-             X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
-             szOID_RSA_RSA,
-             0,
-             NULL,
-             NULL,
-             &cbPublicKeyInfo))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+KeyAndProv::~KeyAndProv()
+{
+    Release();
+} // end dtor KeyAndProv
 
-    wprintf(L"found we need %d bytes for public key info\n", cbPublicKeyInfo);
+void KeyAndProv::Detach()
+{
+    m_hProv = NULL;
+    m_hKey = NULL;
+    m_fCallerFree = FALSE;
+} // end function Detach
 
-    ResizeVector(&vbPublicKeyInfo, cbPublicKeyInfo);
-    if (!CryptExportPublicKeyInfoEx(
-             hProv,
-             AT_KEYEXCHANGE,
-             X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
-             szOID_RSA_RSA,
-             0,
-             NULL,
-             reinterpret_cast<PCERT_PUBLIC_KEY_INFO>(&vbPublicKeyInfo.front()),
-             &cbPublicKeyInfo))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+void KeyAndProv::SetKey(HCRYPTKEY hKey)
+{
+    // only support tracking a key if we also track a provider
+    assert(GetProv() != NULL);
+    m_hKey = hKey;
+} // end function SetKey
 
-    wprintf(L"done export pub:\n");
-
-    PrintByteVector(&vbPublicKeyInfo);
-
-    /*
-    ** CRYPT_VERIFYCONTEXT, intuitively (/sarcasm), creates an ephemeral key
-    ** container, perfect for holding these temporary keys for the lifetime of
-    ** just this process
-    */
-    if (!CryptAcquireContextW(
-             &hPubProv,
-             NULL,
-             MS_ENHANCED_PROV,
-             PROV_RSA_FULL,
-             CRYPT_VERIFYCONTEXT))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
-
-    wprintf(L"done acquire pub\n");
-
-    kpPub.Init(hPubProv);
-
-    if (!CryptImportPublicKeyInfo(
-             hPubProv,
-             X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
-             reinterpret_cast<PCERT_PUBLIC_KEY_INFO>(&vbPublicKeyInfo.front()),
-             &hPubKey))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
-
-    wprintf(L"done import pub\n");
-
-    kpPub.SetKey(hPubKey);
-    *pPublicKey = kpPub;
-    kpPub.Detach();
-
-done:
-    assert(kp.GetProv() == hProv);
-    assert(kpPub.GetProv() == hPubProv || pPublicKey->GetProv() == hPubProv);
-    return hr;
-
-error:
-    goto done;
-} // end function GetPublicKeyFromCertificate
+/*********** utility functions *****************/
 
 /*
 ** due to the massive amount of configuration and setup required in CryptAPI,
@@ -671,70 +445,411 @@ error:
     goto done;
 } // end function DecryptBuffer
 
-
-/*********** KeyAndProv *****************/
-
-KeyAndProv::KeyAndProv()
-    : m_hProv(NULL),
-      m_fCallerFree(FALSE),
-      m_hKey(NULL)
+/*
+** dwCertStoreFlags tells user/machine store, like
+** CERT_SYSTEM_STORE_CURRENT_USER
+**
+** wszStoreName is like "my"
+** wszSubjectName is the subject the certificat is issued to
+**
+** I'm not sure this handles multiple certificates with the same subject well.
+** from this, you get the whole cert chain that can be walked up to the root.
+*/
+HRESULT
+LookupCertificate(
+    DWORD dwCertStoreFlags,
+    PCWSTR wszStoreName,
+    PCWSTR wszSubjectName,
+    PCCERT_CHAIN_CONTEXT* ppCertChain)
 {
-} // end ctor KeyAndProv
+    HRESULT hr = S_OK;
+    PCCERT_CONTEXT pCertContext = NULL;
+    PCCERT_CHAIN_CONTEXT pCertChain = NULL;
+    CERT_CHAIN_PARA chainPara = {0};
 
-KeyAndProv& KeyAndProv::operator=(const KeyAndProv& rOther)
-{
-    Release();
-    m_hProv = rOther.m_hProv;
-    m_fCallerFree = rOther.m_fCallerFree;
-    m_hKey = rOther.m_hKey;
-    return *this;
-} // end operator=
+    HCERTSTORE hCertStore = CertOpenStore(
+                                CERT_STORE_PROV_SYSTEM_W,
+                                0,
+                                NULL,
+                                dwCertStoreFlags,
+                                wszStoreName);
 
-void
-KeyAndProv::Init(
-    HCRYPTPROV hProv,
-    BOOL fCallerFree)
-{
-    Release();
-
-    m_hProv = hProv;
-    m_fCallerFree = fCallerFree;
-} // end function Init
-
-void KeyAndProv::Release()
-{
-    if (m_hKey != NULL)
+    if (hCertStore == NULL)
     {
-        CryptDestroyKey(m_hKey);
-        m_hKey = NULL;
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
     }
 
-    if (m_fCallerFree && m_hProv != NULL)
+    wprintf(L"done openstore\n");
+
+    pCertContext = CertFindCertificateInStore(
+                       hCertStore,
+                       X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+                       0,
+                       CERT_FIND_SUBJECT_STR_W,
+                       wszSubjectName,
+                       NULL);
+
+    if (pCertContext == NULL)
     {
-        CryptReleaseContext(m_hProv, 0);
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
     }
 
-    m_hProv = NULL;
-} // end function Release
+    chainPara.cbSize = sizeof(chainPara);
+    // indicates not to use this member
+    chainPara.RequestedUsage.dwType = USAGE_MATCH_TYPE_AND;
 
-KeyAndProv::~KeyAndProv()
-{
-    Release();
-} // end dtor KeyAndProv
+    if (!CertGetCertificateChain(
+             NULL,
+             pCertContext,
+             NULL,
+             NULL,
+             &chainPara,
+             0,
+             NULL,
+             &pCertChain))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
 
-void KeyAndProv::Detach()
-{
-    m_hProv = NULL;
-    m_hKey = NULL;
-    m_fCallerFree = FALSE;
-} // end function Detach
+    *ppCertChain = pCertChain;
 
-void KeyAndProv::SetKey(HCRYPTKEY hKey)
+done:
+    if (pCertContext != NULL)
+    {
+        CertFreeCertificateContext(pCertContext);
+        pCertContext = NULL;
+    }
+
+    if (hCertStore != NULL)
+    {
+        CertCloseStore(hCertStore, 0);
+        hCertStore = NULL;
+    }
+
+    return hr;
+
+error:
+    if (pCertChain != NULL)
+    {
+        CertFreeCertificateChain(pCertChain);
+        pCertChain = NULL;
+    }
+
+    goto done;
+} // end function LookupCertificate
+
+/*
+** given a cert context, fetch a crypto provider + the private key. Of course,
+** you have to have imported the private key previously for this to work.
+*/
+HRESULT
+GetPrivateKeyFromCertificate(
+    PCCERT_CONTEXT pCertContext,
+    KeyAndProv* pPrivateKey)
 {
-    // only support tracking a key if we also track a provider
-    assert(GetProv() != NULL);
-    m_hKey = hKey;
-} // end function SetKey
+    HRESULT hr = S_OK;
+    HCRYPTKEY hKey = NULL;
+    KeyAndProv kp;
+
+    HCRYPTPROV hProv = NULL;
+    DWORD keySpec = 0;
+    BOOL fCallerFree = FALSE;
+
+    wprintf(L"get private\n");
+
+    // this gets the crypto provider for the private key, not the key itself
+    if (!CryptAcquireCertificatePrivateKey(
+             pCertContext,
+             CRYPT_ACQUIRE_SILENT_FLAG,
+             NULL,
+             &hProv,
+             &keySpec,
+             &fCallerFree))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    kp.Init(hProv, fCallerFree);
+
+    // signature keys not supported here
+    if (keySpec != AT_KEYEXCHANGE)
+    {
+        wprintf(L"got unexpected keyspec: %u\n", keySpec);
+        hr = E_FAIL;
+        goto error;
+    }
+
+    wprintf(L"done privkey\n");
+
+    // gets the actual private key handle
+    if (!CryptGetUserKey(
+             hProv,
+             AT_KEYEXCHANGE,
+             &hKey))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    kp.SetKey(hKey);
+    *pPrivateKey = kp;
+    kp.Detach();
+
+    wprintf(L"done getuserkey\n");
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function GetPrivateKeyFromCertificate
+
+/*
+** the hoops this function has to jump through to get the public key are just
+** silly.
+**
+** 1. acquire the private key provider
+** 2. use that to get the public key (???)
+** 3. export the public key as a blob
+** 4. import the public key into an ephemeral key container
+**
+** why can't we just get at the public key directly? I don't get it.
+*/
+HRESULT
+GetPublicKeyFromCertificate(
+    PCCERT_CONTEXT pCertContext,
+    KeyAndProv* pPublicKey)
+{
+    HRESULT hr = S_OK;
+    HCRYPTPROV hProv = NULL;
+    HCRYPTPROV hPubProv = NULL;
+    BOOL fCallerFree = FALSE;
+    HCRYPTKEY hPubKey = NULL;
+    ByteVector vbPublicKeyInfo;
+    KeyAndProv kp;
+    KeyAndProv kpPub;
+
+    wprintf(L"get public\n");
+
+    DWORD keySpec;
+    if (!CryptAcquireCertificatePrivateKey(
+             pCertContext,
+             CRYPT_ACQUIRE_SILENT_FLAG,
+             NULL,
+             &hProv,
+             &keySpec,
+             &fCallerFree))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    kp.Init(hProv, fCallerFree);
+
+    if (keySpec != AT_KEYEXCHANGE)
+    {
+        wprintf(L"got unexpected keyspec: %u\n", keySpec);
+        hr = E_FAIL;
+        goto error;
+    }
+
+    wprintf(L"done privkey\n");
+
+    // fetch size needed for public key
+    DWORD cbPublicKeyInfo = 0;
+    if (!CryptExportPublicKeyInfoEx(
+             hProv,
+             AT_KEYEXCHANGE,
+             X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+             szOID_RSA_RSA,
+             0,
+             NULL,
+             NULL,
+             &cbPublicKeyInfo))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    wprintf(L"found we need %d bytes for public key info\n", cbPublicKeyInfo);
+
+    ResizeVector(&vbPublicKeyInfo, cbPublicKeyInfo);
+    if (!CryptExportPublicKeyInfoEx(
+             hProv,
+             AT_KEYEXCHANGE,
+             X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+             szOID_RSA_RSA,
+             0,
+             NULL,
+             reinterpret_cast<PCERT_PUBLIC_KEY_INFO>(&vbPublicKeyInfo.front()),
+             &cbPublicKeyInfo))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    wprintf(L"done export pub:\n");
+
+    PrintByteVector(&vbPublicKeyInfo);
+
+    /*
+    ** CRYPT_VERIFYCONTEXT, intuitively (/sarcasm), creates an ephemeral key
+    ** container, perfect for holding these temporary keys for the lifetime of
+    ** just this process
+    */
+    if (!CryptAcquireContextW(
+             &hPubProv,
+             NULL,
+             MS_ENHANCED_PROV,
+             PROV_RSA_FULL,
+             CRYPT_VERIFYCONTEXT))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    wprintf(L"done acquire pub\n");
+
+    kpPub.Init(hPubProv);
+
+    if (!CryptImportPublicKeyInfo(
+             hPubProv,
+             X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+             reinterpret_cast<PCERT_PUBLIC_KEY_INFO>(&vbPublicKeyInfo.front()),
+             &hPubKey))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    wprintf(L"done import pub\n");
+
+    kpPub.SetKey(hPubKey);
+    *pPublicKey = kpPub;
+    kpPub.Detach();
+
+done:
+    assert(kp.GetProv() == hProv);
+    assert(kpPub.GetProv() == hPubProv || pPublicKey->GetProv() == hPubProv);
+    return hr;
+
+error:
+    goto done;
+} // end function GetPublicKeyFromCertificate
+
+// convert between windows specific type and MungeTLS platform agnostic one
+HRESULT
+MTCertChainFromWinChain(
+    PCCERT_CHAIN_CONTEXT pWinChain,
+    MT_CertificateList* pMTChain
+)
+{
+    // what does it mean to have 2 simple chains? no support for now
+    assert(pWinChain->cChain == 1);
+
+    // might relax this restriction later, but for now make sure we don't
+    assert(pMTChain->Data()->empty());
+
+    PCERT_SIMPLE_CHAIN pSimpleChain = pWinChain->rgpChain[0];
+
+    for (DWORD i = 0; i < pSimpleChain->cElement; i++)
+    {
+        MT_ASN1Cert cert;
+
+        // copy out the value of each cert in the chain
+        cert.Data()->assign(
+                 pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded,
+                 pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded +
+                   pSimpleChain->rgpElement[i]->pCertContext->cbCertEncoded);
+
+        pMTChain->Data()->push_back(cert);
+    }
+
+    return S_OK;
+} // end function MTCertChainFromWinChain
+
+HRESULT
+ImportSymmetricKey(
+    const ByteVector* pvbKey,
+    ALG_ID algID,
+    KeyAndProv* pKey
+)
+{
+    HRESULT hr = S_OK;
+    HCRYPTPROV hProv = NULL;
+    HCRYPTKEY hKey = NULL;
+    KeyAndProv kp;
+    ByteVector vbPlaintextKey;
+    PlaintextKey* pPlaintextKey;
+    DWORD cbKeySize = 0;
+
+    wprintf(L"import key\n");
+
+    // store key in ephemeral container (per CRYPT_VERIFYCONTEXT)
+    if (!CryptAcquireContextW(
+             &hProv,
+             NULL,
+             MS_ENH_RSA_AES_PROV_W,
+             PROV_RSA_AES,
+             CRYPT_VERIFYCONTEXT))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
+    }
+
+    kp.Init(hProv);
+
+    ResizeVector(&vbPlaintextKey, sizeof(PlaintextKey) + pvbKey->size());
+
+    pPlaintextKey = reinterpret_cast<PlaintextKey*>(&vbPlaintextKey.front());
+    pPlaintextKey->hdr.bType = PLAINTEXTKEYBLOB;
+    pPlaintextKey->hdr.bVersion = CUR_BLOB_VERSION;
+    pPlaintextKey->hdr.aiKeyAlg = algID;
+
+    hr = SizeTToDWord(pvbKey->size(), &(pPlaintextKey->cbKeySize));
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    copy(pvbKey->begin(), pvbKey->end(), pPlaintextKey->rgbKeyData);
+
+    hr = SizeTToDWord(vbPlaintextKey.size(), &cbKeySize);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    wprintf(L"importing key of size %d\n", cbKeySize);
+
+    // need to pass CRYPT_IPSEC_HMAC_KEY to allow long key lengths, per MSDN
+    if (!CryptImportKey(
+             hProv,
+             reinterpret_cast<const BYTE*>(pPlaintextKey),
+             cbKeySize,
+             NULL,
+             CRYPT_IPSEC_HMAC_KEY,
+             &hKey))
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        wprintf(L"failed CryptImportKey: %08LX\n", hr);
+        goto error;
+    }
+
+    kp.SetKey(hKey);
+    *pKey = kp;
+    kp.Detach();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ImportSymmetricKey
 
 
 /*********** WindowsPublicKeyCipherer *****************/
@@ -876,6 +991,186 @@ done:
 error:
     goto done;
 } // end function EncryptBufferWithPrivateKey
+
+
+/*********** WindowsSymmetricCipherer *****************/
+
+WindowsSymmetricCipherer::WindowsSymmetricCipherer()
+    : SymmetricCipherer(),
+      m_spKey(nullptr)
+{
+} // end ctor WindowsSymmetricCipherer
+
+HRESULT
+WindowsSymmetricCipherer::Initialize(
+    const ByteVector* pvbKey,
+    const CipherInfo* pCipherInfo
+)
+{
+    HRESULT hr = S_OK;
+    ALG_ID algID;
+
+    hr = SymmetricCipherer::Initialize(pvbKey, pCipherInfo);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    hr = WindowsCipherAlgFromMTCipherAlg(
+             pCipherInfo->alg,
+             &algID);
+
+    if (hr == S_FALSE)
+    {
+        hr = S_OK;
+        goto done;
+    }
+    else if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    m_spKey = shared_ptr<KeyAndProv>(new KeyAndProv());
+
+    hr = ImportSymmetricKey(
+             pvbKey,
+             algID,
+             m_spKey.get());
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function Initialize
+
+HRESULT
+WindowsSymmetricCipherer::EncryptBuffer(
+    const ByteVector* pvbCleartext,
+    const ByteVector* pvbIV,
+    ByteVector* pvbEncrypted
+)
+{
+    HRESULT hr = S_OK;
+
+    // check if superclass handles it
+    hr = SymmetricCipherer::EncryptBuffer(
+             pvbCleartext,
+             pvbIV,
+             pvbEncrypted);
+
+    if (hr == S_OK)
+    {
+        goto done;
+    }
+    else if (hr != E_NOTIMPL)
+    {
+        goto error;
+    }
+
+    hr = MungeTLS::EncryptBuffer(
+             pvbCleartext,
+             (*Key())->GetKey(),
+             Cipher(),
+             pvbIV,
+             pvbEncrypted);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function EncryptBuffer
+
+HRESULT
+WindowsSymmetricCipherer::DecryptBuffer(
+    const ByteVector* pvbEncrypted,
+    const ByteVector* pvbIV,
+    ByteVector* pvbDecrypted
+)
+{
+    HRESULT hr = S_OK;
+
+    // check if superclas handles it
+    hr = SymmetricCipherer::DecryptBuffer(
+             pvbEncrypted,
+             pvbIV,
+             pvbDecrypted);
+    if (hr == S_OK)
+    {
+        goto done;
+    }
+    else if (hr != E_NOTIMPL)
+    {
+        goto error;
+    }
+
+    hr = MungeTLS::DecryptBuffer(
+             pvbEncrypted,
+             (*Key())->GetKey(),
+             Cipher(),
+             pvbIV,
+             pvbDecrypted);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function DecryptBuffer
+
+// maps between MungeTLS platform-agnostic cipher alg values and windows ones
+HRESULT
+WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
+    CipherAlg alg,
+    ALG_ID* pAlgID
+)
+{
+    HRESULT hr = S_OK;
+
+    if (alg == CipherAlg_RC4_128)
+    {
+        *pAlgID = CALG_RC4;
+    }
+    else if (alg == CipherAlg_AES_128)
+    {
+        *pAlgID = CALG_AES_128;
+    }
+    else if (alg == CipherAlg_AES_256)
+    {
+        *pAlgID = CALG_AES_256;
+    }
+    else if (alg == CipherAlg_NULL)
+    {
+        hr = S_FALSE;
+    }
+    else
+    {
+        hr = MT_E_UNSUPPORTED_CIPHER;
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function WindowsCipherAlgFromMTCipherAlg
 
 
 /*********** WindowsHasher *****************/
@@ -1146,296 +1441,6 @@ done:
 error:
     goto done;
 } // end function WindowsHashAlgFromMTHashInfo
-
-
-/*********** WindowsSymmetricCipherer *****************/
-
-WindowsSymmetricCipherer::WindowsSymmetricCipherer()
-    : SymmetricCipherer(),
-      m_spKey(nullptr)
-{
-} // end ctor WindowsSymmetricCipherer
-
-HRESULT
-WindowsSymmetricCipherer::Initialize(
-    const ByteVector* pvbKey,
-    const CipherInfo* pCipherInfo
-)
-{
-    HRESULT hr = S_OK;
-    ALG_ID algID;
-
-    hr = SymmetricCipherer::Initialize(pvbKey, pCipherInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = WindowsCipherAlgFromMTCipherAlg(
-             pCipherInfo->alg,
-             &algID);
-
-    if (hr == S_FALSE)
-    {
-        hr = S_OK;
-        goto done;
-    }
-    else if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    m_spKey = shared_ptr<KeyAndProv>(new KeyAndProv());
-
-    hr = ImportSymmetricKey(
-             pvbKey,
-             algID,
-             m_spKey.get());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function Initialize
-
-HRESULT
-WindowsSymmetricCipherer::EncryptBuffer(
-    const ByteVector* pvbCleartext,
-    const ByteVector* pvbIV,
-    ByteVector* pvbEncrypted
-)
-{
-    HRESULT hr = S_OK;
-
-    // check if superclass handles it
-    hr = SymmetricCipherer::EncryptBuffer(
-             pvbCleartext,
-             pvbIV,
-             pvbEncrypted);
-
-    if (hr == S_OK)
-    {
-        goto done;
-    }
-    else if (hr != E_NOTIMPL)
-    {
-        goto error;
-    }
-
-    hr = MungeTLS::EncryptBuffer(
-             pvbCleartext,
-             (*Key())->GetKey(),
-             Cipher(),
-             pvbIV,
-             pvbEncrypted);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function EncryptBuffer
-
-HRESULT
-WindowsSymmetricCipherer::DecryptBuffer(
-    const ByteVector* pvbEncrypted,
-    const ByteVector* pvbIV,
-    ByteVector* pvbDecrypted
-)
-{
-    HRESULT hr = S_OK;
-
-    // check if superclas handles it
-    hr = SymmetricCipherer::DecryptBuffer(
-             pvbEncrypted,
-             pvbIV,
-             pvbDecrypted);
-    if (hr == S_OK)
-    {
-        goto done;
-    }
-    else if (hr != E_NOTIMPL)
-    {
-        goto error;
-    }
-
-    hr = MungeTLS::DecryptBuffer(
-             pvbEncrypted,
-             (*Key())->GetKey(),
-             Cipher(),
-             pvbIV,
-             pvbDecrypted);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function DecryptBuffer
-
-// maps between MungeTLS platform-agnostic cipher alg values and windows ones
-HRESULT
-WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
-    CipherAlg alg,
-    ALG_ID* pAlgID
-)
-{
-    HRESULT hr = S_OK;
-
-    if (alg == CipherAlg_RC4_128)
-    {
-        *pAlgID = CALG_RC4;
-    }
-    else if (alg == CipherAlg_AES_128)
-    {
-        *pAlgID = CALG_AES_128;
-    }
-    else if (alg == CipherAlg_AES_256)
-    {
-        *pAlgID = CALG_AES_256;
-    }
-    else if (alg == CipherAlg_NULL)
-    {
-        hr = S_FALSE;
-    }
-    else
-    {
-        hr = MT_E_UNSUPPORTED_CIPHER;
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function WindowsCipherAlgFromMTCipherAlg
-
-HRESULT
-ImportSymmetricKey(
-    const ByteVector* pvbKey,
-    ALG_ID algID,
-    KeyAndProv* pKey
-)
-{
-    HRESULT hr = S_OK;
-    HCRYPTPROV hProv = NULL;
-    HCRYPTKEY hKey = NULL;
-    KeyAndProv kp;
-    ByteVector vbPlaintextKey;
-    PlaintextKey* pPlaintextKey;
-    DWORD cbKeySize = 0;
-
-    wprintf(L"import key\n");
-
-    // store key in ephemeral container (per CRYPT_VERIFYCONTEXT)
-    if (!CryptAcquireContextW(
-             &hProv,
-             NULL,
-             MS_ENH_RSA_AES_PROV_W,
-             PROV_RSA_AES,
-             CRYPT_VERIFYCONTEXT))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
-
-    kp.Init(hProv);
-
-    ResizeVector(&vbPlaintextKey, sizeof(PlaintextKey) + pvbKey->size());
-
-    pPlaintextKey = reinterpret_cast<PlaintextKey*>(&vbPlaintextKey.front());
-    pPlaintextKey->hdr.bType = PLAINTEXTKEYBLOB;
-    pPlaintextKey->hdr.bVersion = CUR_BLOB_VERSION;
-    pPlaintextKey->hdr.aiKeyAlg = algID;
-
-    hr = SizeTToDWord(pvbKey->size(), &(pPlaintextKey->cbKeySize));
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    copy(pvbKey->begin(), pvbKey->end(), pPlaintextKey->rgbKeyData);
-
-    hr = SizeTToDWord(vbPlaintextKey.size(), &cbKeySize);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    wprintf(L"importing key of size %d\n", cbKeySize);
-
-    // need to pass CRYPT_IPSEC_HMAC_KEY to allow long key lengths, per MSDN
-    if (!CryptImportKey(
-             hProv,
-             reinterpret_cast<const BYTE*>(pPlaintextKey),
-             cbKeySize,
-             NULL,
-             CRYPT_IPSEC_HMAC_KEY,
-             &hKey))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        wprintf(L"failed CryptImportKey: %08LX\n", hr);
-        goto error;
-    }
-
-    kp.SetKey(hKey);
-    *pKey = kp;
-    kp.Detach();
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ImportSymmetricKey
-
-// convert between windows specific type and MungeTLS platform agnostic one
-HRESULT
-MTCertChainFromWinChain(
-    PCCERT_CHAIN_CONTEXT pWinChain,
-    MT_CertificateList* pMTChain
-)
-{
-    // what does it mean to have 2 simple chains? no support for now
-    assert(pWinChain->cChain == 1);
-
-    // might relax this restriction later, but for now make sure we don't
-    assert(pMTChain->Data()->empty());
-
-    PCERT_SIMPLE_CHAIN pSimpleChain = pWinChain->rgpChain[0];
-
-    for (DWORD i = 0; i < pSimpleChain->cElement; i++)
-    {
-        MT_ASN1Cert cert;
-
-        // copy out the value of each cert in the chain
-        cert.Data()->assign(
-                 pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded,
-                 pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded +
-                   pSimpleChain->rgpElement[i]->pCertContext->cbCertEncoded);
-
-        pMTChain->Data()->push_back(cert);
-    }
-
-    return S_OK;
-} // end function MTCertChainFromWinChain
 
 ByteVector
 ReverseByteOrder(
