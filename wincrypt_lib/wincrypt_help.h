@@ -16,14 +16,14 @@ class KeyAndProv
     ~KeyAndProv();
     KeyAndProv& operator=(const KeyAndProv& rOther);
 
-    void Init(HCRYPTPROV hProv, BOOL fCallerFree);
+    void Init(HCRYPTPROV hProv, BOOL fCallerFree = TRUE);
     HCRYPTKEY GetKey() const { return m_hKey; }
     HCRYPTPROV GetProv() const { return m_hProv; }
     void SetKey(HCRYPTKEY hKey);
     void Detach();
 
     private:
-    void Clear();
+    void Release();
 
     HCRYPTPROV m_hProv;
     HCRYPTKEY m_hKey;

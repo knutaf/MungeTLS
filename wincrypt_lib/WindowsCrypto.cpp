@@ -1,5 +1,4 @@
 #include "precomp.h"
-
 #include <windows.h>
 #include <vector>
 #include <assert.h>
@@ -12,11 +11,23 @@
 #include "MungeCrypto.h"
 #include "wincrypt_help.h"
 
+/*
+** All the functions in this file are Windows implementations/wrappers of
+** crypto related functions needed for TLS. MungeTLS as a whole abstracts the
+** platform-specific portions so that none of these structures or functions are
+** called directly in the code
+*/
+
 namespace MungeTLS
 {
 
 using namespace std;
 
+/*
+** taken from the comments for CryptImportKey (http://msdn.microsoft.com/en-us/library/windows/desktop/aa380207(v=vs.85).aspx)
+** and is used to pass data to and from key import/export functions. hdr.type
+** is PLAINTEXTKEYBLOB
+*/
 struct PlaintextKey
 {
     BLOBHEADER hdr;
@@ -24,6 +35,16 @@ struct PlaintextKey
     BYTE rgbKeyData[1];
 };
 
+/*
+** dwCertStoreFlags tells user/machine store, like
+** CERT_SYSTEM_STORE_CURRENT_USER
+**
+** wszStoreName is like "my"
+** wszSubjectName is the subject the certificat is issued to
+**
+** I'm not sure this handles multiple certificates with the same subject well.
+** from this, you get the whole cert chain that can be walked up to the root.
+*/
 HRESULT
 LookupCertificate(
     DWORD dwCertStoreFlags,
@@ -110,6 +131,10 @@ error:
     goto done;
 } // end function LookupCertificate
 
+/*
+** given a cert context, fetch a crypto provider + the private key. Of course,
+** you have to have imported the private key previously for this to work.
+*/
 HRESULT
 GetPrivateKeyFromCertificate(
     PCCERT_CONTEXT pCertContext,
@@ -125,6 +150,7 @@ GetPrivateKeyFromCertificate(
 
     wprintf(L"get private\n");
 
+    // this gets the crypto provider for the private key, not the key itself
     if (!CryptAcquireCertificatePrivateKey(
              pCertContext,
              CRYPT_ACQUIRE_SILENT_FLAG,
@@ -139,6 +165,7 @@ GetPrivateKeyFromCertificate(
 
     kp.Init(hProv, fCallerFree);
 
+    // signature keys not supported here
     if (keySpec != AT_KEYEXCHANGE)
     {
         wprintf(L"got unexpected keyspec: %u\n", keySpec);
@@ -159,7 +186,6 @@ GetPrivateKeyFromCertificate(
     }
 
     kp.SetKey(hKey);
-
     *pPrivateKey = kp;
     kp.Detach();
 
@@ -172,6 +198,17 @@ error:
     goto done;
 } // end function GetPrivateKeyFromCertificate
 
+/*
+** the hoops this function has to jump through to get the public key are just
+** silly.
+**
+** 1. acquire the private key provider
+** 2. use that to get the public key (???)
+** 3. export the public key as a blob
+** 4. import the public key into an ephemeral key container
+**
+** why can't we just get at the public key directly? I don't get it.
+*/
 HRESULT
 GetPublicKeyFromCertificate(
     PCCERT_CONTEXT pCertContext,
@@ -184,6 +221,7 @@ GetPublicKeyFromCertificate(
     HCRYPTKEY hPubKey = NULL;
     ByteVector vbPublicKeyInfo;
     KeyAndProv kp;
+    KeyAndProv kpPub;
 
     wprintf(L"get public\n");
 
@@ -211,6 +249,7 @@ GetPublicKeyFromCertificate(
 
     wprintf(L"done privkey\n");
 
+    // fetch size needed for public key
     DWORD cbPublicKeyInfo = 0;
     if (!CryptExportPublicKeyInfoEx(
              hProv,
@@ -247,36 +286,25 @@ GetPublicKeyFromCertificate(
 
     PrintByteVector(&vbPublicKeyInfo);
 
+    /*
+    ** CRYPT_VERIFYCONTEXT, intuitively (/sarcasm), creates an ephemeral key
+    ** container, perfect for holding these temporary keys for the lifetime of
+    ** just this process
+    */
     if (!CryptAcquireContextW(
              &hPubProv,
-             L"pub_key",
+             NULL,
              MS_ENHANCED_PROV,
              PROV_RSA_FULL,
-             0))
+             CRYPT_VERIFYCONTEXT))
     {
-        if (GetLastError() == NTE_BAD_KEYSET)
-        {
-            if (!CryptAcquireContextW(
-                     &hPubProv,
-                     L"pub_key",
-                     MS_ENHANCED_PROV,
-                     PROV_RSA_FULL,
-                     CRYPT_NEWKEYSET))
-            {
-                hr = HRESULT_FROM_WIN32(GetLastError());
-                goto error;
-            }
-
-            wprintf(L"done acquire pub creatnew\n");
-        }
-        else
-        {
-            hr = HRESULT_FROM_WIN32(GetLastError());
-            goto error;
-        }
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
     }
 
     wprintf(L"done acquire pub\n");
+
+    kpPub.Init(hPubProv);
 
     if (!CryptImportPublicKeyInfo(
              hPubProv,
@@ -290,24 +318,24 @@ GetPublicKeyFromCertificate(
 
     wprintf(L"done import pub\n");
 
-    kp.SetKey(hPubKey);
-
-    *pPublicKey = kp;
-    kp.Detach();
+    kpPub.SetKey(hPubKey);
+    *pPublicKey = kpPub;
+    kpPub.Detach();
 
 done:
-    if (fCallerFree && hProv != NULL)
-    {
-        CryptReleaseContext(hProv, 0);
-        hProv = NULL;
-    }
-
+    assert(kp.GetProv() == hProv);
+    assert(kpPub.GetProv() == hPubProv || pPublicKey->GetProv() == hPubProv);
     return hr;
 
 error:
     goto done;
 } // end function GetPublicKeyFromCertificate
 
+/*
+** due to the massive amount of configuration and setup required in CryptAPI,
+** the functions to encrypt and decrypt data, once you actually get to this
+** point, are the same for pretty much all cipher types
+*/
 HRESULT
 EncryptBuffer(
     const ByteVector* pvbCleartext,
@@ -325,10 +353,28 @@ EncryptBuffer(
 
     wprintf(L"encrypting\n");
 
+    /*
+    ** asymmetric block, e.g. RSA public key encryption. we encypt one block,
+    ** and that's it, so we set fFinal to true
+    */
     if (cipherType == CipherType_Asymmetric_Block)
     {
         fFinal = TRUE;
     }
+
+    /*
+    ** block ciphers, e.g. AES-128. Unfortunately, I have no idea why you need
+    ** to set fFinal to false for this. I figured it out through trial and
+    ** error.
+    **
+    ** we have to do a trick for setting the IV that's documented along with
+    ** CryptEncryptBuffer (http://msdn.microsoft.com/en-us/library/windows/desktop/aa379924(v=vs.85).aspx)
+    **
+    ** that is, the state of the key with respect to IV is not set until a
+    ** "final" block has been encrypted, normally. to get around this, we can
+    ** set the IV, then duplicate the key, which copies all pending changes
+    ** into the new key.
+    */
     else if (cipherType == CipherType_Block)
     {
         fFinal = FALSE;
@@ -357,13 +403,22 @@ EncryptBuffer(
             goto error;
         }
     }
+
+    /*
+    ** stream ciphers, by definition, won't have any "final" data. we set this
+    ** to false to keep the stream from resetting any internal state.
+    */
     else if (cipherType == CipherType_Stream)
     {
         fFinal = FALSE;
     }
+
+    // no other cipher types supported
     else
     {
         assert(false);
+        hr = MT_E_UNSUPPORTED_CIPHER;
+        goto error;
     }
 
     hr = SizeTToDWord(pvbCleartext->size(), &cb);
@@ -389,6 +444,10 @@ EncryptBuffer(
         goto error;
     }
 
+    /*
+    ** pvbEncrypted is used as an in-out parameter that, ironically, starts as
+    ** the cleartext on input and ends up as the ciphertext on output
+    */
     *pvbEncrypted = *pvbCleartext;
     ResizeVector(pvbEncrypted, cb);
 
@@ -404,6 +463,7 @@ EncryptBuffer(
         goto error;
     }
 
+    // the actual encryption, finally
     if (!CryptEncrypt(
              hKeyNew,
              NULL,
@@ -421,9 +481,14 @@ EncryptBuffer(
 
     assert(cb == pvbEncrypted->size());
 
+    /*
+    ** CryptEncrypt returns in little-endian. not sure why we don't need to do
+    ** this for regular block ciphers, but I guess maybe it has something to do
+    ** with fFinal being FALSE for them? I've experimented, but I'm not sure.
+    ** All I know is this happens to work. Ugh.
+    */
     if (cipherType == CipherType_Asymmetric_Block)
     {
-        // CryptEncrypt returns in little-endian
         *pvbEncrypted = ReverseByteOrder(pvbEncrypted);
     }
 
@@ -435,6 +500,7 @@ error:
     goto done;
 } // end function EncryptBuffer
 
+// see notes above from EncryptBuffer
 HRESULT
 DecryptBuffer(
     const ByteVector* pvbEncrypted,
@@ -459,6 +525,11 @@ DecryptBuffer(
         *pvbDecrypted = ReverseByteOrder(pvbEncrypted);
         fFinal = TRUE;
     }
+
+    /*
+    ** what really makes me rage is that fFinal is TRUE for *decrypting* block
+    ** ciphers, but FALSE for *encrypting* them. what is going on!?
+    */
     else if (pCipherInfo->type == CipherType_Block)
     {
         fFinal = TRUE;
@@ -490,12 +561,17 @@ DecryptBuffer(
             goto error;
         }
     }
-    else
+    else if (pCipherInfo->type == CipherType_Stream)
     {
-        assert(pCipherInfo->type == CipherType_Stream);
-
+        assert(pvbIV == nullptr);
         *pvbDecrypted = *pvbEncrypted;
         fFinal = FALSE;
+    }
+    else
+    {
+        assert(false);
+        hr = MT_E_UNSUPPORTED_CIPHER;
+        goto error;
     }
 
     hr = SizeTToDWord(pvbDecrypted->size(), &cb);
@@ -519,6 +595,9 @@ DecryptBuffer(
     }
 
     wprintf(L"done initial decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
+
+    // resize in case our input vector was larger than needed
+    assert(pvbDecrypted->size() >= cb);
     ResizeVector(pvbDecrypted, cb);
 
     PrintByteVector(pvbDecrypted);
@@ -528,21 +607,50 @@ DecryptBuffer(
     ** but truncate the padding bytes to a single byte at the end. To expose
     ** a consistent view to our TLS protocol implementation that calls into
     ** this, we'll manually reconstruct the padding bytes here.
+    **
+    ** As a reminder, the padding format is for the *value* of each padding
+    ** byte to be the *number* of padding bytes needed, e.g. if 7 bytes of
+    ** padding are needed, each of those padding bytes will contain the value 7
     */
     if (pCipherInfo->type == CipherType_Block)
     {
         BYTE cbPaddingLength = 0;
+
+        /*
+        ** the returned plaintext is comprised of one or more contiguous
+        ** blocks, each of size pCipherInfo->cbBlockSize.
+        **
+        ** (cb % pCipherInfo->cbBlockSize) is the amount of data "sticking out"
+        ** into the last, partial block. We subtract this from the block size
+        ** to get the number of bytes of padding needed.
+        **
+        ** Example:
+        **   pCipherInfo->cbBlockSize = 8
+        **   cb = 13
+        ** 00 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16
+        **  J  K  L  M  N  O  P  Q  R  S  T  U 05 __ __ __ __
+        **                                      ^
+        **                                      +-- 5 bytes of padding needed
+        ** (cb % pCipherInfo->cbBlockSize) == 3
+        ** pCipherInfo->cbBlockSize - (cb % pCipherInfo->cbBlockSize) == 5
+        ** confirmed: 5 bytes of padding needed.
+        */
         hr = SizeTToByte(pCipherInfo->cbBlockSize - (cb % pCipherInfo->cbBlockSize), &cbPaddingLength);
         if (hr != S_OK)
         {
             goto error;
         }
 
-        assert(pvbDecrypted->back() == cbPaddingLength);
+        if (pvbDecrypted->back() != cbPaddingLength)
+        {
+            hr = MT_E_BAD_PADDING;
+            goto error;
+        }
 
         // repeat "padding length" number of bytes filled with padding length
         pvbDecrypted->insert(pvbDecrypted->end(), cbPaddingLength, cbPaddingLength);
 
+        // final size should ALWAYS be a multiple of block length
         assert((pvbDecrypted->size() % pCipherInfo->cbBlockSize) == 0);
 
         wprintf(L"after padding fix: (%d)\n", pvbDecrypted->size());
@@ -575,7 +683,7 @@ KeyAndProv::KeyAndProv()
 
 KeyAndProv& KeyAndProv::operator=(const KeyAndProv& rOther)
 {
-    Clear();
+    Release();
     m_hProv = rOther.m_hProv;
     m_fCallerFree = rOther.m_fCallerFree;
     m_hKey = rOther.m_hKey;
@@ -587,13 +695,13 @@ KeyAndProv::Init(
     HCRYPTPROV hProv,
     BOOL fCallerFree)
 {
-    Clear();
+    Release();
 
     m_hProv = hProv;
     m_fCallerFree = fCallerFree;
 } // end function Init
 
-void KeyAndProv::Clear()
+void KeyAndProv::Release()
 {
     if (m_hKey != NULL)
     {
@@ -604,13 +712,14 @@ void KeyAndProv::Clear()
     if (m_fCallerFree && m_hProv != NULL)
     {
         CryptReleaseContext(m_hProv, 0);
-        m_hProv = NULL;
     }
-} // end function Clear
+
+    m_hProv = NULL;
+} // end function Release
 
 KeyAndProv::~KeyAndProv()
 {
-    Clear();
+    Release();
 } // end dtor KeyAndProv
 
 void KeyAndProv::Detach()
@@ -622,7 +731,8 @@ void KeyAndProv::Detach()
 
 void KeyAndProv::SetKey(HCRYPTKEY hKey)
 {
-    assert(GetProv());
+    // only support tracking a key if we also track a provider
+    assert(GetProv() != NULL);
     m_hKey = hKey;
 } // end function SetKey
 
@@ -654,7 +764,7 @@ WindowsPublicKeyCipherer::Initialize(
 {
     HRESULT hr = S_OK;
 
-    assert(m_spPrivateKeyProv.get() == nullptr);
+    assert(m_spPrivateKeyProv == nullptr);
     m_spPrivateKeyProv.reset(new KeyAndProv());
 
     hr = GetPrivateKeyFromCertificate(
@@ -667,7 +777,7 @@ WindowsPublicKeyCipherer::Initialize(
     }
 
 
-    assert(PublicKeyAndProv().get() == nullptr);
+    assert(m_spPublicKeyProv == nullptr);
     m_spPublicKeyProv.reset(new KeyAndProv());
 
     hr = GetPublicKeyFromCertificate(
@@ -767,7 +877,8 @@ error:
     goto done;
 } // end function EncryptBufferWithPrivateKey
 
-/*********** WindowsPublicKeyCipherer *****************/
+
+/*********** WindowsHasher *****************/
 
 HRESULT
 WindowsHasher::Hash(
@@ -781,7 +892,9 @@ WindowsHasher::Hash(
     HCRYPTHASH hHash = NULL;
     DWORD cbText = 0;
     ALG_ID algID;
+    KeyAndProv kp;
 
+    // gotta call superclass implementation first. it might handle it
     hr = Hasher::Hash(pHashInfo, pvbText, pvbHash);
     if (hr == S_OK)
     {
@@ -794,34 +907,22 @@ WindowsHasher::Hash(
         goto error;
     }
 
+    /*
+    ** use the RSA/AES provider, the most fully featured one, and an ephemeral
+    ** key container (as specified by CRYPT_VERIFYCONTEXT).
+    */
     if (!CryptAcquireContextW(
              &hProv,
-             L"some_hash",
+             NULL,
              MS_ENH_RSA_AES_PROV_W,
              PROV_RSA_AES,
-             0))
+             CRYPT_VERIFYCONTEXT))
     {
-        if (GetLastError() == NTE_BAD_KEYSET)
-        {
-            if (!CryptAcquireContextW(
-                     &hProv,
-                     L"some_hash",
-                     MS_ENH_RSA_AES_PROV_W,
-                     PROV_RSA_AES,
-                     CRYPT_NEWKEYSET))
-            {
-                hr = HRESULT_FROM_WIN32(GetLastError());
-                goto error;
-            }
-
-            wprintf(L"done acquire creatnew\n");
-        }
-        else
-        {
-            hr = HRESULT_FROM_WIN32(GetLastError());
-            goto error;
-        }
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto error;
     }
+
+    kp.Init(hProv);
 
     if (!CryptCreateHash(
              hProv,
@@ -840,6 +941,7 @@ WindowsHasher::Hash(
         goto error;
     }
 
+    // actually adds the data to the hash
     if (!CryptHashData(
              hHash,
              &pvbText->front(),
@@ -851,6 +953,7 @@ WindowsHasher::Hash(
     }
 
     {
+        // this is how to get the value of the hash. kinda roundabout. get size
         DWORD cbHashValue = 0;
         CryptGetHashParam(
             hHash,
@@ -868,6 +971,7 @@ WindowsHasher::Hash(
 
         ResizeVector(pvbHash, cbHashValue);
 
+        // gets the actual hash value
         if (!CryptGetHashParam(
                  hHash,
                  HP_HASHVAL,
@@ -912,6 +1016,7 @@ WindowsHasher::HMAC(
     KeyAndProv kp;
     HMAC_INFO hinfo = {0};
 
+    // check if superclass handles the hash
     hr = Hasher::HMAC(pHashInfo, pvbKey, pvbText, pvbHMAC);
     if (hr == S_OK)
     {
@@ -1008,6 +1113,7 @@ error:
     goto done;
 } // end function HMAC
 
+// maps between MungeTLS platform-agnostic hash alg values and windows ones
 HRESULT
 WindowsHasher::WindowsHashAlgFromMTHashInfo(
     const HashInfo* pHashInfo,
@@ -1040,6 +1146,9 @@ done:
 error:
     goto done;
 } // end function WindowsHashAlgFromMTHashInfo
+
+
+/*********** WindowsSymmetricCipherer *****************/
 
 WindowsSymmetricCipherer::WindowsSymmetricCipherer()
     : SymmetricCipherer(),
@@ -1104,22 +1213,38 @@ WindowsSymmetricCipherer::EncryptBuffer(
 {
     HRESULT hr = S_OK;
 
+    // check if superclass handles it
     hr = SymmetricCipherer::EncryptBuffer(
              pvbCleartext,
              pvbIV,
              pvbEncrypted);
 
-    if (hr == E_NOTIMPL)
+    if (hr == S_OK)
     {
-        hr = MungeTLS::EncryptBuffer(
-                 pvbCleartext,
-                 (*Key())->GetKey(),
-                 Cipher(),
-                 pvbIV,
-                 pvbEncrypted);
+        goto done;
+    }
+    else if (hr != E_NOTIMPL)
+    {
+        goto error;
     }
 
+    hr = MungeTLS::EncryptBuffer(
+             pvbCleartext,
+             (*Key())->GetKey(),
+             Cipher(),
+             pvbIV,
+             pvbEncrypted);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
     return hr;
+
+error:
+    goto done;
 } // end function EncryptBuffer
 
 HRESULT
@@ -1131,24 +1256,40 @@ WindowsSymmetricCipherer::DecryptBuffer(
 {
     HRESULT hr = S_OK;
 
+    // check if superclas handles it
     hr = SymmetricCipherer::DecryptBuffer(
              pvbEncrypted,
              pvbIV,
              pvbDecrypted);
-
-    if (hr == E_NOTIMPL)
+    if (hr == S_OK)
     {
-        hr = MungeTLS::DecryptBuffer(
-                 pvbEncrypted,
-                 (*Key())->GetKey(),
-                 Cipher(),
-                 pvbIV,
-                 pvbDecrypted);
+        goto done;
+    }
+    else if (hr != E_NOTIMPL)
+    {
+        goto error;
     }
 
+    hr = MungeTLS::DecryptBuffer(
+             pvbEncrypted,
+             (*Key())->GetKey(),
+             Cipher(),
+             pvbIV,
+             pvbDecrypted);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
     return hr;
+
+error:
+    goto done;
 } // end function DecryptBuffer
 
+// maps between MungeTLS platform-agnostic cipher alg values and windows ones
 HRESULT
 WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
     CipherAlg alg,
@@ -1203,6 +1344,7 @@ ImportSymmetricKey(
 
     wprintf(L"import key\n");
 
+    // store key in ephemeral container (per CRYPT_VERIFYCONTEXT)
     if (!CryptAcquireContextW(
              &hProv,
              NULL,
@@ -1214,7 +1356,7 @@ ImportSymmetricKey(
         goto error;
     }
 
-    kp.Init(hProv, TRUE);
+    kp.Init(hProv);
 
     ResizeVector(&vbPlaintextKey, sizeof(PlaintextKey) + pvbKey->size());
 
@@ -1239,6 +1381,7 @@ ImportSymmetricKey(
 
     wprintf(L"importing key of size %d\n", cbKeySize);
 
+    // need to pass CRYPT_IPSEC_HMAC_KEY to allow long key lengths, per MSDN
     if (!CryptImportKey(
              hProv,
              reinterpret_cast<const BYTE*>(pPlaintextKey),
@@ -1253,7 +1396,6 @@ ImportSymmetricKey(
     }
 
     kp.SetKey(hKey);
-
     *pKey = kp;
     kp.Detach();
 
@@ -1264,6 +1406,7 @@ error:
     goto done;
 } // end function ImportSymmetricKey
 
+// convert between windows specific type and MungeTLS platform agnostic one
 HRESULT
 MTCertChainFromWinChain(
     PCCERT_CHAIN_CONTEXT pWinChain,
@@ -1282,6 +1425,7 @@ MTCertChainFromWinChain(
     {
         MT_ASN1Cert cert;
 
+        // copy out the value of each cert in the chain
         cert.Data()->assign(
                  pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded,
                  pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded +
