@@ -320,6 +320,11 @@ HRESULT SimpleHTTPServer::ProcessConnections()
             // flush logging messages
             _fflush_nolock(stdout);
 
+            if (FAILED(hr))
+            {
+                goto error;
+            }
+
             assert(vbData.size() <= c_cbReadBuffer);
 
             /*
