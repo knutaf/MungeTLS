@@ -116,6 +116,14 @@ TLSConnection::FinishNextHandshake()
 {
     HRESULT hr = S_OK;
 
+    // copy last bits of state
+    hr = NextConn()->CopyCommonParamsTo(CurrConn());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    // reset it to blank
     *NextConn() = ConnectionParameters();
 
     hr = Listener()->OnHandshakeComplete();
@@ -304,7 +312,7 @@ TLSConnection::HandleMessage(
                 }
 
                 wprintf(L"parsed client hello message:\n");
-                wprintf(L"version %04LX\n", *clientHello.ProtocolVersion()->Version());
+                wprintf(L"version %04LX\n", *clientHello.ClientVersion()->Version());
                 if (clientHello.SessionID()->Count() > 0)
                 {
                     wprintf(L"session ID %d (%d)\n", clientHello.SessionID()->Data()[0]);
@@ -348,7 +356,7 @@ TLSConnection::HandleMessage(
                 *NextConn()->ClientHello() = clientHello;
 
                 {
-                    MT_ProtocolVersion protocolVersion = *clientHello.ProtocolVersion();
+                    MT_ProtocolVersion protocolVersion = *clientHello.ClientVersion();
 
                     HRESULT hrL = Listener()->OnSelectProtocolVersion(&protocolVersion);
                     if (FAILED(hrL))
@@ -475,8 +483,7 @@ TLSConnection::HandleMessage(
                 }
 
                 pExchangeKeys = keyExchange.ExchangeKeys();
-                *pExchangeKeys->Cipherer() = *NextConn()->PubKeyCipherer();
-                hr = pExchangeKeys->DecryptStructure();
+                hr = pExchangeKeys->DecryptStructure(NextConn()->PubKeyCipherer()->get());
                 if (hr != S_OK)
                 {
                     wprintf(L"failed to decrypt structure: %08LX\n", hr);
@@ -488,24 +495,15 @@ TLSConnection::HandleMessage(
                 pSecret = pExchangeKeys->Structure();
                 wprintf(L"version %04LX\n", *pSecret->ClientVersion()->Version());
 
-                hr = NextConn()->ComputeMasterSecret(pSecret);
+                hr = NextConn()->GenerateKeyMaterial(pSecret);
                 if (hr != S_OK)
                 {
                     wprintf(L"failed to compute master secret: %08LX\n", hr);
                     goto error;
                 }
 
-                wprintf(L"computed master secret:\n");
+                wprintf(L"computed master secret and key material:\n");
                 PrintByteVector(NextConn()->MasterSecret());
-
-                hr = NextConn()->GenerateKeyMaterial();
-                if (hr != S_OK)
-                {
-                    wprintf(L"failed to compute key material: %08LX\n", hr);
-                    goto error;
-                }
-
-                wprintf(L"computed key material\n");
             }
             else if (*spHandshakeMessage->Type() == MT_Handshake::MTH_Finished)
             {
@@ -760,6 +758,8 @@ TLSConnection::RespondToClientHello()
 
         {
             MT_RenegotiationInfoExtension renegotiationExtension;
+            MT_RenegotiationInfoExtension::MT_RenegotiatedConnection rc;
+
             *renegotiationExtension.ExtensionType() = MT_Extension::MTEE_RenegotiationInfo;
 
             // no previous verify data to use, i.e. not renegotiating
@@ -768,27 +768,27 @@ TLSConnection::RespondToClientHello()
                 // also need client verify data
                 assert(!CurrConn()->ClientVerifyData()->Data()->empty());
 
-                renegotiationExtension.RenegotiatedConnection()->Data()->insert(
-                    renegotiationExtension.RenegotiatedConnection()->Data()->end(),
+                rc.Data()->insert(
+                    rc.Data()->end(),
                     CurrConn()->ClientVerifyData()->Data()->begin(),
                     CurrConn()->ClientVerifyData()->Data()->end());
 
-                renegotiationExtension.RenegotiatedConnection()->Data()->insert(
-                    renegotiationExtension.RenegotiatedConnection()->Data()->end(),
+                rc.Data()->insert(
+                    rc.Data()->end(),
                     CurrConn()->ServerVerifyData()->Data()->begin(),
                     CurrConn()->ServerVerifyData()->Data()->end());
 
-                if (renegotiationExtension.RenegotiatedConnection()->Data()->size() != c_cbFinishedVerifyData_Length * 2)
+                if (rc.Data()->size() != c_cbFinishedVerifyData_Length * 2)
                 {
-                    wprintf(L"warning: renegotiation verify data is odd length. expected: %u, actual: %u\n", c_cbFinishedVerifyData_Length * 2, renegotiationExtension.RenegotiatedConnection()->Data()->size());
+                    wprintf(L"warning: renegotiation verify data is odd length. expected: %u, actual: %u\n", c_cbFinishedVerifyData_Length * 2, rc.Data()->size());
                 }
 
                 wprintf(L"adding renegotation binding information:\n");
-                PrintByteVector(renegotiationExtension.RenegotiatedConnection()->Data());
+                PrintByteVector(rc.Data());
             }
             // else, empty renegotiated info
 
-            hr = renegotiationExtension.UpdateDerivedFields();
+            hr = renegotiationExtension.SetRenegotiatedConnection(&rc);
             if (hr != S_OK)
             {
                 goto error;
@@ -855,7 +855,7 @@ TLSConnection::RespondToClientHello()
 
         hr = AddHandshakeMessage(
                  spHandshake.get(),
-                 *pClientHello->ProtocolVersion()->Version(),
+                 *pClientHello->ClientVersion()->Version(),
                  &pPlaintextPass);
 
         if (hr == S_OK)
@@ -895,7 +895,7 @@ TLSConnection::RespondToClientHello()
 
         hr = AddHandshakeMessage(
                  spHandshake.get(),
-                 *pClientHello->ProtocolVersion()->Version(),
+                 *pClientHello->ClientVersion()->Version(),
                  &pPlaintextPass);
 
         if (hr == S_OK)
@@ -971,12 +971,6 @@ TLSConnection::RespondToFinished()
 
         *CurrConn()->WriteParams() = *NextConn()->WriteParams();
 
-        hr = NextConn()->CopyCommonParamsTo(CurrConn());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
         /*
         ** newly copied new connection state should have its initial value of
         ** 0 for sequence number, since it hasn't been touched yet
@@ -990,7 +984,7 @@ TLSConnection::RespondToFinished()
         MT_Finished finished;
         shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
-        hr = finished.SetConnectionParameters(CurrConn());
+        hr = finished.SetConnectionParameters(NextConn());
         if (hr != S_OK)
         {
             goto error;
@@ -1034,9 +1028,9 @@ TLSConnection::RespondToFinished()
             goto error;
         }
 
-        CurrConn()->HandshakeMessages()->push_back(spHandshake);
+        NextConn()->HandshakeMessages()->push_back(spHandshake);
 
-        *CurrConn()->ServerVerifyData() = *finished.VerifyData();
+        *NextConn()->ServerVerifyData() = *finished.VerifyData();
     }
 
     hr = FinishNextHandshake();
@@ -1903,7 +1897,9 @@ error:
 } // end function ComputeMasterSecret
 
 HRESULT
-ConnectionParameters::GenerateKeyMaterial()
+ConnectionParameters::GenerateKeyMaterial(
+    const MT_PreMasterSecret* pPreMasterSecret
+)
 {
     HRESULT hr = S_OK;
 
@@ -1913,7 +1909,12 @@ ConnectionParameters::GenerateKeyMaterial()
 
     wprintf(L"gen key material\n");
 
-    assert(!MasterSecret()->empty());
+    hr = ComputeMasterSecret(pPreMasterSecret);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
     assert(*ReadParams()->Cipher() == *WriteParams()->Cipher());
     assert(*ReadParams()->Hash() == *WriteParams()->Hash());
 
@@ -1922,13 +1923,13 @@ ConnectionParameters::GenerateKeyMaterial()
     ** client and server keys
     ** client and server IVs
     */
-    cbKeyBlock = (ReadParams()->Hash()->cbHashKeySize * 2) +
+    cbKeyBlock = (ReadParams()->Hash()->cbMACKeySize * 2) +
                  (ReadParams()->Cipher()->cbKeyMaterialSize * 2) +
                  (ReadParams()->Cipher()->cbIVSize * 2);
 
     wprintf(L"need %d bytes for key block (%d * 2) + (%d * 2) + (%d * 2)\n",
         cbKeyBlock,
-        ReadParams()->Hash()->cbHashKeySize,
+        ReadParams()->Hash()->cbMACKeySize,
         ReadParams()->Cipher()->cbKeyMaterialSize,
         ReadParams()->Cipher()->cbIVSize);
 
@@ -1965,7 +1966,7 @@ ConnectionParameters::GenerateKeyMaterial()
     {
         auto itKeyBlock = vbKeyBlock.begin();
 
-        size_t cbField = ReadParams()->Hash()->cbHashKeySize;
+        size_t cbField = ReadParams()->Hash()->cbMACKeySize;
         ReadParams()->MACKey()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
@@ -1973,7 +1974,7 @@ ConnectionParameters::GenerateKeyMaterial()
         PrintByteVector(ReadParams()->MACKey());
 
         assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = WriteParams()->Hash()->cbHashKeySize;
+        cbField = WriteParams()->Hash()->cbMACKeySize;
         WriteParams()->MACKey()->assign(itKeyBlock, itKeyBlock + cbField);
         itKeyBlock += cbField;
 
@@ -2476,8 +2477,9 @@ MT_VariableLengthFieldBase
 ::MT_VariableLengthFieldBase()
     : MT_Structure()
 {
-    assert(LengthFieldSize <= sizeof(size_t));
-    assert(MAXFORBYTES(LengthFieldSize) >= MaxSize);
+    C_ASSERT(LengthFieldSize <= sizeof(size_t));
+    C_ASSERT(MAXFORBYTES(LengthFieldSize) >= MaxSize);
+    C_ASSERT(MaxSize >= MinSize);
 }
 
 template <typename F,
@@ -2768,7 +2770,7 @@ MT_FixedLengthStructureBase<F, Size>::MT_FixedLengthStructureBase()
     : MT_Structure(),
       m_vData()
 {
-    assert(Size > 0);
+    C_ASSERT(Size > 0);
 }
 
 template <typename F,
@@ -2952,8 +2954,7 @@ MT_PublicKeyEncryptedStructure<T>::MT_PublicKeyEncryptedStructure()
     : MT_Structure(),
       m_structure(),
       m_vbEncryptedStructure(),
-      m_vbPlaintextStructure(),
-      m_spCipherer()
+      m_vbPlaintextStructure()
 {
 } // end ctor MT_PublicKeyEncryptedStructure
 
@@ -3004,12 +3005,14 @@ MT_PublicKeyEncryptedStructure<T>::Length() const
 
 template <typename T>
 HRESULT
-MT_PublicKeyEncryptedStructure<T>::DecryptStructure()
+MT_PublicKeyEncryptedStructure<T>::DecryptStructure(
+    PublicKeyCipherer* pCipherer
+)
 {
     HRESULT hr = S_OK;
     PlaintextStructure()->clear();
 
-    hr = (*Cipherer())->DecryptBufferWithPrivateKey(
+    hr = pCipherer->DecryptBufferWithPrivateKey(
              EncryptedStructure(),
              PlaintextStructure());
 
@@ -3239,12 +3242,6 @@ HRESULT
 MT_TLSCiphertext::Decrypt()
 {
     HRESULT hr = S_OK;
-
-    hr = CipherFragment()->SetSecurityParameters(EndParams());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
 
     /*
     ** it is crucial that this pass in exactly the fragment assigned to this
@@ -3523,18 +3520,6 @@ MT_ContentType::MT_ContentType()
 {
 }
 
-const MT_ContentType::MTCT_Type MT_ContentType::c_rgeValidTypes[] =
-{
-    MTCT_Type_ChangeCipherSpec,
-    MTCT_Type_Alert,
-    MTCT_Type_Handshake,
-    MTCT_Type_ApplicationData,
-    MTCT_Type_Unknown,
-};
-
-const ULONG MT_ContentType::c_cValidTypes = ARRAYSIZE(c_rgeValidTypes);
-
-
 HRESULT
 MT_ContentType::ParseFromPriv(
     const BYTE* pv,
@@ -3586,14 +3571,6 @@ done:
 error:
     goto done;
 } // end function SerializePriv
-
-bool
-MT_ContentType::IsValidContentType(
-    MTCT_Type eType
-)
-{
-    return (find(c_rgeValidTypes, c_rgeValidTypes+c_cValidTypes, eType) != c_rgeValidTypes+c_cValidTypes);
-} // end function IsValidContentType
 
 wstring
 MT_ContentType::ToString() const
@@ -3716,8 +3693,6 @@ const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeKnownTypes[] =
     MTH_Unknown,
 };
 
-const ULONG MT_Handshake::c_cKnownTypes = ARRAYSIZE(c_rgeKnownTypes);
-
 const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeSupportedTypes[] =
 {
     MTH_ClientHello,
@@ -3729,8 +3704,6 @@ const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeSupportedTypes[] =
     MTH_ClientKeyExchange,
     MTH_Finished,
 };
-
-const ULONG MT_Handshake::c_cSupportedTypes = ARRAYSIZE(c_rgeSupportedTypes);
 
 MT_Handshake::MT_Handshake()
     : MT_Structure(),
@@ -3808,7 +3781,7 @@ MT_Handshake::IsKnownType(
     MTH_HandshakeType eType
 )
 {
-    return (find(c_rgeKnownTypes, c_rgeKnownTypes+c_cKnownTypes, eType) != c_rgeKnownTypes+c_cKnownTypes);
+    return (find(c_rgeKnownTypes, c_rgeKnownTypes+ARRAYSIZE(c_rgeKnownTypes), eType) != c_rgeKnownTypes+ARRAYSIZE(c_rgeKnownTypes));
 } // end function IsKnownType
 
 bool
@@ -3816,7 +3789,7 @@ MT_Handshake::IsSupportedType(
     MTH_HandshakeType eType
 )
 {
-    return (find(c_rgeSupportedTypes, c_rgeSupportedTypes+c_cSupportedTypes, eType) != c_rgeSupportedTypes+c_cSupportedTypes);
+    return (find(c_rgeSupportedTypes, c_rgeSupportedTypes+ARRAYSIZE(c_rgeSupportedTypes), eType) != c_rgeSupportedTypes+ARRAYSIZE(c_rgeSupportedTypes));
 } // end function IsSupportedType
 
 HRESULT
@@ -3922,7 +3895,7 @@ wstring MT_Handshake::HandshakeTypeString() const
 MT_Random::MT_Random()
     : MT_Structure(),
       m_timestamp(0),
-      m_vbRandomBytes()
+      m_randomBytes()
 {
 } // end ctor MT_Random
 
@@ -3943,15 +3916,13 @@ MT_Random::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    cbField = c_cbRandomBytes_Length;
-    if (cbField > cb)
+    hr = RandomBytes()->ParseFrom(pv, cb);
+    if (hr != S_OK)
     {
-        hr = MT_E_INCOMPLETE_MESSAGE;
         goto error;
     }
 
-    RandomBytes()->assign(pv, pv + cbField);
-
+    cbField = RandomBytes()->Length();
     ADVANCE_PARSE();
 
 done:
@@ -3970,7 +3941,7 @@ MT_Random::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = c_cbRandomTime_Length;
 
-    hr = WriteNetworkLong(GMTUnixTime(), cbField, pv, cb);
+    hr = WriteNetworkLong(*GMTUnixTime(), cbField, pv, cb);
     if (hr != S_OK)
     {
         goto error;
@@ -3978,15 +3949,12 @@ MT_Random::SerializePriv(
 
     ADVANCE_PARSE();
 
-    assert(RandomBytes()->size() == c_cbRandomBytes_Length);
-    cbField = RandomBytes()->size();
-    if (cbField > cb)
+    cbField = RandomBytes()->Length();
+    hr = RandomBytes()->Serialize(pv, cb);
+    if (hr != S_OK)
     {
-        hr = E_INSUFFICIENT_BUFFER;
         goto error;
     }
-
-    std::copy(RandomBytes()->begin(), RandomBytes()->end(), pv);
 
     ADVANCE_PARSE();
 
@@ -4021,10 +3989,12 @@ MT_Random::PopulateNow()
         goto error;
     }
 
-    SetGMTUnixTime(t);
+    *GMTUnixTime() = t;
 
-    ResizeVector(RandomBytes(), c_cbRandomBytes_Length);
-    /*
+    // ResizeVector fills with a fixed value, for easier debugging
+    ResizeVector(RandomBytes()->Data(), c_cbRandomBytes_Length);
+
+    /* or else could fill with actual random bytes
     hr = WriteRandomBytes(&RandomBytes()->front(), RandomBytes()->size());
 
     if (hr != S_OK)
@@ -4045,7 +4015,7 @@ error:
 
 MT_ClientHello::MT_ClientHello()
     : MT_Structure(),
-      m_protocolVersion(),
+      m_clientVersion(),
       m_random(),
       m_sessionID(),
       m_cipherSuites(),
@@ -4063,13 +4033,13 @@ MT_ClientHello::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    hr = ProtocolVersion()->ParseFrom(pv, cb);
+    hr = ClientVersion()->ParseFrom(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
-    cbField = ProtocolVersion()->Length();
+    cbField = ClientVersion()->Length();
     ADVANCE_PARSE();
 
     hr = Random()->ParseFrom(pv, cb);
@@ -4127,7 +4097,7 @@ error:
 size_t
 MT_ClientHello::Length() const
 {
-    size_t cbLength = ProtocolVersion()->Length() +
+    size_t cbLength = ClientVersion()->Length() +
                       Random()->Length() +
                       SessionID()->Length() +
                       CipherSuites()->Length() +
@@ -6575,14 +6545,15 @@ MT_RenegotiationInfoExtension::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
+    MT_RenegotiatedConnection rc;
 
-    hr = MT_Extension::ParseFromPriv(pv, cb);
+    hr = rc.ParseFrom(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
-    hr = RenegotiatedConnection()->ParseFromVect(ExtensionData());
+    hr = SetRenegotiatedConnection(&rc);
     if (hr != S_OK)
     {
         goto error;
@@ -6596,10 +6567,62 @@ error:
 } // end function ParseFromPriv
 
 HRESULT
-MT_RenegotiationInfoExtension::UpdateDerivedFields()
+MT_RenegotiationInfoExtension::CheckExtensionDataIntegrity() const
 {
     HRESULT hr = S_OK;
-    hr = RenegotiatedConnection()->SerializeToVect(ExtensionData());
+    ByteVector vbConnection;
+
+    hr = m_renegotiatedConnection.SerializeToVect(&vbConnection);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    if (vbConnection == *MT_Extension::ExtensionData())
+    {
+        hr = S_OK;
+    }
+    else
+    {
+        hr = S_FALSE;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CheckExtensionDataIntegrity
+
+const ByteVector*
+MT_RenegotiationInfoExtension::ExtensionData() const
+{
+#if DBG
+    assert(CheckExtensionDataIntegrity() == S_OK);
+#endif
+
+    return MT_Extension::ExtensionData();
+} // end function ExtensionData
+
+const MT_RenegotiationInfoExtension::MT_RenegotiatedConnection*
+MT_RenegotiationInfoExtension::RenegotiatedConnection() const
+{
+#if DBG
+    assert(CheckExtensionDataIntegrity() == S_OK);
+#endif
+
+    return &m_renegotiatedConnection;
+} // end function RenegotiatedConnection
+
+HRESULT
+MT_RenegotiationInfoExtension::SetRenegotiatedConnection(
+    const MT_RenegotiatedConnection* pRenegotiatedConnection
+)
+{
+    HRESULT hr = S_OK;
+    m_renegotiatedConnection = *pRenegotiatedConnection;
+
+    hr = RenegotiatedConnection()->SerializeToVect(MT_Extension::ExtensionData());
     if (hr != S_OK)
     {
         goto error;
@@ -6610,7 +6633,7 @@ done:
 
 error:
     goto done;
-} // end function SerializePriv
+} // end function SetRenegotiatedConnection
 
 /*********** MT_Thingy *****************/
 

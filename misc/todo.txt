@@ -9,6 +9,9 @@ WORK:
 - give app the choice of whether batch up application data messages
 - use switch statements for handshake types in handlemessage
 - audit all asserts for appropriateness
+- support cached sessions with SessionIDs
+- KeyExchangeAlgorithm ctor makes some gross, simplifying assumptions about our supported cipher suites
+- rethink const-ness of encryption and decryption. not all things are modifying cipherer state, are they?
 
 MAYBE:
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon

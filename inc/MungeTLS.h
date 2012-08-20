@@ -5,8 +5,6 @@
 #include "mtls_defs.h"
 #include "MungeCrypto.h"
 
-#pragma warning(push)
-#pragma warning(disable : 4100)
 namespace MungeTLS
 {
 
@@ -28,133 +26,164 @@ const HRESULT MT_E_BAD_RECORD_PADDING                       = 0x8023000f;
 const HRESULT MT_E_NO_PREFERRED_CIPHER_SUITE                = 0x80230010;
 const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 
+/*
+** used in the ITLSListener callbacks
+** handled - the app did something with the callback, or at least acknowledges
+**           that it happened
+** ignored - the app did not handle the callback, so MungeTLS should use
+**           whatever default behavior it has
+*/
 const HRESULT MT_S_LISTENER_HANDLED                         = 0x00230002;
 const HRESULT MT_S_LISTENER_IGNORED                         = 0x00230003;
 
+// flags for ITLSListener::OnCreatingHandshakeMessage's pfFlags
 const DWORD MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE         = 0x00000000;
 const DWORD MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE          = 0x00000001;
 
+
 /************************** Protocol Constants **********************/
 
-// A public-key-encrypted element is encoded as an opaque vector<0..2^16-1>
+/*
+** these are all constants used in the protocol implementation. all are taken
+** straight from some RFC.
+*/
+
+/*
+** TLS 1.0: A public-key-encrypted element is encoded as an opaque
+** vector<0..2^16-1>
+*/
 const size_t c_cbPublicKeyEncrypted_LFL = 2;
 
-// uint16 length;
+// TLS 1.0: uint16 length;
 const size_t c_cbRecordLayerMessage_Fragment_LFL = 2;
 
-// enum going from 0 - 255
+// TLS 1.0: enum going from 0 - 255
 const size_t c_cbContentType_Length = 1;
 
-// uint8 major, minor;
+// TLS 1.0: uint8 major, minor;
 const size_t c_cbProtocolVersion_Length = 2;
 
-// uint8 CipherSuite[2];    /* Cryptographic suite selector */
+// TLS 1.0: uint8 CipherSuite[2];    /* Cryptographic suite selector */
 const size_t c_cbCipherSuite_Length = 2;
 
-// CipherSuite cipher_suites<2..2^16-1>;
+// TLS 1.0: CipherSuite cipher_suites<2..2^16-1>;
 const size_t c_cbCipherSuites_LFL = 2;
 const size_t c_cbCipherSuites_MinLength = 2;
 const size_t c_cbCipherSuites_MaxLength = MAXFORBYTES(c_cbCipherSuites_LFL);
 
-// opaque SessionID<0..32>;
+// TLS 1.0: opaque SessionID<0..32>;
 const size_t c_cbSessionID_LFL = 1;
 const size_t c_cbSessionID_MinLength = 0;
 const size_t c_cbSessionID_MaxLength = 32;
 
-// enum going from 0 - 255
+// TLS 1.0: enum going from 0 - 255
 const size_t c_cbHandshakeType_Length = 1;
 
-// uint24 length;
+// TLS 1.0: uint24 length;
 const size_t c_cbHandshake_LFL = 3;
 
-// uint32 gmt_unix_time;
+// TLS 1.0: uint32 gmt_unix_time;
 const size_t c_cbRandomTime_Length = 4;
 
-// opaque random_bytes[28];
+// TLS 1.0: opaque random_bytes[28];
 const size_t c_cbRandomBytes_Length = 28;
 
-// enum going from 0 - 255
+// TLS 1.0: enum going from 0 - 255
 const size_t c_cbCompressionMethod_Length = 1;
 
-// CompressionMethod compression_methods<1..2^8-1>;
+// TLS 1.0: CompressionMethod compression_methods<1..2^8-1>;
 const size_t c_cbCompressionMethods_LFL = 1;
 const size_t c_cbCompressionMethods_MinLength = 1;
 const size_t c_cbCompressionMethods_MaxLength = MAXFORBYTES(c_cbCompressionMethods_LFL);
 
-// opaque ASN.1Cert<1..2^24-1>;
+// TLS 1.0: opaque ASN.1Cert<1..2^24-1>;
 const size_t c_cbASN1Cert_LFL = 3;
 const size_t c_cbASN1Cert_MinLength = 1;
 const size_t c_cbASN1Cert_MaxLength = MAXFORBYTES(c_cbASN1Cert_LFL);
 
-// ASN.1Cert certificate_list<0..2^24-1>;
+// TLS 1.0: ASN.1Cert certificate_list<0..2^24-1>;
 const size_t c_cbASN1Certs_LFL = 3;
 const size_t c_cbASN1Certs_MinLength = 0;
 const size_t c_cbASN1Certs_MaxLength = MAXFORBYTES(c_cbASN1Certs_LFL);
 
-// enum going from 0 - 255
+// TLS 1.0: enum going from 0 - 255
 const size_t c_cbChangeCipherSpec_Length = 1;
 
-// dunno where this is documented
+// TLS 1.2: enum going from 0 - 65535
 const size_t c_cbExtensionType_Length = 2;
 
-// dunno where this is documented
+// TLS 1.2: opaque extension_data<0..2^16-1>;
 const size_t c_cbExtensionData_LFL = 2;
 
-// Extension extensions<0..2^16-1>;
+// TLS 1.2: Extension extensions<0..2^16-1>;
 const size_t c_cbHelloExtensions_LFL = 2;
 const size_t c_cbHelloExtensions_MinLength = 0;
 const size_t c_cbHelloExtensions_MaxLength = MAXFORBYTES(c_cbHelloExtensions_LFL);
 
-// uint8 padding_length;
+// TLS 1.0: uint8 padding_length;
 const size_t c_cbGenericBlockCipher_Padding_LFL = 1;
 
-// enum going from 0 - 255
+// TLS 1.0: enum going from 0 - 255
 const size_t c_cbAlertLevel_Length = 1;
 
-// enum going from 0 - 255
+// TLS 1.0: enum going from 0 - 255
 const size_t c_cbAlertDescription_Length = 1;
 
-// opaque random[46];
+// TLS 1.0: opaque random[46];
 const size_t c_cbPreMasterSecretRandom_Length = 46;
 
-// "The master secret is always exactly 48 bytes in length."
+// TLS 1.0: "The master secret is always exactly 48 bytes in length."
 const size_t c_cbMasterSecret_Length = 48;
 
-// opaque verify_data[12];
+// TLS 1.0: opaque verify_data[12];
 const size_t c_cbFinishedVerifyData_Length = 12;
 
-// Sequence numbers are of type uint64 and may not exceed 2^64-1.
+// TLS 1.0: "Sequence numbers are of type uint64 and may not exceed 2^64-1."
 const size_t c_cbSequenceNumber_Length = 8;
 
-// master_secret = PRF(pre_master_secret, "master secret", ...
+// TLS 1.0: master_secret = PRF(pre_master_secret, "master secret", ...
 const PCSTR c_szMasterSecret_PRFLabel = "master secret";
 
-// key_block = PRF(SecurityParameters.master_secret, "key expansion", ...
+/*
+** TLS 1.0: key_block = PRF(
+**                          SecurityParameters.master_secret,
+**                          "key expansion",
+**                          ...
+*/
 const PCSTR c_szKeyExpansion_PRFLabel = "key expansion";
 
-// For Finished messages sent by the server, the string "server finished".
+/*
+** TLS 1.0: "For Finished messages sent by the server, the string
+** 'server finished'."
+*/
 const PCSTR c_szServerFinished_PRFLabel = "server finished";
 
-// For Finished messages sent by the client, the string "client finished".
+/*
+** TLS 1.0: "For Finished messages sent by the client, the string
+** 'client finished'."
+*/
 const PCSTR c_szClientFinished_PRFLabel = "client finished";
 
-// struct { } HelloRequest;
+// TLS 1.0: struct { } HelloRequest;
 const size_t c_cbHelloRequest_Length = 0;
 
-// RFC 5746 - opaque renegotiated_connection<0..255>;
+// RFC 5746 (renegotiation protection): opaque renegotiated_connection<0..255>;
 const size_t c_cbRenegotiatedConnection_LFL = 1;
 const size_t c_cbRenegotiatedConnection_MinLength = 0;
 const size_t c_cbRenegotiatedConnection_MaxLength = 255;
 
 /************************** End Protocol Constants **********************/
 
-extern const BYTE c_abyCert[];
-extern const size_t c_cbCert;
 
 class MT_PreMasterSecret;
 class MT_CipherFragment;
 class TLSConnection;
 
+/*
+** the root class of any parseable/serializable structure in the protocol. in
+** fact, those are the two primary facilities this provides, plus a Length()
+** function that represents the total length of that structure when serialized
+*/
 class MT_Structure
 {
     public:
@@ -169,20 +198,35 @@ class MT_Structure
     virtual size_t Length() const = 0;
 
     private:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb) { return E_NOTIMPL; }
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const { return E_NOTIMPL; }
+    // not making these two pure virtual just for convenience
+    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb)
+    {
+        UNREFERENCED_PARAMETER(pv);
+        UNREFERENCED_PARAMETER(cb);
+        assert(false);
+        return E_NOTIMPL;
+    }
+
+    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const
+    {
+        UNREFERENCED_PARAMETER(pv);
+        UNREFERENCED_PARAMETER(cb);
+        assert(false);
+        return E_NOTIMPL;
+    }
 };
 
-enum MT_KeyExchangeAlgorithm
-{
-    MTKEA_dhe_dss,
-    MTKEA_dhe_rsa,
-    MTKEA_dh_anon,
-    MTKEA_rsa,
-    MTKEA_dh_dss,
-    MTKEA_dh_rsa
-};
 
+/*
+** implements a variable length field, which is a standard type given in the
+** RFC. From the RFC:
+**
+** T T'<floor..ceiling>;
+**
+** where T is the type of the vector (which might be "byte"), and the floor and
+** ceiling are given in BYTES, NOT ELEMENTS. There are asserts elsewhere to
+** ensure that the templated sizes are properly in range.
+*/
 template <typename F,
           size_t LengthFieldSize,
           size_t MinSize,
@@ -212,6 +256,7 @@ class MT_VariableLengthFieldBase : public MT_Structure
     std::vector<F> m_vData;
 };
 
+// a thin wrapper on MT_VariableLengthFieldBase
 template <typename F,
           size_t LengthFieldSize,
           size_t MinSize,
@@ -230,6 +275,7 @@ class MT_VariableLengthField : public MT_VariableLengthFieldBase
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
 
+// specializes MT_VariableLengthFieldBase for the common byte vector
 template <size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
@@ -247,6 +293,13 @@ class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
 
+/*
+** a fixed length array as given in the RFC, as in:
+**
+** T T'[n];
+**
+** where T is some type and n is given in BYTES, NOT ELEMENTS.
+*/
 template <typename F, size_t Size>
 class MT_FixedLengthStructureBase : public MT_Structure
 {
@@ -267,6 +320,7 @@ class MT_FixedLengthStructureBase : public MT_Structure
     std::vector<F> m_vData;
 };
 
+// a thin generic wrapper on MT_FixedLengthStructureBase
 template <typename F, size_t Size>
 class MT_FixedLengthStructure : public MT_FixedLengthStructureBase<F, Size>
 {
@@ -278,6 +332,7 @@ class MT_FixedLengthStructure : public MT_FixedLengthStructureBase<F, Size>
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
 
+// a specialization of MT_FixedLengthStructureBase for the common byte array
 template <size_t Size>
 class MT_FixedLengthByteStructure : public MT_FixedLengthStructureBase
                                                <BYTE,
@@ -291,6 +346,14 @@ class MT_FixedLengthByteStructure : public MT_FixedLengthStructureBase
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
 
+/*
+** TLS 1.0:
+** struct {
+**     uint8 major;
+**     uint8 minor;
+** } ProtocolVersion;
+**
+*/
 class MT_ProtocolVersion : public MT_Structure
 {
     public:
@@ -319,6 +382,43 @@ class MT_ProtocolVersion : public MT_Structure
     MTPV_Version m_eVersion;
 };
 
+/*
+** TLS 1.2:
+** enum { dhe_dss, dhe_rsa, dh_anon, rsa, dh_dss, dh_rsa
+**       //  may be extended, e.g., for ECDH -- see [TLSECC]
+**      } KeyExchangeAlgorithm;
+*/
+enum MT_KeyExchangeAlgorithm
+{
+    MTKEA_dhe_dss,
+    MTKEA_dhe_rsa,
+    MTKEA_dh_anon,
+    MTKEA_rsa,
+    MTKEA_dh_dss,
+    MTKEA_dh_rsa
+};
+
+// TLS 1.2: taken basically verbatim.
+enum MT_CipherSuiteValue
+{
+    MTCS_UNKNOWN                               = 0xFFFF,
+    MTCS_TLS_RSA_WITH_NULL_NULL                = 0x0000,
+    MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
+    MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
+    MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
+    MTCS_TLS_RSA_WITH_RC4_128_MD5              = 0x0004,
+    MTCS_TLS_RSA_WITH_RC4_128_SHA              = 0x0005,
+    MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA         = 0x000A,
+    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA          = 0x002F,
+    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA          = 0x0035,
+    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256       = 0x003C,
+    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256       = 0x003D
+};
+
+/*
+** TLS 1.0:
+** uint8 CipherSuite[2];    // Cryptographic suite selector
+*/
 class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length>
 {
     public:
@@ -331,31 +431,52 @@ class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length
     bool operator==(const MT_CipherSuite& rOther) const;
 };
 
+/*
+** TLS 1.0:
+** struct {
+**     uint32 gmt_unix_time;
+**     opaque random_bytes[28];
+** } Random;
+*/
 class MT_Random : public MT_Structure
 {
     public:
+    typedef MT_FixedLengthByteStructure<c_cbRandomBytes_Length> MT_RandomBytes;
+
     MT_Random();
     ~MT_Random() { }
 
-    size_t Length() const { return c_cbRandomTime_Length + RandomBytes()->size(); }
+    size_t Length() const { return c_cbRandomTime_Length + RandomBytes()->Length(); }
 
-    MT_UINT32 GMTUnixTime() const { return m_timestamp; }
-    void SetGMTUnixTime(MT_UINT32 timestamp) { m_timestamp = timestamp; }
+    ACCESSORS(MT_UINT32*, GMTUnixTime, &m_timestamp);
+    ACCESSORS(MT_RandomBytes*, RandomBytes, &m_randomBytes);
 
-    ACCESSORS(ByteVector*, RandomBytes, &m_vbRandomBytes);
-
+    // fills with the current timestamp, and some random numbers
     HRESULT PopulateNow();
 
     private:
-    static const size_t c_cbRandomBytes;
-
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     MT_UINT32 m_timestamp;
-    ByteVector m_vbRandomBytes;
+    MT_RandomBytes m_randomBytes;
 };
 
+/*
+** TLS 1.2:
+** struct {
+**     ExtensionType extension_type;
+**     opaque extension_data<0..2^16-1>;
+** } Extension;
+**
+** enum {
+**     signature_algorithms(13), (65535)
+** } ExtensionType;
+**
+** RFC 5746:
+**   This document defines a new TLS extension, "renegotiation_info" (with
+**   extension type 0xff01)...
+*/
 class MT_Extension : public MT_Structure
 {
     public:
@@ -382,51 +503,70 @@ class MT_Extension : public MT_Structure
     ByteVector m_vbExtensionData;
 };
 
+/*
+** RFC 5746:
+** struct {
+**     opaque renegotiated_connection<0..255>;
+** } RenegotiationInfo;
+**
+** there is some real mess going on here with RenegotiatedConnection(), since
+** we have a duplication of data. in this class, we have a
+** MT_RenegotiatedConnection member that represents the renegotiation info in
+** the form that the RFC specifies it. but in the superclass, we also have
+** ExtensionData(), which is used to access the data when we're inserting this
+** extension into its containing structure
+**
+** we're overriding ExtensionData() and RenegotiatedConnection() here to check
+** to make sure they're not accessed when the two are out of sync, and we've
+** omitted the non-const accessor for RenegotiatedConnection() in favor of a
+** real setter that pushes the new value into ExtensionData, itself.
+**
+** this shortcoming here makes me wonder if I should have gone with all real
+** getters and setters instead. may reconsider in the future.
+*/
 class MT_RenegotiationInfoExtension : public MT_Extension
 {
+    public:
     typedef MT_VariableLengthByteField<
                 c_cbRenegotiatedConnection_LFL,
                 c_cbRenegotiatedConnection_MinLength,
                 c_cbRenegotiatedConnection_MaxLength>
             MT_RenegotiatedConnection;
 
-    public:
     MT_RenegotiationInfoExtension();
     ~MT_RenegotiationInfoExtension() { }
 
-    ACCESSORS(MT_RenegotiatedConnection*, RenegotiatedConnection, &m_renegotiatedConnection);
+    // overriding from superclass for integrity check
+    const ByteVector* ExtensionData() const;
 
-    // really don't like the design of this. suggestions welcome on improvement
-    HRESULT UpdateDerivedFields();
+    // needed to implement by hand for integrity check
+    const MT_RenegotiatedConnection* RenegotiatedConnection() const;
+
+    // not a normal accessor, so we can push the new value into ExtensionData
+    HRESULT SetRenegotiatedConnection(const MT_RenegotiatedConnection* pRenegotiatedConnection);
 
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT CheckExtensionDataIntegrity() const;
 
     MT_RenegotiatedConnection m_renegotiatedConnection;
 };
 
+/*
+** TLS 1.2:
+** select (extensions_present) {
+**     case false:
+**         struct {};
+**     case true:
+**         Extension extensions<0..2^16-1>;
+** };
+*/
 typedef MT_VariableLengthField<
             MT_Extension,
             c_cbHelloExtensions_LFL,
             c_cbHelloExtensions_MinLength,
             c_cbHelloExtensions_MaxLength>
         MT_HelloExtensions;
-
-enum MT_CipherSuiteValue
-{
-    MTCS_UNKNOWN                               = 0xFFFF,
-    MTCS_TLS_RSA_WITH_NULL_NULL                = 0x0000,
-    MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
-    MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
-    MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
-    MTCS_TLS_RSA_WITH_RC4_128_MD5              = 0x0004,
-    MTCS_TLS_RSA_WITH_RC4_128_SHA              = 0x0005,
-    MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA         = 0x000A,
-    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA          = 0x002F,
-    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA          = 0x0035,
-    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256       = 0x003C,
-    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256       = 0x003D
-};
 
 const std::vector<MT_CipherSuiteValue>* GetCipherSuitePreference();
 bool IsKnownCipherSuite(MT_CipherSuiteValue eSuite);
@@ -437,6 +577,7 @@ ChooseBestCipherSuite(
     const std::vector<MT_CipherSuiteValue>* pveServerPreference,
     MT_CipherSuiteValue* pePreferredCipherSuite);
 
+// TLS 1.0: CipherSuite cipher_suites<2..2^16-1>;
 typedef MT_VariableLengthField<
             MT_CipherSuite,
             c_cbCipherSuites_LFL,
@@ -444,19 +585,17 @@ typedef MT_VariableLengthField<
             c_cbCipherSuites_MaxLength>
         MT_CipherSuites;
 
+// TLS 1.0: opaque SessionID<0..32>;
 class MT_SessionID : public MT_VariableLengthByteField<
                                 c_cbSessionID_LFL,
                                 c_cbSessionID_MinLength,
                                 c_cbSessionID_MaxLength>
 {
     public:
-    MT_SessionID()
-        : MT_VariableLengthByteField()
-    { }
-
     HRESULT PopulateWithRandom();
 };
 
+// TLS 1.0: enum { null(0), (255) } CompressionMethod;
 class MT_CompressionMethod : public MT_Structure
 {
     public:
@@ -480,6 +619,7 @@ class MT_CompressionMethod : public MT_Structure
     MTCM_Method m_eMethod;
 };
 
+// TLS 1.0: CompressionMethod compression_methods<1..2^8-1>;
 typedef MT_VariableLengthField<
             MT_CompressionMethod,
             c_cbCompressionMethods_LFL,
@@ -487,13 +627,29 @@ typedef MT_VariableLengthField<
             c_cbCompressionMethods_MaxLength>
         MT_CompressionMethods;
 
+/*
+** TLS 1.0:
+** struct {
+**     ProtocolVersion client_version;
+**     Random random;
+**     SessionID session_id;
+**     CipherSuite cipher_suites<2..2^16-2>;
+**     CompressionMethod compression_methods<1..2^8-1>;
+**     select (extensions_present) {
+**         case false:
+**             struct {};
+**         case true:
+**             Extension extensions<0..2^16-1>;
+**     };
+** } ClientHello;
+*/
 class MT_ClientHello : public MT_Structure
 {
     public:
     MT_ClientHello();
     ~MT_ClientHello() { }
 
-    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
+    ACCESSORS(MT_ProtocolVersion*, ClientVersion, &m_clientVersion);
     ACCESSORS(MT_Random*, Random, &m_random);
     ACCESSORS(MT_SessionID*, SessionID, &m_sessionID);
     ACCESSORS(MT_CipherSuites*, CipherSuites, &m_cipherSuites);
@@ -505,7 +661,7 @@ class MT_ClientHello : public MT_Structure
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
 
-    MT_ProtocolVersion m_protocolVersion;
+    MT_ProtocolVersion m_clientVersion;
     MT_Random m_random;
     MT_SessionID m_sessionID;
     MT_CipherSuites m_cipherSuites;
@@ -513,12 +669,14 @@ class MT_ClientHello : public MT_Structure
     MT_HelloExtensions m_extensions;
 };
 
+// TLS 1.0: opaque ASN.1Cert<1..2^24-1>;
 typedef MT_VariableLengthByteField<
             c_cbASN1Cert_LFL,
             c_cbASN1Cert_MinLength,
             c_cbASN1Cert_MaxLength>
         MT_ASN1Cert;
 
+// TLS 1.0: ASN.1Cert certificate_list<0..2^24-1>;
 typedef MT_VariableLengthField<
             MT_ASN1Cert,
             c_cbASN1Certs_LFL,
@@ -526,8 +684,15 @@ typedef MT_VariableLengthField<
             c_cbASN1Certs_MaxLength>
         MT_CertificateList;
 
+// TLS 1.0: opaque verify_data[verify_data_length];
 typedef MT_FixedLengthByteStructure<c_cbFinishedVerifyData_Length> MT_FinishedVerifyData;
 
+/*
+** contains all kinds of information about the unidirectional connection
+** between the client and the server. this is most usefully used to represent
+** state that is in the process of being negotiated or renegotiated. it is a
+** partial representation of the TLS 1.0+ SecurityParameters structure.
+*/
 class EndpointParameters
 {
     public:
@@ -562,6 +727,12 @@ class EndpointParameters
     MT_UINT64 m_seqNum;
 };
 
+/*
+** the state of a pair of endpoints, either fully handshaked or in the process
+** of handshaking (negotiation or renegotiation). Primarily, it consists of
+** an endpoint state for both the outgoing and incoming directions, plus some
+** other various state
+*/
 class ConnectionParameters
 {
     public:
@@ -589,12 +760,15 @@ class ConnectionParameters
     ACCESSORS(std::vector<std::shared_ptr<MT_Structure>>*, HandshakeMessages, &m_vHandshakeMessages);
     ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
 
+    /*
+    ** the endpoint-specific parameters can be copied easily using the
+    ** accessors for ReadParams and WriteParams. This copies the rest of it
+    */
     HRESULT CopyCommonParamsTo(ConnectionParameters* pDest);
 
     bool IsHandshakeInProgress() const;
 
-    HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
-    HRESULT GenerateKeyMaterial();
+    HRESULT GenerateKeyMaterial(const MT_PreMasterSecret* pPreMasterSecret);
 
     HRESULT
     ComputePRF(
@@ -605,6 +779,8 @@ class ConnectionParameters
         ByteVector* pvbPRF);
 
     private:
+    HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
+
     MT_CertificateList m_certChain;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
 
@@ -615,8 +791,6 @@ class ConnectionParameters
     MT_FinishedVerifyData m_serverVerifyData;
 
     ByteVector m_vbMasterSecret;
-    ByteVector m_vbClientWriteKey;
-    ByteVector m_vbServerWriteKey;
 
     EndpointParameters m_readParams;
     EndpointParameters m_writeParams;
@@ -624,6 +798,13 @@ class ConnectionParameters
     std::vector<std::shared_ptr<MT_Structure>> m_vHandshakeMessages;
 };
 
+/*
+** an interface that allows a piece of data to be associated with an endpoint
+** in a connection. for instance, something that's tied to the current crypto
+** algorithms in use or the protocol version currently negotiated. Really, most
+** of what this does is provide the EndParams member. I don't think this is
+** actually used as a polymorphism tool currently (i.e. no MT_Securable* used)
+*/
 class MT_Securable
 {
     public:
@@ -636,11 +817,16 @@ class MT_Securable
     virtual HRESULT SetSecurityParameters(EndpointParameters* pEndParams) { m_pEndParams = pEndParams; return S_OK; }
 
     private:
+    // check the security aspects of this structure, e.g. MAC or something
     virtual HRESULT CheckSecurityPriv() = 0;
 
     EndpointParameters* m_pEndParams;
 };
 
+/*
+** like MT_Securable, this is basically a class to provide access to a Conn()
+** member, for structures that are attached to a whole connection
+*/
 class MT_ConnectionAware
 {
     public:
@@ -654,6 +840,13 @@ class MT_ConnectionAware
     TLSConnection* m_pConnection;
 };
 
+/*
+** TLS 1.0:
+** A public-key-encrypted element is encoded as an opaque vector <0..2^16-1>...
+**
+** this contains both the raw and encrypted bytes of the structure, and is only
+** used for decrypting, not encrypting currently.
+*/
 template <typename T>
 class MT_PublicKeyEncryptedStructure : public MT_Structure
 {
@@ -663,8 +856,7 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
 
     virtual size_t Length() const;
 
-    HRESULT DecryptStructure();
-    ACCESSORS(std::shared_ptr<PublicKeyCipherer>*, Cipherer, &m_spCipherer);
+    HRESULT DecryptStructure(PublicKeyCipherer* pCipherer);
 
     ACCESSORS(T*, Structure, &m_structure);
     ACCESSORS(ByteVector*, EncryptedStructure, &m_vbEncryptedStructure);
@@ -676,9 +868,15 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     T m_structure;
     ByteVector m_vbPlaintextStructure;
     ByteVector m_vbEncryptedStructure;
-    std::shared_ptr<PublicKeyCipherer> m_spCipherer;
 };
 
+/*
+** TLS 1.0:
+** enum {
+**     change_cipher_spec(20), alert(21), handshake(22),
+**     application_data(23), (255)
+** } ContentType;
+*/
 class MT_ContentType : public MT_Structure
 {
     public:
@@ -697,20 +895,21 @@ class MT_ContentType : public MT_Structure
     size_t Length() const { return c_cbContentType_Length; }
     ACCESSORS(MTCT_Type*, Type, &m_eType);
 
-    static bool IsValidContentType(MTCT_Type eType);
-
     std::wstring ToString() const;
 
     private:
-    static const MTCT_Type c_rgeValidTypes[];
-    static const ULONG c_cValidTypes;
-
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     MTCT_Type m_eType;
 };
 
+/*
+** represents a record layer message, either TLSCompresssed/TLSPlaintext or
+** TLSCiphertext, all of which have a few common members. usually this is only
+** used when we have messages that are inbound or outbound, and we don't care
+** about what type they are--they just need to be sent.
+*/
 class MT_RecordLayerMessage : public MT_Structure, public MT_ConnectionAware
 {
     public:
@@ -736,21 +935,27 @@ class MT_RecordLayerMessage : public MT_Structure, public MT_ConnectionAware
 
 
 
+// nothing special going on with plaintext beyond being a record layer message
 class MT_TLSPlaintext : public MT_RecordLayerMessage
 {
 };
 
+/*
+** a plaintext message that knows how to encrypt and decrypt itself with the
+** current endpoint parameters. the cipher fragment keeps track of both the
+** encrypted and plaintext data
+**
+** interestingly, SetSecurityParameters and UpdateFragmentSecurity are the
+** two crucial functions here that lead to decryping and encrypting,
+** respectively
+*/
 class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
 {
     public:
     MT_TLSCiphertext();
     ~MT_TLSCiphertext() {};
 
-    // TODO: dangerous
     ACCESSORS(MT_CipherFragment*, CipherFragment, m_spCipherFragment.get());
-
-    HRESULT Encrypt();
-    HRESULT Decrypt();
 
     HRESULT ToTLSPlaintext(MT_TLSPlaintext* pPlaintext);
 
@@ -762,6 +967,8 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
         std::shared_ptr<MT_TLSCiphertext>* pspCiphertext);
 
     HRESULT SetSecurityParameters(EndpointParameters* pEndParams);
+    HRESULT Encrypt();
+    HRESULT Decrypt();
 
     HRESULT UpdateFragmentSecurity();
 
@@ -771,9 +978,42 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     std::shared_ptr<MT_CipherFragment> m_spCipherFragment;
 };
 
+/*
+** TLS 1.0:
+** struct {
+**     HandshakeType msg_type;    // handshake type
+**     uint24 length;             // bytes in message
+**     select (HandshakeType) {
+**         case hello_request:       HelloRequest;
+**         case client_hello:        ClientHello;
+**         case server_hello:        ServerHello;
+**         case certificate:         Certificate;
+**         case server_key_exchange: ServerKeyExchange;
+**         case certificate_request: CertificateRequest;
+**         case server_hello_done:   ServerHelloDone;
+**         case certificate_verify:  CertificateVerify;
+**         case client_key_exchange: ClientKeyExchange;
+**         case finished:            Finished;
+**     } body;
+** } Handshake;
+**
+** a container message, kind of like a record layer message, in which many
+** different types of handshake data are passed
+*/
 class MT_Handshake : public MT_Structure
 {
     public:
+
+    /*
+    ** TLS 1.0
+    ** enum {
+    **     hello_request(0), client_hello(1), server_hello(2),
+    **     certificate(11), server_key_exchange (12),
+    **     certificate_request(13), server_hello_done(14),
+    **     certificate_verify(15), client_key_exchange(16),
+    **     finished(20), (255)
+    ** } HandshakeType;
+    */
     enum MTH_HandshakeType
     {
         MTH_HelloRequest = 0,
@@ -805,9 +1045,7 @@ class MT_Handshake : public MT_Structure
 
     private:
     static const MTH_HandshakeType c_rgeKnownTypes[];
-    static const ULONG c_cKnownTypes;
     static const MTH_HandshakeType c_rgeSupportedTypes[];
-    static const ULONG c_cSupportedTypes;
 
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
@@ -1371,4 +1609,3 @@ ParseStructures(
     const ByteVector* pvb,
     std::vector<T>* pvStructures);
 }
-#pragma warning(pop)
