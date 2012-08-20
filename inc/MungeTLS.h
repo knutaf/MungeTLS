@@ -1442,6 +1442,8 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
 
     virtual size_t Length() const;
 
+    virtual HRESULT UpdateWriteSecurity() = 0;
+
     ACCESSORS(ByteVector*, Content, &m_vbContent);
     ACCESSORS(ByteVector*, RawContent, &m_vbRawContent);
 
@@ -1469,10 +1471,7 @@ class MT_GenericStreamCipher : public MT_CipherFragment
     MT_GenericStreamCipher(MT_TLSCiphertext* pCiphertext);
     ~MT_GenericStreamCipher() { }
 
-    HRESULT
-    UpdateWriteSecurity(
-        const MT_ContentType* pContentType,
-        const MT_ProtocolVersion* pProtocolVersion);
+    HRESULT UpdateWriteSecurity();
 
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
 
@@ -1501,10 +1500,7 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
     ACCESSORS(ByteVector*, Padding, &m_vbPadding);
     MT_UINT8 PaddingLength() const;
 
-    HRESULT
-    UpdateWriteSecurity(
-        const MT_ContentType* pContentType,
-        const MT_ProtocolVersion* pProtocolVersion);
+    HRESULT UpdateWriteSecurity();
 
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
@@ -1534,10 +1530,7 @@ class MT_GenericBlockCipher_TLS11 : public MT_CipherFragment
     ACCESSORS(ByteVector*, Padding, &m_vbPadding);
     MT_UINT8 PaddingLength() const;
 
-    HRESULT
-    UpdateWriteSecurity(
-        const MT_ContentType* pContentType,
-        const MT_ProtocolVersion* pProtocolVersion);
+    HRESULT UpdateWriteSecurity();
 
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);

@@ -3331,67 +3331,16 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
 {
     HRESULT hr = S_OK;
 
-    if (EndParams()->Cipher()->type == CipherType_Stream)
+    if (EndParams()->Cipher()->type == CipherType_Stream ||
+        (EndParams()->Cipher()->type == CipherType_Block &&
+         (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10 ||
+          *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11 ||
+          *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)))
     {
-        MT_GenericStreamCipher* pStreamCipher = static_cast<MT_GenericStreamCipher*>(CipherFragment());
-
-        hr = pStreamCipher->UpdateWriteSecurity(
-                  ContentType(),
-                  ProtocolVersion());
-
+        hr = CipherFragment()->UpdateWriteSecurity();
         if (hr != S_OK)
         {
             goto error;
-        }
-    }
-    else if (EndParams()->Cipher()->type == CipherType_Block)
-    {
-        if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
-        {
-            MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(CipherFragment());
-
-            hr = pBlockCipher->UpdateWriteSecurity(
-                      ContentType(),
-                      ProtocolVersion());
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
-        }
-        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
-        {
-            MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(CipherFragment());
-
-            *pBlockCipher->IVNext() = *EndParams()->IV();
-
-            hr = pBlockCipher->UpdateWriteSecurity(
-                      ContentType(),
-                      ProtocolVersion());
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
-        }
-        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
-        {
-            MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(CipherFragment());
-
-            *pBlockCipher->IVNext() = *EndParams()->IV();
-
-            hr = pBlockCipher->UpdateWriteSecurity(
-                      ContentType(),
-                      ProtocolVersion());
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
-        }
-        else
-        {
-            assert(false);
         }
     }
     else
@@ -5103,9 +5052,7 @@ error:
 } // end function ParseFromPriv
 
 HRESULT
-MT_GenericStreamCipher::UpdateWriteSecurity(
-    const MT_ContentType* pContentType,
-    const MT_ProtocolVersion* pProtocolVersion)
+MT_GenericStreamCipher::UpdateWriteSecurity()
 {
     HRESULT hr = S_OK;
     BYTE* pv = nullptr;
@@ -5116,8 +5063,8 @@ MT_GenericStreamCipher::UpdateWriteSecurity(
     hr = ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
-              pContentType,
-              pProtocolVersion,
+              Ciphertext()->ContentType(),
+              Ciphertext()->ProtocolVersion(),
               MAC());
 
     if (hr != S_OK)
@@ -5439,9 +5386,7 @@ error:
 } // end function ParseFromPriv
 
 HRESULT
-MT_GenericBlockCipher_TLS10::UpdateWriteSecurity(
-    const MT_ContentType* pContentType,
-    const MT_ProtocolVersion* pProtocolVersion)
+MT_GenericBlockCipher_TLS10::UpdateWriteSecurity()
 {
     HRESULT hr = S_OK;
     BYTE* pv = nullptr;
@@ -5452,8 +5397,8 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity(
     hr = ComputeSecurityInfo(
              *EndParams()->SequenceNumber(),
              EndParams()->MACKey(),
-             pContentType,
-             pProtocolVersion,
+             Ciphertext()->ContentType(),
+             Ciphertext()->ProtocolVersion(),
              MAC(),
              Padding());
 
@@ -5872,9 +5817,7 @@ error:
 } // end function ParseFromPriv
 
 HRESULT
-MT_GenericBlockCipher_TLS11::UpdateWriteSecurity(
-    const MT_ContentType* pContentType,
-    const MT_ProtocolVersion* pProtocolVersion)
+MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
 {
     HRESULT hr = S_OK;
     BYTE* pv = nullptr;
@@ -5882,11 +5825,13 @@ MT_GenericBlockCipher_TLS11::UpdateWriteSecurity(
     size_t cbField = 0;
     ByteVector vbDecryptedStruct;
 
+    *IVNext() = *EndParams()->IV();
+
     hr = ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
-              pContentType,
-              pProtocolVersion,
+              Ciphertext()->ContentType(),
+              Ciphertext()->ProtocolVersion(),
               MAC(),
               Padding());
 
