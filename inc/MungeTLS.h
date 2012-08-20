@@ -972,6 +972,8 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
 
     HRESULT UpdateFragmentSecurity();
 
+    HRESULT GetProtocolVersionForSecurity(MT_ProtocolVersion* pVersion);
+
     private:
     HRESULT CheckSecurityPriv();
 
@@ -1179,7 +1181,7 @@ class ITLSListener
     virtual
     HRESULT
     OnReconcileSecurityVersion(
-        MT_TLSCiphertext* pCiphertext,
+        const MT_TLSCiphertext* pCiphertext,
         MT_ProtocolVersion::MTPV_Version connVersion,
         MT_ProtocolVersion::MTPV_Version recordVersion,
         MT_ProtocolVersion::MTPV_Version* pOverrideVersion) = 0;
@@ -1431,12 +1433,11 @@ class MT_Finished : public MT_Structure, public MT_Securable
 **
 ** this is mostly a base class for any of the cipher fragment types, which all
 ** know how to encrypt, decrypt, and verify themselves in their own way
-** TODO: pass through check security priv. have subclasses have a pointer to the ciphertext. call back up into the ciphertext to get the protocol version and cipher suite to be used for security
 */
 class MT_CipherFragment : public MT_Structure, public MT_Securable
 {
     public:
-    MT_CipherFragment();
+    MT_CipherFragment(MT_TLSCiphertext* pCiphertext);
     virtual ~MT_CipherFragment() { }
 
     virtual size_t Length() const;
@@ -1445,14 +1446,14 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
     ACCESSORS(ByteVector*, RawContent, &m_vbRawContent);
 
     protected:
+    MT_TLSCiphertext* Ciphertext() { return m_pCiphertext; }
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
     private:
-    HRESULT CheckSecurityPriv() { assert(false); return E_NOTIMPL; }
-
     ByteVector m_vbContent;
     ByteVector m_vbRawContent;
+    MT_TLSCiphertext* m_pCiphertext;
 };
 
 /*
@@ -1465,7 +1466,7 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
 class MT_GenericStreamCipher : public MT_CipherFragment
 {
     public:
-    MT_GenericStreamCipher();
+    MT_GenericStreamCipher(MT_TLSCiphertext* pCiphertext);
     ~MT_GenericStreamCipher() { }
 
     HRESULT
@@ -1475,13 +1476,9 @@ class MT_GenericStreamCipher : public MT_CipherFragment
 
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
 
-    HRESULT
-    CheckSecurity(
-        const MT_ContentType* pContentType,
-        const MT_ProtocolVersion* pProtocolVersion);
-
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT CheckSecurityPriv();
 
     HRESULT
     ComputeSecurityInfo(
@@ -1497,7 +1494,7 @@ class MT_GenericStreamCipher : public MT_CipherFragment
 class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
 {
     public:
-    MT_GenericBlockCipher_TLS10();
+    MT_GenericBlockCipher_TLS10(MT_TLSCiphertext* pCiphertext);
     ~MT_GenericBlockCipher_TLS10() { }
 
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
@@ -1509,13 +1506,9 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
         const MT_ContentType* pContentType,
         const MT_ProtocolVersion* pProtocolVersion);
 
-    HRESULT
-    CheckSecurity(
-        const MT_ContentType* pContentType,
-        const MT_ProtocolVersion* pProtocolVersion);
-
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT CheckSecurityPriv();
 
     HRESULT
     ComputeSecurityInfo(
@@ -1533,7 +1526,7 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
 class MT_GenericBlockCipher_TLS11 : public MT_CipherFragment
 {
     public:
-    MT_GenericBlockCipher_TLS11();
+    MT_GenericBlockCipher_TLS11(MT_TLSCiphertext* pCiphertext);
     ~MT_GenericBlockCipher_TLS11() { }
 
     ACCESSORS(ByteVector*, IVNext, &m_vbIVNext);
@@ -1546,13 +1539,9 @@ class MT_GenericBlockCipher_TLS11 : public MT_CipherFragment
         const MT_ContentType* pContentType,
         const MT_ProtocolVersion* pProtocolVersion);
 
-    HRESULT
-    CheckSecurity(
-        const MT_ContentType* pContentType,
-        const MT_ProtocolVersion* pProtocolVersion);
-
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT CheckSecurityPriv();
 
     HRESULT
     ComputeSecurityInfo(

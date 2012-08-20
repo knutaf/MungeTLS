@@ -815,7 +815,7 @@ error:
 */
 HRESULT
 SimpleHTTPServer::OnReconcileSecurityVersion(
-    MT_TLSCiphertext* pCiphertext,
+    const MT_TLSCiphertext* pCiphertext,
     MT_ProtocolVersion::MTPV_Version connVersion,
     MT_ProtocolVersion::MTPV_Version recordVersion,
     MT_ProtocolVersion::MTPV_Version* pOverrideVersion)

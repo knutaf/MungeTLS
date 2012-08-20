@@ -3199,21 +3199,21 @@ MT_TLSCiphertext::SetSecurityParameters(
 
     if (EndParams()->Cipher()->type == CipherType_Stream)
     {
-        m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericStreamCipher());
+        m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericStreamCipher(this));
     }
     else if (EndParams()->Cipher()->type == CipherType_Block)
     {
         if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
         {
-            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS10());
+            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS10(this));
         }
         else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
         {
-            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS11());
+            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS11(this));
         }
         else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
         {
-            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS12());
+            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS12(this));
         }
         else
         {
@@ -3407,9 +3407,12 @@ error:
 } // end function UpdateFragmentSecurity
 
 HRESULT
-MT_TLSCiphertext::CheckSecurityPriv()
+MT_TLSCiphertext::GetProtocolVersionForSecurity(
+    MT_ProtocolVersion* pVersion
+)
 {
     HRESULT hr = S_OK;
+
     MT_ProtocolVersion hashVersion(*ProtocolVersion());
 
     /*
@@ -3443,61 +3446,34 @@ MT_TLSCiphertext::CheckSecurityPriv()
             goto error;
         }
         // else retain current record's protocol version
+
+        hr = S_OK;
     }
 
-    if (EndParams()->Cipher()->type == CipherType_Stream)
-    {
-        MT_GenericStreamCipher* pStreamCipher = static_cast<MT_GenericStreamCipher*>(CipherFragment());
-        hr = pStreamCipher->CheckSecurity(
-                 ContentType(),
-                 &hashVersion);
+    *pVersion = hashVersion;
 
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function GetProtocolVersionForSecurity
+
+HRESULT
+MT_TLSCiphertext::CheckSecurityPriv()
+{
+    HRESULT hr = S_OK;
+
+    if (EndParams()->Cipher()->type == CipherType_Stream ||
+        (EndParams()->Cipher()->type == CipherType_Block &&
+         (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10 ||
+          *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11 ||
+          *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)))
+    {
+        hr = CipherFragment()->CheckSecurity();
         if (hr != S_OK)
         {
             goto error;
-        }
-    }
-    else if (EndParams()->Cipher()->type == CipherType_Block)
-    {
-        if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
-        {
-            MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(CipherFragment());
-            hr = pBlockCipher->CheckSecurity(
-                     ContentType(),
-                     &hashVersion);
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
-        }
-        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
-        {
-            MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(CipherFragment());
-            hr = pBlockCipher->CheckSecurity(
-                     ContentType(),
-                     &hashVersion);
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
-        }
-        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
-        {
-            MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(CipherFragment());
-            hr = pBlockCipher->CheckSecurity(
-                     ContentType(),
-                     &hashVersion);
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
-        }
-        else
-        {
-            assert(false);
         }
     }
     else
@@ -4992,11 +4968,14 @@ error:
 
 /*********** MT_CipherFragment *****************/
 
-MT_CipherFragment::MT_CipherFragment()
+MT_CipherFragment::MT_CipherFragment(
+    MT_TLSCiphertext* pCiphertext
+)
     : MT_Structure(),
       MT_Securable(),
       m_vbContent(),
-      m_vbRawContent()
+      m_vbRawContent(),
+      m_pCiphertext(pCiphertext)
 {
 } // end ctor MT_CipherFragment
 
@@ -5060,8 +5039,10 @@ MT_CipherFragment::Length() const
 
 /*********** MT_GenericStreamCipher *****************/
 
-MT_GenericStreamCipher::MT_GenericStreamCipher()
-    : MT_CipherFragment(),
+MT_GenericStreamCipher::MT_GenericStreamCipher(
+    MT_TLSCiphertext* pCiphertext
+)
+    : MT_CipherFragment(pCiphertext),
       m_vbMAC()
 {
 } // end ctor MT_GenericStreamCipher
@@ -5301,19 +5282,23 @@ error:
 } // end function ComputeSecurityInfo
 
 HRESULT
-MT_GenericStreamCipher::CheckSecurity(
-    const MT_ContentType* pContentType,
-    const MT_ProtocolVersion* pProtocolVersion
-)
+MT_GenericStreamCipher::CheckSecurityPriv()
 {
     HRESULT hr = S_OK;
     ByteVector vbMAC;
+    MT_ProtocolVersion hashVersion;
+
+    hr = Ciphertext()->GetProtocolVersionForSecurity(&hashVersion);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
     hr = ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
-              pContentType,
-              pProtocolVersion,
+              Ciphertext()->ContentType(),
+              &hashVersion,
               &vbMAC);
 
     if (hr != S_OK)
@@ -5338,12 +5323,14 @@ done:
 
 error:
     goto done;
-} // end function CheckSecurity
+} // end function CheckSecurityPriv
 
 /*********** MT_GenericBlockCipher_TLS10 *****************/
 
-MT_GenericBlockCipher_TLS10::MT_GenericBlockCipher_TLS10()
-    : MT_CipherFragment(),
+MT_GenericBlockCipher_TLS10::MT_GenericBlockCipher_TLS10(
+    MT_TLSCiphertext* pCiphertext
+)
+    : MT_CipherFragment(pCiphertext),
       m_vbMAC(),
       m_vbPadding()
 {
@@ -5709,21 +5696,24 @@ error:
 } // end function ComputeSecurityInfo
 
 HRESULT
-MT_GenericBlockCipher_TLS10::CheckSecurity(
-    const MT_ContentType* pContentType,
-    const MT_ProtocolVersion* pProtocolVersion
-)
+MT_GenericBlockCipher_TLS10::CheckSecurityPriv()
 {
     HRESULT hr = S_OK;
-
     ByteVector vbMAC;
     ByteVector vbPadding;
+    MT_ProtocolVersion hashVersion;
+
+    hr = Ciphertext()->GetProtocolVersionForSecurity(&hashVersion);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
     hr = ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
-              pContentType,
-              pProtocolVersion,
+              Ciphertext()->ContentType(),
+              &hashVersion,
               &vbMAC,
               &vbPadding);
 
@@ -5761,12 +5751,14 @@ done:
 
 error:
     goto done;
-} // end function CheckSecurity
+} // end function CheckSecurityPriv
 
 /*********** MT_GenericBlockCipher_TLS11 *****************/
 
-MT_GenericBlockCipher_TLS11::MT_GenericBlockCipher_TLS11()
-    : MT_CipherFragment(),
+MT_GenericBlockCipher_TLS11::MT_GenericBlockCipher_TLS11(
+    MT_TLSCiphertext* pCiphertext
+)
+    : MT_CipherFragment(pCiphertext),
       m_vbIVNext(),
       m_vbMAC(),
       m_vbPadding()
@@ -6151,21 +6143,24 @@ error:
 } // end function ComputeSecurityInfo
 
 HRESULT
-MT_GenericBlockCipher_TLS11::CheckSecurity(
-    const MT_ContentType* pContentType,
-    const MT_ProtocolVersion* pProtocolVersion
-)
+MT_GenericBlockCipher_TLS11::CheckSecurityPriv()
 {
     HRESULT hr = S_OK;
-
     ByteVector vbMAC;
     ByteVector vbPadding;
+    MT_ProtocolVersion hashVersion;
+
+    hr = Ciphertext()->GetProtocolVersionForSecurity(&hashVersion);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
     hr = ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
-              pContentType,
-              pProtocolVersion,
+              Ciphertext()->ContentType(),
+              &hashVersion,
               &vbMAC,
               &vbPadding);
 
@@ -6203,7 +6198,7 @@ done:
 
 error:
     goto done;
-} // end function CheckSecurity
+} // end function CheckSecurityPriv
 
 /*********** MT_Alert *****************/
 
