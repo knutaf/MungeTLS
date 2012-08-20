@@ -1054,6 +1054,25 @@ class MT_Handshake : public MT_Structure
     ByteVector m_vbBody;
 };
 
+/*
+** TLS 1.2:
+** struct {
+**     ProtocolVersion server_version;
+**     Random random;
+**     SessionID session_id;
+**     CipherSuite cipher_suite;
+**     CompressionMethod compression_method;
+**     select (extensions_present) {
+**         case false:
+**             struct {};
+**         case true:
+**             Extension extensions<0..2^16-1>;
+**     };
+** } ServerHello;
+**
+** This responds to the client hello and chooses single parameters for cipher
+** suite, etc.. based on the available choices from the client.
+*/
 class MT_ServerHello : public MT_Structure
 {
     public:
@@ -1061,9 +1080,8 @@ class MT_ServerHello : public MT_Structure
     ~MT_ServerHello() { }
 
     size_t Length() const;
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
+    ACCESSORS(MT_ProtocolVersion*, ServerVersion, &m_serverVersion);
     ACCESSORS(MT_Random*, Random, &m_random);
     ACCESSORS(MT_SessionID*, SessionID, &m_sessionID);
     ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
@@ -1071,7 +1089,9 @@ class MT_ServerHello : public MT_Structure
     ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions);
 
     private:
-    MT_ProtocolVersion m_protocolVersion;
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    MT_ProtocolVersion m_serverVersion;
     MT_Random m_random;
     MT_SessionID m_sessionID;
     MT_CipherSuite m_cipherSuite;
@@ -1079,14 +1099,25 @@ class MT_ServerHello : public MT_Structure
     MT_HelloExtensions m_extensions;
 };
 
+/*
+** this is the contract between the calling app and MungeTLS as to what
+** callbacks it has to implement. These are all used to give the app
+** visibility and input into the TLS protocol in action
+*/
 class ITLSListener
 {
     public:
+    // called when MTLS has bytes to be sent to the client
     virtual HRESULT OnSend(const ByteVector* pvb) = 0;
-    virtual HRESULT OnReceivedApplicationData(const ByteVector* pvb) = 0;
-    virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
-    virtual HRESULT OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite) = 0;
 
+    // called when MTLS has received bytes from the client
+    virtual HRESULT OnReceivedApplicationData(const ByteVector* pvb) = 0;
+
+    /*
+    ** called when a new handshake is starting and MTLS needs (usually
+    ** platform-specific) cipherer and hasher objects from the app. the app
+    ** also tells the cert chain to use
+    */
     virtual
     HRESULT
     OnInitializeCrypto(
@@ -1096,12 +1127,55 @@ class ITLSListener
         std::shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
         std::shared_ptr<Hasher>* pspHasher) = 0;
 
+    /*
+    ** called during the handshake when filling in ServerHello.server_version
+    ** app should modify pProtocolVersion to set the version they want, or say
+    ** "ignored" to use ClientHello.client_version
+    */
+    virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
+
+    /*
+    ** called during handshake to choose the cipher suite to be used in the
+    ** TLS connection. the app should set pCipherSuite to indicate which
+    ** to use. the ClientHello message is passed in so the app can see the
+    ** available options. Of course, it can pick something out of the list for
+    ** testing if it wants
+    **
+    ** if the app says "ignore", MTLS chooses from a built-in list
+    ** (c_rgeCipherSuitePreference)
+    */
+    virtual HRESULT OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite) = 0;
+
+    /*
+    ** caller can choose flags for handshake messages. at this point the only
+    ** choice is whether consecutive handshake messages should be combined into
+    ** a single record layer message or separate ones
+    */
     virtual HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags) = 0;
 
-    virtual HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
-    virtual HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
+    /*
+    ** tells the app that the handshake is complete, and they can start sending
+    ** application layer data. of course, they could always try to send app
+    ** data messages earlier for testing purposes
+    */
     virtual HRESULT OnHandshakeComplete() = 0;
 
+    /*
+    ** called when MTLS has readied a record layer message to be sent. this is
+    ** called with the plaintext version of the message regardless of whether
+    ** it is going to be transmitted as encrypted, generally for logging
+    ** purposes
+    */
+    virtual HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
+
+    // same as OnEnqueuePlaintext, but for receiving a decrypted message
+    virtual HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
+
+    /*
+    ** called when a record layer message is received with a different version
+    ** than the current connection parameters know about. usually indicates a
+    ** bug in the other side's TLS implementation
+    */
     virtual
     HRESULT
     OnReconcileSecurityVersion(
@@ -1111,6 +1185,20 @@ class ITLSListener
         MT_ProtocolVersion::MTPV_Version* pOverrideVersion) = 0;
 };
 
+/*
+** this is really the top-level entrypoint into MungeTLS. what a shame C++
+** forces me to put it so far down in the file. a calling app creates a
+** TLSConnection instance, passing in an interface for listening. it then
+** calls HandleMessage whenever it receives bytes from the client. similarly,
+** it has functions for sending data.
+**
+** TLSConnection will call back into the app on the IListener interface
+** synchronously under HandleMessage, so the app needs to be reentrant that way
+**
+** there are functions for creating plaintext and ciphertext messages. these
+** are member functions because they take input from the current connection
+** state, especially as it relates to crypto parameters in use
+*/
 class TLSConnection
 {
     public:
@@ -1121,9 +1209,6 @@ class TLSConnection
     virtual ~TLSConnection() { }
 
     HRESULT Initialize();
-
-    HRESULT StartNextHandshake(const MT_ClientHello* pClientHello);
-    HRESULT FinishNextHandshake();
 
     HRESULT HandleMessage(ByteVector* pvb);
 
@@ -1168,9 +1253,10 @@ class TLSConnection
 
     private:
     HRESULT InitializeConnection(ConnectionParameters* pParams);
+    HRESULT StartNextHandshake(const MT_ClientHello* pClientHello);
+    HRESULT FinishNextHandshake();
 
     HRESULT RespondToClientHello();
-
     HRESULT RespondToFinished();
 
     HRESULT
@@ -1187,6 +1273,12 @@ class TLSConnection
     ITLSListener* m_pListener;
 };
 
+/*
+** TLS 1.0:
+** struct {
+**     ASN.1Cert certificate_list<0..2^24-1>;
+** } Certificate;
+*/
 class MT_Certificate : public MT_Structure
 {
     public:
@@ -1204,6 +1296,13 @@ class MT_Certificate : public MT_Structure
     MT_CertificateList m_certificateList;
 };
 
+/*
+** TLS 1.0:
+** struct {
+**     ProtocolVersion client_version;
+**     opaque random[46];
+** } PreMasterSecret;
+*/
 class MT_PreMasterSecret : public MT_Structure
 {
     typedef MT_FixedLengthByteStructure<c_cbPreMasterSecretRandom_Length> OpaqueRandom;
@@ -1226,8 +1325,25 @@ class MT_PreMasterSecret : public MT_Structure
     OpaqueRandom m_random;
 };
 
+/*
+** TLS 1.0
+** struct {
+**     public-key-encrypted PreMasterSecret pre_master_secret;
+** } EncryptedPreMasterSecret;
+*/
 typedef MT_PublicKeyEncryptedStructure<MT_PreMasterSecret> MT_EncryptedPreMasterSecret;
 
+/*
+** TLS 1.0
+** struct {
+**     select (KeyExchangeAlgorithm) {
+**         case rsa: EncryptedPreMasterSecret;
+**         case diffie_hellman: DiffieHellmanClientPublicValue;
+**     } exchange_keys;
+** } ClientKeyExchange;
+**
+** Currently we only support RSA
+*/
 template <typename KeyType>
 class MT_ClientKeyExchange : public MT_Structure
 {
@@ -1246,6 +1362,12 @@ class MT_ClientKeyExchange : public MT_Structure
     std::shared_ptr<KeyType> m_spExchangeKeys;
 };
 
+/*
+** TLS 1.0
+** struct {
+**     enum { change_cipher_spec(1), (255) } type;
+** } ChangeCipherSpec;
+*/
 class MT_ChangeCipherSpec : public MT_Structure
 {
     public:
@@ -1269,6 +1391,12 @@ class MT_ChangeCipherSpec : public MT_Structure
     MTCCS_Type m_eType;
 };
 
+/*
+** TLS 1.0
+** struct {
+**     opaque verify_data[12];
+** } Finished;
+*/
 class MT_Finished : public MT_Structure, public MT_Securable
 {
     public:
@@ -1278,8 +1406,8 @@ class MT_Finished : public MT_Structure, public MT_Securable
     size_t Length() const { return VerifyData()->Length(); }
 
     ACCESSORS(MT_FinishedVerifyData*, VerifyData, &m_verifyData);
-    HRESULT ComputeVerifyData(PCSTR szLabel, ByteVector* pvbVerifyData);
 
+    HRESULT ComputeVerifyData(PCSTR szLabel, ByteVector* pvbVerifyData);
     HRESULT SetConnectionParameters(const ConnectionParameters* pConnectionParams) { m_pConnectionParams = pConnectionParams; return S_OK; }
 
     private:
@@ -1293,6 +1421,18 @@ class MT_Finished : public MT_Structure, public MT_Securable
     MT_FinishedVerifyData m_verifyData;
 };
 
+/*
+** TLS 1.2
+** select (SecurityParameters.cipher_type) {
+**     case stream: GenericStreamCipher;
+**     case block:  GenericBlockCipher;
+**     case aead:   GenericAEADCipher;
+** } fragment;
+**
+** this is mostly a base class for any of the cipher fragment types, which all
+** know how to encrypt, decrypt, and verify themselves in their own way
+** TODO: pass through check security priv. have subclasses have a pointer to the ciphertext. call back up into the ciphertext to get the protocol version and cipher suite to be used for security
+*/
 class MT_CipherFragment : public MT_Structure, public MT_Securable
 {
     public:
@@ -1315,6 +1455,13 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
     ByteVector m_vbRawContent;
 };
 
+/*
+** TLS 1.0
+** stream-ciphered struct {
+**     opaque content[TLSCompressed.length];
+**     opaque MAC[SecurityParameters.mac_length];
+** } GenericStreamCipher;
+*/
 class MT_GenericStreamCipher : public MT_CipherFragment
 {
     public:

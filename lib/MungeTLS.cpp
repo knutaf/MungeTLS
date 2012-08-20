@@ -797,7 +797,7 @@ TLSConnection::RespondToClientHello()
             extensions.Data()->push_back(renegotiationExtension);
         }
 
-        *(serverHello.ProtocolVersion()) = protocolVersion;
+        *(serverHello.ServerVersion()) = protocolVersion;
         *(serverHello.Random()) = random;
         *(serverHello.SessionID()) = sessionID;
 
@@ -4176,7 +4176,7 @@ error:
 
 MT_ServerHello::MT_ServerHello()
     : MT_Structure(),
-      m_protocolVersion(),
+      m_serverVersion(),
       m_random(),
       m_sessionID(),
       m_cipherSuite(),
@@ -4188,7 +4188,7 @@ MT_ServerHello::MT_ServerHello()
 size_t
 MT_ServerHello::Length() const
 {
-    size_t cbLength = ProtocolVersion()->Length() +
+    size_t cbLength = ServerVersion()->Length() +
                       Random()->Length() +
                       SessionID()->Length() +
                       CipherSuite()->Length() +
@@ -4209,9 +4209,9 @@ MT_ServerHello::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-    size_t cbField = ProtocolVersion()->Length();
+    size_t cbField = ServerVersion()->Length();
 
-    hr = ProtocolVersion()->Serialize(pv, cb);
+    hr = ServerVersion()->Serialize(pv, cb);
     if (hr != S_OK)
     {
         goto error;
