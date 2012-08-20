@@ -1490,6 +1490,15 @@ class MT_GenericStreamCipher : public MT_CipherFragment
     ByteVector m_vbMAC;
 };
 
+/*
+** TLS 1.0
+** block-ciphered struct {
+**     opaque content[TLSCompressed.length];
+**     opaque MAC[CipherSpec.hash_size];
+**     uint8 padding[GenericBlockCipher.padding_length];
+**     uint8 padding_length;
+** } GenericBlockCipher;
+*/
 class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
 {
     public:
@@ -1519,6 +1528,20 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
     ByteVector m_vbPadding;
 };
 
+/*
+** TLS 1.1
+** block-ciphered struct {
+**     opaque IV[CipherSpec.block_length];
+**     opaque content[TLSCompressed.length];
+**     opaque MAC[CipherSpec.hash_size];
+**     uint8 padding[GenericBlockCipher.padding_length];
+**     uint8 padding_length;
+** } GenericBlockCipher;
+**
+** Note the significant deviation from TLS 1.0 block cipher structure: the
+** inclusion of the IV field tells the initialization vector that will be used
+** for encrypting or decrypting the next cipher fragment sent or received.
+*/
 class MT_GenericBlockCipher_TLS11 : public MT_CipherFragment
 {
     public:
@@ -1550,9 +1573,30 @@ class MT_GenericBlockCipher_TLS11 : public MT_CipherFragment
     ByteVector m_vbPadding;
 };
 
-// same block structure format between 1.1 and 1.2
+/*
+** TLS 1.2 - A BIT WRONG
+** struct {
+**     opaque IV[SecurityParameters.record_iv_length];
+**     block-ciphered struct {
+**         opaque content[TLSCompressed.length];
+**         opaque MAC[SecurityParameters.mac_length];
+**         uint8 padding[GenericBlockCipher.padding_length];
+**         uint8 padding_length;
+**     };
+** } GenericBlockCipher;
+**
+** this is NOT the block cipher format we use for our implementation. The RFC
+** appears to have a bug in that IV is not within the block ciphered portion.
+** instead, we use the TLS 1.1 format, where the block cipher is included in
+** the encrypted part. this works in practice, whereas the one in the RFC does
+** not.
+*/
 typedef MT_GenericBlockCipher_TLS11 MT_GenericBlockCipher_TLS12;
 
+/*
+** TLS 1.0
+** enum { warning(1), fatal(2), (255) } AlertLevel;
+*/
 enum MT_AlertLevel
 {
     MTAL_Warning = 1,
@@ -1560,6 +1604,37 @@ enum MT_AlertLevel
     MTAL_Unknown = 255
 };
 
+/*
+** TLS 1.2
+** enum {
+**     close_notify(0),
+**     unexpected_message(10),
+**     bad_record_mac(20),
+**     decryption_failed_RESERVED(21),
+**     record_overflow(22),
+**     decompression_failure(30),
+**     handshake_failure(40),
+**     no_certificate_RESERVED(41),
+**     bad_certificate(42),
+**     unsupported_certificate(43),
+**     certificate_revoked(44),
+**     certificate_expired(45),
+**     certificate_unknown(46),
+**     illegal_parameter(47),
+**     unknown_ca(48),
+**     access_denied(49),
+**     decode_error(50),
+**     decrypt_error(51),
+**     export_restriction_RESERVED(60),
+**     protocol_version(70),
+**     insufficient_security(71),
+**     internal_error(80),
+**     user_canceled(90),
+**     no_renegotiation(100),
+**     unsupported_extension(110),
+**     (255)
+** } AlertDescription;
+*/
 enum MT_AlertDescription
 {
     MTAD_CloseNotify = 0,
@@ -1590,6 +1665,13 @@ enum MT_AlertDescription
     MTAD_Unknown = 255
 };
 
+/*
+** TLS 1.0
+** struct {
+**     AlertLevel level;
+**     AlertDescription description;
+** } Alert;
+*/
 class MT_Alert : public MT_Structure
 {
     public:
@@ -1615,6 +1697,10 @@ class MT_Alert : public MT_Structure
     MT_AlertDescription m_eDescription;
 };
 
+/*
+** TLS 1.0
+** struct { } HelloRequest;
+*/
 class MT_HelloRequest : public MT_Structure
 {
     public:
@@ -1628,7 +1714,7 @@ class MT_HelloRequest : public MT_Structure
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
 
-/*
+/* boilerplate for defining new structures
 class MT_Thingy : public MT_Structure
 {
     public:
@@ -1646,12 +1732,6 @@ class MT_Thingy : public MT_Structure
     ThingyType m_thingy;
 };
 */
-
-HRESULT
-ParseMessage(
-    const BYTE* pv,
-    size_t cb
-);
 
 template <typename N>
 HRESULT
@@ -1702,11 +1782,9 @@ SerializeMessagesToVector(
 template <typename T>
 void ResizeVector(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
 
+// specialized for byte vector
 template <>
 void ResizeVector(ByteVector* pv, typename ByteVector::size_type siz);
-
-template <typename T>
-void EnsureVectorSize(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
 
 HRESULT
 ComputePRF_TLS12(
@@ -1732,9 +1810,11 @@ CryptoInfoFromCipherSuite(
     CipherInfo* pCipherInfo,
     HashInfo* pHashInfo);
 
+// attempt to parse many of the same type from a block of data
 template <typename T>
 HRESULT
 ParseStructures(
     const ByteVector* pvb,
     std::vector<T>* pvStructures);
+
 }

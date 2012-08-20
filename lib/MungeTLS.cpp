@@ -1568,19 +1568,6 @@ ResizeVector<BYTE>(
     pv->resize(siz, 0x23);
 } // end function ResizeVector<BYTE>
 
-template <typename T>
-void
-EnsureVectorSize<T>(
-    vector<T>* pVect,
-    typename vector<T>::size_type siz
-)
-{
-    if (siz > pVect->size())
-    {
-        pVect->resize(siz);
-    }
-} // end function EnsureVectorSize
-
 HRESULT PrintByteVector(const ByteVector* pvb)
 {
      for_each(pvb->begin(), pvb->end(),
