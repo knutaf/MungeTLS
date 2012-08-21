@@ -5,6 +5,16 @@
 #include "mtls_defs.h"
 #include "MungeCrypto.h"
 
+/*
+** implementation notes:
+** - I am sacrificing a lot in terms of const-ability in favor of being
+**   generous about the const-ness of crypto operations like hashing and
+**   encrypting. That is, I am not restricting platform-specific crypto
+**   functions to be const or not, since I can't predict it. Consequently, this
+**   flows outwards through most of the code and eliminates a lot of const
+**   opportunities.
+*/
+
 namespace MungeTLS
 {
 
@@ -83,10 +93,37 @@ const PCSTR c_szClientFinished_PRFLabel = "client finished";
 
 /************************** End Protocol Constants **********************/
 
-
-class MT_PreMasterSecret;
-class MT_CipherFragment;
+class MT_Structure;
+class MT_ProtocolVersion;
+class MT_Random;
+class MT_SessionID;
+class MT_CipherSuite;
+class MT_CompressionMethod;
+class MT_Extension;
+class MT_RenegotiationInfoExtension;
+class MT_ClientHello;
+class EndpointParameters;
+class ConnectionParameters;
+class MT_ContentType;
 class TLSConnection;
+class ITLSListener;
+class MT_RecordLayerMessage;
+class MT_TLSPlaintext;
+class MT_TLSCiphertext;
+class MT_Securable;
+class MT_ConnectionAware;
+class MT_Handshake;
+class MT_ServerHello;
+class MT_Certificate;
+class MT_PreMasterSecret;
+class MT_ChangeCipherSpec;
+class MT_Finished;
+class MT_CipherFragment;
+class MT_GenericStreamCipher;
+class MT_GenericBlockCipher_TLS10;
+class MT_GenericBlockCipher_TLS11;
+class MT_Alert;
+class MT_HelloRequest;
 
 /*
 ** the root class of any parseable/serializable structure in the protocol. in
@@ -292,56 +329,6 @@ class MT_ProtocolVersion : public MT_Structure
 };
 
 /*
-** TLS 1.2:
-** enum { dhe_dss, dhe_rsa, dh_anon, rsa, dh_dss, dh_rsa
-**       //  may be extended, e.g., for ECDH -- see [TLSECC]
-**      } KeyExchangeAlgorithm;
-*/
-enum MT_KeyExchangeAlgorithm
-{
-    MTKEA_dhe_dss,
-    MTKEA_dhe_rsa,
-    MTKEA_dh_anon,
-    MTKEA_rsa,
-    MTKEA_dh_dss,
-    MTKEA_dh_rsa
-};
-
-// TLS 1.2: taken basically verbatim.
-enum MT_CipherSuiteValue
-{
-    MTCS_UNKNOWN                               = 0xFFFF,
-    MTCS_TLS_RSA_WITH_NULL_NULL                = 0x0000,
-    MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
-    MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
-    MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
-    MTCS_TLS_RSA_WITH_RC4_128_MD5              = 0x0004,
-    MTCS_TLS_RSA_WITH_RC4_128_SHA              = 0x0005,
-    MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA         = 0x000A,
-    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA          = 0x002F,
-    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA          = 0x0035,
-    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256       = 0x003C,
-    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256       = 0x003D
-};
-
-/*
-** TLS 1.0:
-** uint8 CipherSuite[2];    // Cryptographic suite selector
-*/
-const size_t c_cbCipherSuite_Length = 2;
-class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length>
-{
-    public:
-    MT_CipherSuite();
-    MT_CipherSuite(MT_CipherSuiteValue eValue);
-
-    HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
-    HRESULT Value(MT_CipherSuiteValue* peValue) const;
-    HRESULT SetValue(MT_CipherSuiteValue eValue);
-    bool operator==(const MT_CipherSuite& rOther) const;
-};
-
-/*
 ** TLS 1.0:
 ** struct {
 **     uint32 gmt_unix_time;
@@ -373,6 +360,126 @@ class MT_Random : public MT_Structure
     MT_UINT32 m_timestamp;
     MT_RandomBytes m_randomBytes;
 };
+
+// TLS 1.0: opaque SessionID<0..32>;
+const size_t c_cbSessionID_LFL = 1;
+const size_t c_cbSessionID_MinLength = 0;
+const size_t c_cbSessionID_MaxLength = 32;
+class MT_SessionID : public MT_VariableLengthByteField<
+                                c_cbSessionID_LFL,
+                                c_cbSessionID_MinLength,
+                                c_cbSessionID_MaxLength>
+{
+    public:
+    HRESULT PopulateWithRandom();
+};
+
+// TLS 1.2: taken basically verbatim.
+enum MT_CipherSuiteValue
+{
+    MTCS_UNKNOWN                               = 0xFFFF,
+    MTCS_TLS_RSA_WITH_NULL_NULL                = 0x0000,
+    MTCS_TLS_RSA_WITH_NULL_MD5                 = 0x0001,
+    MTCS_TLS_RSA_WITH_NULL_SHA                 = 0x0002,
+    MTCS_TLS_RSA_WITH_NULL_SHA256              = 0x003B,
+    MTCS_TLS_RSA_WITH_RC4_128_MD5              = 0x0004,
+    MTCS_TLS_RSA_WITH_RC4_128_SHA              = 0x0005,
+    MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA         = 0x000A,
+    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA          = 0x002F,
+    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA          = 0x0035,
+    MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256       = 0x003C,
+    MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256       = 0x003D
+};
+
+/*
+** TLS 1.2:
+** enum { dhe_dss, dhe_rsa, dh_anon, rsa, dh_dss, dh_rsa
+**       //  may be extended, e.g., for ECDH -- see [TLSECC]
+**      } KeyExchangeAlgorithm;
+*/
+enum MT_KeyExchangeAlgorithm
+{
+    MTKEA_dhe_dss,
+    MTKEA_dhe_rsa,
+    MTKEA_dh_anon,
+    MTKEA_rsa,
+    MTKEA_dh_dss,
+    MTKEA_dh_rsa
+};
+
+/*
+** TLS 1.0:
+** uint8 CipherSuite[2];    // Cryptographic suite selector
+*/
+const size_t c_cbCipherSuite_Length = 2;
+class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length>
+{
+    public:
+    MT_CipherSuite();
+    MT_CipherSuite(MT_CipherSuiteValue eValue);
+
+    HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
+    HRESULT Value(MT_CipherSuiteValue* peValue) const;
+    HRESULT SetValue(MT_CipherSuiteValue eValue);
+    bool operator==(const MT_CipherSuite& rOther) const;
+};
+
+// TLS 1.0: CipherSuite cipher_suites<2..2^16-1>;
+const size_t c_cbCipherSuites_LFL = 2;
+const size_t c_cbCipherSuites_MinLength = 2;
+const size_t c_cbCipherSuites_MaxLength = MAXFORBYTES(c_cbCipherSuites_LFL);
+typedef MT_VariableLengthField<
+            MT_CipherSuite,
+            c_cbCipherSuites_LFL,
+            c_cbCipherSuites_MinLength,
+            c_cbCipherSuites_MaxLength>
+        MT_CipherSuites;
+
+const std::vector<MT_CipherSuiteValue>* GetCipherSuitePreference();
+
+bool IsKnownCipherSuite(MT_CipherSuiteValue eSuite);
+
+HRESULT
+ChooseBestCipherSuite(
+    const std::vector<MT_CipherSuiteValue>* pveClientPreference,
+    const std::vector<MT_CipherSuiteValue>* pveServerPreference,
+    MT_CipherSuiteValue* pePreferredCipherSuite);
+
+// TLS 1.0: enum { null(0), (255) } CompressionMethod;
+const size_t c_cbCompressionMethod_Length = 1;
+class MT_CompressionMethod : public MT_Structure
+{
+    public:
+    enum MTCM_Method
+    {
+        MTCM_Null = 0,
+        MTCM_Unknown = 255,
+    };
+
+    MT_CompressionMethod();
+    ~MT_CompressionMethod() { }
+
+    size_t Length() const { return c_cbCompressionMethod_Length; }
+
+    ACCESSORS(MTCM_Method*, Method, &m_eMethod);
+
+    private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    MTCM_Method m_eMethod;
+};
+
+// TLS 1.0: CompressionMethod compression_methods<1..2^8-1>;
+const size_t c_cbCompressionMethods_LFL = 1;
+const size_t c_cbCompressionMethods_MinLength = 1;
+const size_t c_cbCompressionMethods_MaxLength = MAXFORBYTES(c_cbCompressionMethods_LFL);
+typedef MT_VariableLengthField<
+            MT_CompressionMethod,
+            c_cbCompressionMethods_LFL,
+            c_cbCompressionMethods_MinLength,
+            c_cbCompressionMethods_MaxLength>
+        MT_CompressionMethods;
 
 /*
 ** TLS 1.2:
@@ -416,6 +523,25 @@ class MT_Extension : public MT_Structure
     MTE_ExtensionType m_extensionType;
     ByteVector m_vbExtensionData;
 };
+
+/*
+** TLS 1.2:
+** select (extensions_present) {
+**     case false:
+**         struct {};
+**     case true:
+**         Extension extensions<0..2^16-1>;
+** };
+*/
+const size_t c_cbHelloExtensions_LFL = 2;
+const size_t c_cbHelloExtensions_MinLength = 0;
+const size_t c_cbHelloExtensions_MaxLength = MAXFORBYTES(c_cbHelloExtensions_LFL);
+typedef MT_VariableLengthField<
+            MT_Extension,
+            c_cbHelloExtensions_LFL,
+            c_cbHelloExtensions_MinLength,
+            c_cbHelloExtensions_MaxLength>
+        MT_HelloExtensions;
 
 /*
 ** RFC 5746:
@@ -468,94 +594,6 @@ class MT_RenegotiationInfoExtension : public MT_Extension
 
     MT_RenegotiatedConnection m_renegotiatedConnection;
 };
-
-/*
-** TLS 1.2:
-** select (extensions_present) {
-**     case false:
-**         struct {};
-**     case true:
-**         Extension extensions<0..2^16-1>;
-** };
-*/
-const size_t c_cbHelloExtensions_LFL = 2;
-const size_t c_cbHelloExtensions_MinLength = 0;
-const size_t c_cbHelloExtensions_MaxLength = MAXFORBYTES(c_cbHelloExtensions_LFL);
-typedef MT_VariableLengthField<
-            MT_Extension,
-            c_cbHelloExtensions_LFL,
-            c_cbHelloExtensions_MinLength,
-            c_cbHelloExtensions_MaxLength>
-        MT_HelloExtensions;
-
-const std::vector<MT_CipherSuiteValue>* GetCipherSuitePreference();
-bool IsKnownCipherSuite(MT_CipherSuiteValue eSuite);
-
-HRESULT
-ChooseBestCipherSuite(
-    const std::vector<MT_CipherSuiteValue>* pveClientPreference,
-    const std::vector<MT_CipherSuiteValue>* pveServerPreference,
-    MT_CipherSuiteValue* pePreferredCipherSuite);
-
-// TLS 1.0: CipherSuite cipher_suites<2..2^16-1>;
-const size_t c_cbCipherSuites_LFL = 2;
-const size_t c_cbCipherSuites_MinLength = 2;
-const size_t c_cbCipherSuites_MaxLength = MAXFORBYTES(c_cbCipherSuites_LFL);
-typedef MT_VariableLengthField<
-            MT_CipherSuite,
-            c_cbCipherSuites_LFL,
-            c_cbCipherSuites_MinLength,
-            c_cbCipherSuites_MaxLength>
-        MT_CipherSuites;
-
-// TLS 1.0: opaque SessionID<0..32>;
-const size_t c_cbSessionID_LFL = 1;
-const size_t c_cbSessionID_MinLength = 0;
-const size_t c_cbSessionID_MaxLength = 32;
-class MT_SessionID : public MT_VariableLengthByteField<
-                                c_cbSessionID_LFL,
-                                c_cbSessionID_MinLength,
-                                c_cbSessionID_MaxLength>
-{
-    public:
-    HRESULT PopulateWithRandom();
-};
-
-// TLS 1.0: enum { null(0), (255) } CompressionMethod;
-const size_t c_cbCompressionMethod_Length = 1;
-class MT_CompressionMethod : public MT_Structure
-{
-    public:
-    enum MTCM_Method
-    {
-        MTCM_Null = 0,
-        MTCM_Unknown = 255,
-    };
-
-    MT_CompressionMethod();
-    ~MT_CompressionMethod() { }
-
-    size_t Length() const { return c_cbCompressionMethod_Length; }
-
-    ACCESSORS(MTCM_Method*, Method, &m_eMethod);
-
-    private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
-
-    MTCM_Method m_eMethod;
-};
-
-// TLS 1.0: CompressionMethod compression_methods<1..2^8-1>;
-const size_t c_cbCompressionMethods_LFL = 1;
-const size_t c_cbCompressionMethods_MinLength = 1;
-const size_t c_cbCompressionMethods_MaxLength = MAXFORBYTES(c_cbCompressionMethods_LFL);
-typedef MT_VariableLengthField<
-            MT_CompressionMethod,
-            c_cbCompressionMethods_LFL,
-            c_cbCompressionMethods_MinLength,
-            c_cbCompressionMethods_MaxLength>
-        MT_CompressionMethods;
 
 /*
 ** TLS 1.0:
@@ -707,7 +745,7 @@ class ConnectionParameters
 
     /*
     ** the endpoint-specific parameters can be copied easily using the
-    ** accessors for ReadParams and WriteParams. This copies the rest of it
+    ** accessors for ReadParams and WriteParams. This copies the rest of them.
     */
     HRESULT CopyCommonParamsTo(ConnectionParameters* pDest);
 
@@ -741,79 +779,6 @@ class ConnectionParameters
     EndpointParameters m_writeParams;
 
     std::vector<std::shared_ptr<MT_Structure>> m_vHandshakeMessages;
-};
-
-/*
-** an interface that allows a piece of data to be associated with an endpoint
-** in a connection. for instance, something that's tied to the current crypto
-** algorithms in use or the protocol version currently negotiated. Really, most
-** of what this does is provide the EndParams member. I don't think this is
-** actually used as a polymorphism tool currently (i.e. no MT_Securable* used)
-*/
-class MT_Securable
-{
-    public:
-    MT_Securable();
-    virtual ~MT_Securable() { }
-    HRESULT CheckSecurity();
-
-    const EndpointParameters* EndParams() const { return m_pEndParams; }
-    EndpointParameters* EndParams() { return const_cast<EndpointParameters*>(static_cast<const MT_Securable*>(this)->EndParams()); }
-    virtual HRESULT SetSecurityParameters(EndpointParameters* pEndParams) { m_pEndParams = pEndParams; return S_OK; }
-
-    private:
-    // check the security aspects of this structure, e.g. MAC or something
-    virtual HRESULT CheckSecurityPriv() = 0;
-
-    EndpointParameters* m_pEndParams;
-};
-
-/*
-** like MT_Securable, this is basically a class to provide access to a Conn()
-** member, for structures that are attached to a whole connection
-*/
-class MT_ConnectionAware
-{
-    public:
-    MT_ConnectionAware() : m_pConnection(nullptr) { }
-    virtual ~MT_ConnectionAware() { }
-
-    const TLSConnection* const* Conn() const { return &m_pConnection; }
-    TLSConnection** Conn() { return const_cast<TLSConnection**>(static_cast<const MT_ConnectionAware*>(this)->Conn()); }
-
-    private:
-    TLSConnection* m_pConnection;
-};
-
-/*
-** TLS 1.0:
-** A public-key-encrypted element is encoded as an opaque vector <0..2^16-1>...
-**
-** this contains both the raw and encrypted bytes of the structure, and is only
-** used for decrypting, not encrypting currently.
-*/
-const size_t c_cbPublicKeyEncrypted_LFL = 2;
-template <typename T>
-class MT_PublicKeyEncryptedStructure : public MT_Structure
-{
-    public:
-    MT_PublicKeyEncryptedStructure();
-    virtual ~MT_PublicKeyEncryptedStructure() { }
-
-    virtual size_t Length() const;
-
-    HRESULT DecryptStructure(PublicKeyCipherer* pCipherer);
-
-    ACCESSORS(T*, Structure, &m_structure);
-    ACCESSORS(ByteVector*, EncryptedStructure, &m_vbEncryptedStructure);
-
-    private:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    ACCESSORS(ByteVector*, PlaintextStructure, &m_vbPlaintextStructure);
-
-    T m_structure;
-    ByteVector m_vbPlaintextStructure;
-    ByteVector m_vbEncryptedStructure;
 };
 
 /*
@@ -852,6 +817,224 @@ class MT_ContentType : public MT_Structure
 };
 
 /*
+** this is really the top-level entrypoint into MungeTLS. what a shame C++
+** forces me to put it so far down in the file. a calling app creates a
+** TLSConnection instance, passing in an interface for listening. it then
+** calls HandleMessage whenever it receives bytes from the client. similarly,
+** it has functions for sending data.
+**
+** TLSConnection will call back into the app on the IListener interface
+** synchronously under HandleMessage, so the app needs to be reentrant that way
+**
+** there are functions for creating plaintext and ciphertext messages. these
+** are member functions because they take input from the current connection
+** state, especially as it relates to crypto parameters in use
+*/
+class TLSConnection
+{
+    public:
+    typedef std::vector<std::shared_ptr<MT_RecordLayerMessage>> MessageList;
+
+
+    TLSConnection(ITLSListener* pListener);
+    virtual ~TLSConnection() { }
+
+    HRESULT Initialize();
+
+    HRESULT HandleMessage(ByteVector* pvb);
+
+    HRESULT EnqueueSendApplicationData(const ByteVector* pvbPayload);
+    HRESULT EnqueueStartRenegotiation();
+
+    HRESULT EnqueueMessage(std::shared_ptr<MT_TLSPlaintext> spMessage);
+    HRESULT SendQueuedMessages();
+
+    ACCESSORS(MessageList*, PendingSends, &m_pendingSends);
+    ITLSListener* Listener() { return m_pListener; }
+
+    HRESULT
+    CreatePlaintext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        const MT_Structure* pFragment,
+        MT_TLSPlaintext* pPlaintext);
+
+    HRESULT
+    CreatePlaintext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        const ByteVector* pvbFragment,
+        MT_TLSPlaintext* pPlaintext);
+
+    HRESULT
+    CreateCiphertext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        const MT_Structure* pFragment,
+        EndpointParameters* pEndParams,
+        MT_TLSCiphertext* pCiphertext);
+
+    HRESULT
+    CreateCiphertext(
+        MT_ContentType::MTCT_Type eContentType,
+        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+        const ByteVector* pvbFragment,
+        EndpointParameters* pEndParams,
+        MT_TLSCiphertext* pCiphertext);
+
+    private:
+    HRESULT InitializeConnection(ConnectionParameters* pParams);
+    HRESULT StartNextHandshake(const MT_ClientHello* pClientHello);
+    HRESULT FinishNextHandshake();
+
+    HRESULT RespondToClientHello();
+    HRESULT RespondToFinished();
+
+    HRESULT
+    AddHandshakeMessage(
+        MT_Handshake* pHandshake,
+        MT_ProtocolVersion::MTPV_Version version,
+        MT_TLSPlaintext** ppPlaintext);
+
+    ACCESSORS(ConnectionParameters*, CurrConn, &m_currentConnection);
+    ACCESSORS(ConnectionParameters*, NextConn, &m_nextConnection);
+    ConnectionParameters m_currentConnection;
+    ConnectionParameters m_nextConnection;
+    MessageList m_pendingSends;
+    ITLSListener* m_pListener;
+};
+
+/*
+** this is the contract between the calling app and MungeTLS as to what
+** callbacks it has to implement. These are all used to give the app
+** visibility and input into the TLS protocol in action
+*/
+class ITLSListener
+{
+    public:
+    // called when MTLS has bytes to be sent to the client
+    virtual HRESULT OnSend(const ByteVector* pvb) = 0;
+
+    // called when MTLS has received bytes from the client
+    virtual HRESULT OnReceivedApplicationData(const ByteVector* pvb) = 0;
+
+    /*
+    ** called when a new handshake is starting and MTLS needs (usually
+    ** platform-specific) cipherer and hasher objects from the app. the app
+    ** also tells the cert chain to use
+    */
+    virtual
+    HRESULT
+    OnInitializeCrypto(
+        MT_CertificateList* pCertChain,
+        std::shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
+        std::shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
+        std::shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
+        std::shared_ptr<Hasher>* pspHasher) = 0;
+
+    /*
+    ** called during the handshake when filling in ServerHello.server_version
+    ** app should modify pProtocolVersion to set the version they want, or say
+    ** "ignored" to use ClientHello.client_version
+    */
+    virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
+
+    /*
+    ** called during handshake to choose the cipher suite to be used in the
+    ** TLS connection. the app should set pCipherSuite to indicate which
+    ** to use. the ClientHello message is passed in so the app can see the
+    ** available options. Of course, it can pick something out of the list for
+    ** testing if it wants
+    **
+    ** if the app says "ignore", MTLS chooses from a built-in list
+    ** (c_rgeCipherSuitePreference)
+    */
+    virtual HRESULT OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite) = 0;
+
+    /*
+    ** caller can choose flags for handshake messages. at this point the only
+    ** choice is whether consecutive handshake messages should be combined into
+    ** a single record layer message or separate ones
+    */
+    virtual HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags) = 0;
+
+    /*
+    ** tells the app that the handshake is complete, and they can start sending
+    ** application layer data. of course, they could always try to send app
+    ** data messages earlier for testing purposes
+    */
+    virtual HRESULT OnHandshakeComplete() = 0;
+
+    /*
+    ** called when MTLS has readied a record layer message to be sent. this is
+    ** called with the plaintext version of the message regardless of whether
+    ** it is going to be transmitted as encrypted, generally for logging
+    ** purposes
+    */
+    virtual HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
+
+    // same as OnEnqueuePlaintext, but for receiving a decrypted message
+    virtual HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
+
+    /*
+    ** called when a record layer message is received with a different version
+    ** than the current connection parameters know about. usually indicates a
+    ** bug in the other side's TLS implementation
+    */
+    virtual
+    HRESULT
+    OnReconcileSecurityVersion(
+        const MT_TLSCiphertext* pCiphertext,
+        MT_ProtocolVersion::MTPV_Version connVersion,
+        MT_ProtocolVersion::MTPV_Version recordVersion,
+        MT_ProtocolVersion::MTPV_Version* pOverrideVersion) = 0;
+};
+
+/*
+** an interface that allows a piece of data to be associated with an endpoint
+** in a connection. for instance, something that's tied to the current crypto
+** algorithms in use or the protocol version currently negotiated. Really, most
+** of what this does is provide the EndParams member. I don't think this is
+** actually used as a polymorphism tool currently (i.e. no MT_Securable* used)
+*/
+class MT_Securable
+{
+    public:
+    MT_Securable();
+    virtual ~MT_Securable() { }
+    HRESULT CheckSecurity();
+
+    // same idiom as ACCESSORS macro
+    const EndpointParameters* EndParams() const { return m_pEndParams; }
+    EndpointParameters* EndParams() { return const_cast<EndpointParameters*>(static_cast<const MT_Securable*>(this)->EndParams()); }
+
+    virtual HRESULT SetSecurityParameters(EndpointParameters* pEndParams) { m_pEndParams = pEndParams; return S_OK; }
+
+    private:
+    // check the security aspects of this structure, e.g. MAC or something
+    virtual HRESULT CheckSecurityPriv() = 0;
+
+    EndpointParameters* m_pEndParams;
+};
+
+/*
+** like MT_Securable, this is basically a class to provide access to a Conn()
+** member, for structures that are attached to a whole connection
+*/
+class MT_ConnectionAware
+{
+    public:
+    MT_ConnectionAware() : m_pConnection(nullptr) { }
+    virtual ~MT_ConnectionAware() { }
+
+    const TLSConnection* const* Conn() const { return &m_pConnection; }
+    TLSConnection** Conn() { return const_cast<TLSConnection**>(static_cast<const MT_ConnectionAware*>(this)->Conn()); }
+
+    private:
+    TLSConnection* m_pConnection;
+};
+
+/*
 ** represents a record layer message, either TLSCompresssed/TLSPlaintext or
 ** TLSCiphertext, all of which have a few common members. usually this is only
 ** used when we have messages that are inbound or outbound, and we don't care
@@ -880,8 +1063,6 @@ class MT_RecordLayerMessage : public MT_Structure, public MT_ConnectionAware
     MT_ProtocolVersion m_protocolVersion;
     ByteVector m_vbFragment;
 };
-
-
 
 // nothing special going on with plaintext beyond being a record layer message
 class MT_TLSPlaintext : public MT_RecordLayerMessage
@@ -1052,180 +1233,6 @@ class MT_ServerHello : public MT_Structure
 };
 
 /*
-** this is the contract between the calling app and MungeTLS as to what
-** callbacks it has to implement. These are all used to give the app
-** visibility and input into the TLS protocol in action
-*/
-class ITLSListener
-{
-    public:
-    // called when MTLS has bytes to be sent to the client
-    virtual HRESULT OnSend(const ByteVector* pvb) = 0;
-
-    // called when MTLS has received bytes from the client
-    virtual HRESULT OnReceivedApplicationData(const ByteVector* pvb) = 0;
-
-    /*
-    ** called when a new handshake is starting and MTLS needs (usually
-    ** platform-specific) cipherer and hasher objects from the app. the app
-    ** also tells the cert chain to use
-    */
-    virtual
-    HRESULT
-    OnInitializeCrypto(
-        MT_CertificateList* pCertChain,
-        std::shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
-        std::shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
-        std::shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
-        std::shared_ptr<Hasher>* pspHasher) = 0;
-
-    /*
-    ** called during the handshake when filling in ServerHello.server_version
-    ** app should modify pProtocolVersion to set the version they want, or say
-    ** "ignored" to use ClientHello.client_version
-    */
-    virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
-
-    /*
-    ** called during handshake to choose the cipher suite to be used in the
-    ** TLS connection. the app should set pCipherSuite to indicate which
-    ** to use. the ClientHello message is passed in so the app can see the
-    ** available options. Of course, it can pick something out of the list for
-    ** testing if it wants
-    **
-    ** if the app says "ignore", MTLS chooses from a built-in list
-    ** (c_rgeCipherSuitePreference)
-    */
-    virtual HRESULT OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite) = 0;
-
-    /*
-    ** caller can choose flags for handshake messages. at this point the only
-    ** choice is whether consecutive handshake messages should be combined into
-    ** a single record layer message or separate ones
-    */
-    virtual HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags) = 0;
-
-    /*
-    ** tells the app that the handshake is complete, and they can start sending
-    ** application layer data. of course, they could always try to send app
-    ** data messages earlier for testing purposes
-    */
-    virtual HRESULT OnHandshakeComplete() = 0;
-
-    /*
-    ** called when MTLS has readied a record layer message to be sent. this is
-    ** called with the plaintext version of the message regardless of whether
-    ** it is going to be transmitted as encrypted, generally for logging
-    ** purposes
-    */
-    virtual HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
-
-    // same as OnEnqueuePlaintext, but for receiving a decrypted message
-    virtual HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
-
-    /*
-    ** called when a record layer message is received with a different version
-    ** than the current connection parameters know about. usually indicates a
-    ** bug in the other side's TLS implementation
-    */
-    virtual
-    HRESULT
-    OnReconcileSecurityVersion(
-        const MT_TLSCiphertext* pCiphertext,
-        MT_ProtocolVersion::MTPV_Version connVersion,
-        MT_ProtocolVersion::MTPV_Version recordVersion,
-        MT_ProtocolVersion::MTPV_Version* pOverrideVersion) = 0;
-};
-
-/*
-** this is really the top-level entrypoint into MungeTLS. what a shame C++
-** forces me to put it so far down in the file. a calling app creates a
-** TLSConnection instance, passing in an interface for listening. it then
-** calls HandleMessage whenever it receives bytes from the client. similarly,
-** it has functions for sending data.
-**
-** TLSConnection will call back into the app on the IListener interface
-** synchronously under HandleMessage, so the app needs to be reentrant that way
-**
-** there are functions for creating plaintext and ciphertext messages. these
-** are member functions because they take input from the current connection
-** state, especially as it relates to crypto parameters in use
-*/
-class TLSConnection
-{
-    public:
-    typedef std::vector<std::shared_ptr<MT_RecordLayerMessage>> MessageList;
-
-
-    TLSConnection(ITLSListener* pListener);
-    virtual ~TLSConnection() { }
-
-    HRESULT Initialize();
-
-    HRESULT HandleMessage(ByteVector* pvb);
-
-    HRESULT EnqueueSendApplicationData(const ByteVector* pvbPayload);
-    HRESULT EnqueueStartRenegotiation();
-
-    HRESULT EnqueueMessage(std::shared_ptr<MT_TLSPlaintext> spMessage);
-    HRESULT SendQueuedMessages();
-
-    ACCESSORS(MessageList*, PendingSends, &m_pendingSends);
-    ITLSListener* Listener() { return m_pListener; }
-
-    HRESULT
-    CreatePlaintext(
-        MT_ContentType::MTCT_Type eContentType,
-        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-        const MT_Structure* pFragment,
-        MT_TLSPlaintext* pPlaintext);
-
-    HRESULT
-    CreatePlaintext(
-        MT_ContentType::MTCT_Type eContentType,
-        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-        const ByteVector* pvbFragment,
-        MT_TLSPlaintext* pPlaintext);
-
-    HRESULT
-    CreateCiphertext(
-        MT_ContentType::MTCT_Type eContentType,
-        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-        const MT_Structure* pFragment,
-        EndpointParameters* pEndParams,
-        MT_TLSCiphertext* pCiphertext);
-
-    HRESULT
-    CreateCiphertext(
-        MT_ContentType::MTCT_Type eContentType,
-        MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-        const ByteVector* pvbFragment,
-        EndpointParameters* pEndParams,
-        MT_TLSCiphertext* pCiphertext);
-
-    private:
-    HRESULT InitializeConnection(ConnectionParameters* pParams);
-    HRESULT StartNextHandshake(const MT_ClientHello* pClientHello);
-    HRESULT FinishNextHandshake();
-
-    HRESULT RespondToClientHello();
-    HRESULT RespondToFinished();
-
-    HRESULT
-    AddHandshakeMessage(
-        MT_Handshake* pHandshake,
-        MT_ProtocolVersion::MTPV_Version version,
-        MT_TLSPlaintext** ppPlaintext);
-
-    ACCESSORS(ConnectionParameters*, CurrConn, &m_currentConnection);
-    ACCESSORS(ConnectionParameters*, NextConn, &m_nextConnection);
-    ConnectionParameters m_currentConnection;
-    ConnectionParameters m_nextConnection;
-    MessageList m_pendingSends;
-    ITLSListener* m_pListener;
-};
-
-/*
 ** TLS 1.0:
 ** struct {
 **     ASN.1Cert certificate_list<0..2^24-1>;
@@ -1246,6 +1253,66 @@ class MT_Certificate : public MT_Structure
 
     private:
     MT_CertificateList m_certificateList;
+};
+
+/*
+** TLS 1.0
+** struct {
+**     select (KeyExchangeAlgorithm) {
+**         case rsa: EncryptedPreMasterSecret;
+**         case diffie_hellman: DiffieHellmanClientPublicValue;
+**     } exchange_keys;
+** } ClientKeyExchange;
+**
+** Currently we only support RSA
+*/
+template <typename KeyType>
+class MT_ClientKeyExchange : public MT_Structure
+{
+    public:
+    MT_ClientKeyExchange();
+    virtual ~MT_ClientKeyExchange() { }
+
+    size_t Length() const { return ExchangeKeys()->Length(); }
+
+    ACCESSORS(KeyType*, ExchangeKeys, m_spExchangeKeys.get());
+
+    private:
+    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+
+    std::shared_ptr<KeyType> m_spExchangeKeys;
+};
+
+/*
+** TLS 1.0:
+** A public-key-encrypted element is encoded as an opaque vector <0..2^16-1>...
+**
+** this contains both the raw and encrypted bytes of the structure, and is only
+** used for decrypting, not encrypting currently.
+*/
+const size_t c_cbPublicKeyEncrypted_LFL = 2;
+template <typename T>
+class MT_PublicKeyEncryptedStructure : public MT_Structure
+{
+    public:
+    MT_PublicKeyEncryptedStructure();
+    virtual ~MT_PublicKeyEncryptedStructure() { }
+
+    virtual size_t Length() const;
+
+    HRESULT DecryptStructure(PublicKeyCipherer* pCipherer);
+
+    ACCESSORS(T*, Structure, &m_structure);
+    ACCESSORS(ByteVector*, EncryptedStructure, &m_vbEncryptedStructure);
+
+    private:
+    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    ACCESSORS(ByteVector*, PlaintextStructure, &m_vbPlaintextStructure);
+
+    T m_structure;
+    ByteVector m_vbPlaintextStructure;
+    ByteVector m_vbEncryptedStructure;
 };
 
 /*
@@ -1285,35 +1352,6 @@ class MT_PreMasterSecret : public MT_Structure
 ** } EncryptedPreMasterSecret;
 */
 typedef MT_PublicKeyEncryptedStructure<MT_PreMasterSecret> MT_EncryptedPreMasterSecret;
-
-/*
-** TLS 1.0
-** struct {
-**     select (KeyExchangeAlgorithm) {
-**         case rsa: EncryptedPreMasterSecret;
-**         case diffie_hellman: DiffieHellmanClientPublicValue;
-**     } exchange_keys;
-** } ClientKeyExchange;
-**
-** Currently we only support RSA
-*/
-template <typename KeyType>
-class MT_ClientKeyExchange : public MT_Structure
-{
-    public:
-    MT_ClientKeyExchange();
-    virtual ~MT_ClientKeyExchange() { }
-
-    size_t Length() const { return ExchangeKeys()->Length(); }
-
-    ACCESSORS(KeyType*, ExchangeKeys, m_spExchangeKeys.get());
-
-    private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
-
-    std::shared_ptr<KeyType> m_spExchangeKeys;
-};
 
 /*
 ** TLS 1.0
@@ -1549,6 +1587,7 @@ typedef MT_GenericBlockCipher_TLS11 MT_GenericBlockCipher_TLS12;
 ** TLS 1.0
 ** enum { warning(1), fatal(2), (255) } AlertLevel;
 */
+const size_t c_cbAlertLevel_Length = 1;
 enum MT_AlertLevel
 {
     MTAL_Warning = 1,
@@ -1587,6 +1626,7 @@ enum MT_AlertLevel
 **     (255)
 ** } AlertDescription;
 */
+const size_t c_cbAlertDescription_Length = 1;
 enum MT_AlertDescription
 {
     MTAD_CloseNotify = 0,
@@ -1624,8 +1664,6 @@ enum MT_AlertDescription
 **     AlertDescription description;
 ** } Alert;
 */
-const size_t c_cbAlertLevel_Length = 1;
-const size_t c_cbAlertDescription_Length = 1;
 class MT_Alert : public MT_Structure
 {
     public:
@@ -1734,6 +1772,13 @@ SerializeMessagesToVector(
     ByteVector* pvb
 );
 
+// attempt to parse many of the same type from a block of data
+template <typename T>
+HRESULT
+ParseStructures(
+    const ByteVector* pvb,
+    std::vector<T>* pvStructures);
+
 template <typename T>
 void ResizeVector(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
 
@@ -1764,12 +1809,5 @@ CryptoInfoFromCipherSuite(
     const MT_CipherSuite* pCipherSuite,
     CipherInfo* pCipherInfo,
     HashInfo* pHashInfo);
-
-// attempt to parse many of the same type from a block of data
-template <typename T>
-HRESULT
-ParseStructures(
-    const ByteVector* pvb,
-    std::vector<T>* pvStructures);
 
 }
