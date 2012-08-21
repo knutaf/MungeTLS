@@ -45,98 +45,15 @@ const DWORD MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE          = 0x00000001;
 
 /*
 ** these are all constants used in the protocol implementation. all are taken
-** straight from some RFC.
+** straight from some RFC. there are more protocol constants spread out through
+** this file near the classes that reference them.
 */
-
-/*
-** TLS 1.0: A public-key-encrypted element is encoded as an opaque
-** vector<0..2^16-1>
-*/
-const size_t c_cbPublicKeyEncrypted_LFL = 2;
-
-// TLS 1.0: uint16 length;
-const size_t c_cbRecordLayerMessage_Fragment_LFL = 2;
-
-// TLS 1.0: enum going from 0 - 255
-const size_t c_cbContentType_Length = 1;
-
-// TLS 1.0: uint8 major, minor;
-const size_t c_cbProtocolVersion_Length = 2;
-
-// TLS 1.0: uint8 CipherSuite[2];    /* Cryptographic suite selector */
-const size_t c_cbCipherSuite_Length = 2;
-
-// TLS 1.0: CipherSuite cipher_suites<2..2^16-1>;
-const size_t c_cbCipherSuites_LFL = 2;
-const size_t c_cbCipherSuites_MinLength = 2;
-const size_t c_cbCipherSuites_MaxLength = MAXFORBYTES(c_cbCipherSuites_LFL);
-
-// TLS 1.0: opaque SessionID<0..32>;
-const size_t c_cbSessionID_LFL = 1;
-const size_t c_cbSessionID_MinLength = 0;
-const size_t c_cbSessionID_MaxLength = 32;
-
-// TLS 1.0: enum going from 0 - 255
-const size_t c_cbHandshakeType_Length = 1;
-
-// TLS 1.0: uint24 length;
-const size_t c_cbHandshake_LFL = 3;
-
-// TLS 1.0: uint32 gmt_unix_time;
-const size_t c_cbRandomTime_Length = 4;
-
-// TLS 1.0: opaque random_bytes[28];
-const size_t c_cbRandomBytes_Length = 28;
-
-// TLS 1.0: enum going from 0 - 255
-const size_t c_cbCompressionMethod_Length = 1;
-
-// TLS 1.0: CompressionMethod compression_methods<1..2^8-1>;
-const size_t c_cbCompressionMethods_LFL = 1;
-const size_t c_cbCompressionMethods_MinLength = 1;
-const size_t c_cbCompressionMethods_MaxLength = MAXFORBYTES(c_cbCompressionMethods_LFL);
-
-// TLS 1.0: opaque ASN.1Cert<1..2^24-1>;
-const size_t c_cbASN1Cert_LFL = 3;
-const size_t c_cbASN1Cert_MinLength = 1;
-const size_t c_cbASN1Cert_MaxLength = MAXFORBYTES(c_cbASN1Cert_LFL);
-
-// TLS 1.0: ASN.1Cert certificate_list<0..2^24-1>;
-const size_t c_cbASN1Certs_LFL = 3;
-const size_t c_cbASN1Certs_MinLength = 0;
-const size_t c_cbASN1Certs_MaxLength = MAXFORBYTES(c_cbASN1Certs_LFL);
-
-// TLS 1.0: enum going from 0 - 255
-const size_t c_cbChangeCipherSpec_Length = 1;
-
-// TLS 1.2: enum going from 0 - 65535
-const size_t c_cbExtensionType_Length = 2;
-
-// TLS 1.2: opaque extension_data<0..2^16-1>;
-const size_t c_cbExtensionData_LFL = 2;
-
-// TLS 1.2: Extension extensions<0..2^16-1>;
-const size_t c_cbHelloExtensions_LFL = 2;
-const size_t c_cbHelloExtensions_MinLength = 0;
-const size_t c_cbHelloExtensions_MaxLength = MAXFORBYTES(c_cbHelloExtensions_LFL);
 
 // TLS 1.0: uint8 padding_length;
 const size_t c_cbGenericBlockCipher_Padding_LFL = 1;
 
-// TLS 1.0: enum going from 0 - 255
-const size_t c_cbAlertLevel_Length = 1;
-
-// TLS 1.0: enum going from 0 - 255
-const size_t c_cbAlertDescription_Length = 1;
-
-// TLS 1.0: opaque random[46];
-const size_t c_cbPreMasterSecretRandom_Length = 46;
-
 // TLS 1.0: "The master secret is always exactly 48 bytes in length."
 const size_t c_cbMasterSecret_Length = 48;
-
-// TLS 1.0: opaque verify_data[12];
-const size_t c_cbFinishedVerifyData_Length = 12;
 
 // TLS 1.0: "Sequence numbers are of type uint64 and may not exceed 2^64-1."
 const size_t c_cbSequenceNumber_Length = 8;
@@ -163,14 +80,6 @@ const PCSTR c_szServerFinished_PRFLabel = "server finished";
 ** 'client finished'."
 */
 const PCSTR c_szClientFinished_PRFLabel = "client finished";
-
-// TLS 1.0: struct { } HelloRequest;
-const size_t c_cbHelloRequest_Length = 0;
-
-// RFC 5746 (renegotiation protection): opaque renegotiated_connection<0..255>;
-const size_t c_cbRenegotiatedConnection_LFL = 1;
-const size_t c_cbRenegotiatedConnection_MinLength = 0;
-const size_t c_cbRenegotiatedConnection_MaxLength = 255;
 
 /************************** End Protocol Constants **********************/
 
@@ -352,8 +261,8 @@ class MT_FixedLengthByteStructure : public MT_FixedLengthStructureBase
 **     uint8 major;
 **     uint8 minor;
 ** } ProtocolVersion;
-**
 */
+const size_t c_cbProtocolVersion_Length = 2;
 class MT_ProtocolVersion : public MT_Structure
 {
     public:
@@ -419,6 +328,7 @@ enum MT_CipherSuiteValue
 ** TLS 1.0:
 ** uint8 CipherSuite[2];    // Cryptographic suite selector
 */
+const size_t c_cbCipherSuite_Length = 2;
 class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length>
 {
     public:
@@ -438,6 +348,8 @@ class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length
 **     opaque random_bytes[28];
 ** } Random;
 */
+const size_t c_cbRandomTime_Length = 4;
+const size_t c_cbRandomBytes_Length = 28;
 class MT_Random : public MT_Structure
 {
     public:
@@ -477,6 +389,8 @@ class MT_Random : public MT_Structure
 **   This document defines a new TLS extension, "renegotiation_info" (with
 **   extension type 0xff01)...
 */
+const size_t c_cbExtensionType_Length = 2;
+const size_t c_cbExtensionData_LFL = 2;
 class MT_Extension : public MT_Structure
 {
     public:
@@ -524,6 +438,9 @@ class MT_Extension : public MT_Structure
 ** this shortcoming here makes me wonder if I should have gone with all real
 ** getters and setters instead. may reconsider in the future.
 */
+const size_t c_cbRenegotiatedConnection_LFL = 1;
+const size_t c_cbRenegotiatedConnection_MinLength = 0;
+const size_t c_cbRenegotiatedConnection_MaxLength = 255;
 class MT_RenegotiationInfoExtension : public MT_Extension
 {
     public:
@@ -561,6 +478,9 @@ class MT_RenegotiationInfoExtension : public MT_Extension
 **         Extension extensions<0..2^16-1>;
 ** };
 */
+const size_t c_cbHelloExtensions_LFL = 2;
+const size_t c_cbHelloExtensions_MinLength = 0;
+const size_t c_cbHelloExtensions_MaxLength = MAXFORBYTES(c_cbHelloExtensions_LFL);
 typedef MT_VariableLengthField<
             MT_Extension,
             c_cbHelloExtensions_LFL,
@@ -578,6 +498,9 @@ ChooseBestCipherSuite(
     MT_CipherSuiteValue* pePreferredCipherSuite);
 
 // TLS 1.0: CipherSuite cipher_suites<2..2^16-1>;
+const size_t c_cbCipherSuites_LFL = 2;
+const size_t c_cbCipherSuites_MinLength = 2;
+const size_t c_cbCipherSuites_MaxLength = MAXFORBYTES(c_cbCipherSuites_LFL);
 typedef MT_VariableLengthField<
             MT_CipherSuite,
             c_cbCipherSuites_LFL,
@@ -586,6 +509,9 @@ typedef MT_VariableLengthField<
         MT_CipherSuites;
 
 // TLS 1.0: opaque SessionID<0..32>;
+const size_t c_cbSessionID_LFL = 1;
+const size_t c_cbSessionID_MinLength = 0;
+const size_t c_cbSessionID_MaxLength = 32;
 class MT_SessionID : public MT_VariableLengthByteField<
                                 c_cbSessionID_LFL,
                                 c_cbSessionID_MinLength,
@@ -596,6 +522,7 @@ class MT_SessionID : public MT_VariableLengthByteField<
 };
 
 // TLS 1.0: enum { null(0), (255) } CompressionMethod;
+const size_t c_cbCompressionMethod_Length = 1;
 class MT_CompressionMethod : public MT_Structure
 {
     public:
@@ -620,6 +547,9 @@ class MT_CompressionMethod : public MT_Structure
 };
 
 // TLS 1.0: CompressionMethod compression_methods<1..2^8-1>;
+const size_t c_cbCompressionMethods_LFL = 1;
+const size_t c_cbCompressionMethods_MinLength = 1;
+const size_t c_cbCompressionMethods_MaxLength = MAXFORBYTES(c_cbCompressionMethods_LFL);
 typedef MT_VariableLengthField<
             MT_CompressionMethod,
             c_cbCompressionMethods_LFL,
@@ -670,6 +600,9 @@ class MT_ClientHello : public MT_Structure
 };
 
 // TLS 1.0: opaque ASN.1Cert<1..2^24-1>;
+const size_t c_cbASN1Cert_LFL = 3;
+const size_t c_cbASN1Cert_MinLength = 1;
+const size_t c_cbASN1Cert_MaxLength = MAXFORBYTES(c_cbASN1Cert_LFL);
 typedef MT_VariableLengthByteField<
             c_cbASN1Cert_LFL,
             c_cbASN1Cert_MinLength,
@@ -677,6 +610,9 @@ typedef MT_VariableLengthByteField<
         MT_ASN1Cert;
 
 // TLS 1.0: ASN.1Cert certificate_list<0..2^24-1>;
+const size_t c_cbASN1Certs_LFL = 3;
+const size_t c_cbASN1Certs_MinLength = 0;
+const size_t c_cbASN1Certs_MaxLength = MAXFORBYTES(c_cbASN1Certs_LFL);
 typedef MT_VariableLengthField<
             MT_ASN1Cert,
             c_cbASN1Certs_LFL,
@@ -684,7 +620,16 @@ typedef MT_VariableLengthField<
             c_cbASN1Certs_MaxLength>
         MT_CertificateList;
 
-// TLS 1.0: opaque verify_data[verify_data_length];
+/*
+** TLS 1.2:
+** opaque verify_data[verify_data_length];
+**
+** In previous versions of TLS, the verify_data was always 12 octets
+** long.  In the current version of TLS, it depends on the cipher
+** suite.  Any cipher suite which does not explicitly specify
+** verify_data_length has a verify_data_length equal to 12.
+*/
+const size_t c_cbFinishedVerifyData_Length = 12;
 typedef MT_FixedLengthByteStructure<c_cbFinishedVerifyData_Length> MT_FinishedVerifyData;
 
 /*
@@ -847,6 +792,7 @@ class MT_ConnectionAware
 ** this contains both the raw and encrypted bytes of the structure, and is only
 ** used for decrypting, not encrypting currently.
 */
+const size_t c_cbPublicKeyEncrypted_LFL = 2;
 template <typename T>
 class MT_PublicKeyEncryptedStructure : public MT_Structure
 {
@@ -877,6 +823,7 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
 **     application_data(23), (255)
 ** } ContentType;
 */
+const size_t c_cbContentType_Length = 1;
 class MT_ContentType : public MT_Structure
 {
     public:
@@ -910,6 +857,7 @@ class MT_ContentType : public MT_Structure
 ** used when we have messages that are inbound or outbound, and we don't care
 ** about what type they are--they just need to be sent.
 */
+const size_t c_cbRecordLayerMessage_Fragment_LFL = 2;
 class MT_RecordLayerMessage : public MT_Structure, public MT_ConnectionAware
 {
     public:
@@ -1002,6 +950,8 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
 ** a container message, kind of like a record layer message, in which many
 ** different types of handshake data are passed
 */
+const size_t c_cbHandshakeType_Length = 1;
+const size_t c_cbHandshake_LFL = 3;
 class MT_Handshake : public MT_Structure
 {
     public:
@@ -1305,6 +1255,7 @@ class MT_Certificate : public MT_Structure
 **     opaque random[46];
 ** } PreMasterSecret;
 */
+const size_t c_cbPreMasterSecretRandom_Length = 46;
 class MT_PreMasterSecret : public MT_Structure
 {
     typedef MT_FixedLengthByteStructure<c_cbPreMasterSecretRandom_Length> OpaqueRandom;
@@ -1370,6 +1321,7 @@ class MT_ClientKeyExchange : public MT_Structure
 **     enum { change_cipher_spec(1), (255) } type;
 ** } ChangeCipherSpec;
 */
+const size_t c_cbChangeCipherSpec_Length = 1;
 class MT_ChangeCipherSpec : public MT_Structure
 {
     public:
@@ -1672,6 +1624,8 @@ enum MT_AlertDescription
 **     AlertDescription description;
 ** } Alert;
 */
+const size_t c_cbAlertLevel_Length = 1;
+const size_t c_cbAlertDescription_Length = 1;
 class MT_Alert : public MT_Structure
 {
     public:
@@ -1701,6 +1655,7 @@ class MT_Alert : public MT_Structure
 ** TLS 1.0
 ** struct { } HelloRequest;
 */
+const size_t c_cbHelloRequest_Length = 0;
 class MT_HelloRequest : public MT_Structure
 {
     public:
