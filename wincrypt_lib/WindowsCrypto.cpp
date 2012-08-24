@@ -125,7 +125,8 @@ EncryptBuffer(
     HCRYPTKEY hKeyNew = hKey;
     const CipherType cipherType = pCipherInfo->type;
 
-    wprintf(L"encrypting\n");
+    wprintf(L"encrypting plaintext:\n");
+    PrintByteVector(pvbCleartext);
 
     /*
     ** asymmetric block, e.g. RSA public key encryption. we encypt one block,
@@ -152,6 +153,8 @@ EncryptBuffer(
     else if (cipherType == CipherType_Block)
     {
         fFinal = FALSE;
+
+        assert(pvbIV != nullptr);
 
         wprintf(L"setting IV to:\n");
         PrintByteVector(pvbIV);
@@ -251,7 +254,8 @@ EncryptBuffer(
         goto error;
     }
 
-    wprintf(L"done encrypt\n");
+    wprintf(L"done encrypt:\n");
+    PrintByteVector(pvbEncrypted);
 
     assert(cb == pvbEncrypted->size());
 
@@ -369,66 +373,74 @@ DecryptBuffer(
     }
 
     wprintf(L"done initial decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
-
-    // resize in case our input vector was larger than needed
-    assert(pvbDecrypted->size() >= cb);
-    ResizeVector(pvbDecrypted, cb);
-
     PrintByteVector(pvbDecrypted);
 
     /*
-    ** for some reason, CryptDecrypt will return the correct plaintext block,
-    ** but truncate the padding bytes to a single byte at the end. To expose
-    ** a consistent view to our TLS protocol implementation that calls into
-    ** this, we'll manually reconstruct the padding bytes here.
+    ** CryptDecrypt recognizes when the trailing end of a block is comprised of
+    ** padding bytes, and sets cb (out-parameter from CryptDecrypt) to the
+    ** length of the plaintext + 1, where that extra 1 contains the padding
+    ** length value. Actually, it has filled through the end of the whole
+    ** buffer with the correct padding string, and we'll want to return this
+    ** whole buffer to present a consistent view with respect to block cipher
+    ** padding.
     **
-    ** As a reminder, the padding format is for the *value* of each padding
-    ** byte to be the *number* of padding bytes needed, e.g. if 7 bytes of
-    ** padding are needed, each of those padding bytes will contain the value 7
+    ** so in this next section, we verify that we have the correct padding
+    ** format. As a reminder, the padding format is for the *value* of each
+    ** padding byte to be the *number* of padding bytes needed, e.g. if 7 bytes
+    ** of padding are needed, each of those padding bytes will contain the
+    ** value 7. and there is a final byte on the end that also has 7, the
+    ** number of padding bytes needed.
     */
     if (pCipherInfo->type == CipherType_Block)
     {
-        BYTE cbPaddingLength = 0;
+        // get the padding length, which will also be the value
+        BYTE paddingByteValue = pvbDecrypted->back();
+        size_t cbPaddingBytes = paddingByteValue;
+        wprintf(L"looking for %lu padding bytes\n", cbPaddingBytes);
 
         /*
-        ** the returned plaintext is comprised of one or more contiguous
-        ** blocks, each of size pCipherInfo->cbBlockSize.
-        **
-        ** (cb % pCipherInfo->cbBlockSize) is the amount of data "sticking out"
-        ** into the last, partial block. We subtract this from the block size
-        ** to get the number of bytes of padding needed.
-        **
-        ** Example:
-        **   pCipherInfo->cbBlockSize = 8
-        **   cb = 13
-        ** 00 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16
-        **  J  K  L  M  N  O  P  Q  R  S  T  U 05 __ __ __ __
-        **                                      ^
-        **                                      +-- 5 bytes of padding needed
-        ** (cb % pCipherInfo->cbBlockSize) == 3
-        ** pCipherInfo->cbBlockSize - (cb % pCipherInfo->cbBlockSize) == 5
-        ** confirmed: 5 bytes of padding needed.
+        ** we'll now walk backwards from the end (skipping the padding length
+        ** byte, verifying each byte has the correct value.
         */
-        hr = SizeTToByte(pCipherInfo->cbBlockSize - (cb % pCipherInfo->cbBlockSize), &cbPaddingLength);
-        if (hr != S_OK)
+        auto rit = pvbDecrypted->end() - 2;
+        cb--;
+        for (; rit >= pvbDecrypted->begin() && cbPaddingBytes > 0; rit--, cbPaddingBytes--)
         {
-            goto error;
+            // each byte should have the value equal to the number of bytes
+            if (*rit != paddingByteValue)
+            {
+                hr = MT_E_BAD_PADDING;
+                goto error;
+            }
         }
 
-        if (pvbDecrypted->back() != cbPaddingLength)
+        /*
+        ** our iterator should stop when cbPaddingBytes hits 0 normally, since
+        ** typically there is at least one byte of padding.
+        */
+        if (cbPaddingBytes != 0)
         {
             hr = MT_E_BAD_PADDING;
             goto error;
         }
 
-        // repeat "padding length" number of bytes filled with padding length
-        pvbDecrypted->insert(pvbDecrypted->end(), cbPaddingLength, cbPaddingLength);
-
-        // final size should ALWAYS be a multiple of block length
-        assert((pvbDecrypted->size() % pCipherInfo->cbBlockSize) == 0);
-
-        wprintf(L"after padding fix: (%d)\n", pvbDecrypted->size());
-        PrintByteVector(pvbDecrypted);
+        /*
+        ** begin() + cb should point to the first byte of padding.
+        ** begin() + cb - 1 should therefore be the last byte of plaintext. the
+        ** iterator should land exactly on this spot, if we found the right
+        ** number of padding bytes.
+        */
+        if (rit != pvbDecrypted->begin() + cb - 1)
+        {
+            hr = MT_E_BAD_PADDING;
+            goto error;
+        }
+    }
+    else
+    {
+        // resize in case our input vector was larger than needed
+        assert(pvbDecrypted->size() >= cb);
+        ResizeVector(pvbDecrypted, cb);
     }
 
 done:
@@ -808,6 +820,7 @@ ImportSymmetricKey(
     pPlaintextKey = reinterpret_cast<PlaintextKey*>(&vbPlaintextKey.front());
     pPlaintextKey->hdr.bType = PLAINTEXTKEYBLOB;
     pPlaintextKey->hdr.bVersion = CUR_BLOB_VERSION;
+    pPlaintextKey->hdr.reserved = 0;
     pPlaintextKey->hdr.aiKeyAlg = algID;
 
     hr = SizeTToDWord(pvbKey->size(), &(pPlaintextKey->cbKeySize));
@@ -824,7 +837,7 @@ ImportSymmetricKey(
         goto error;
     }
 
-    wprintf(L"importing key of size %d\n", cbKeySize);
+    wprintf(L"importing key of size %lu (keylength=%lu)\n", cbKeySize, pvbKey->size());
 
     // need to pass CRYPT_IPSEC_HMAC_KEY to allow long key lengths, per MSDN
     if (!CryptImportKey(
