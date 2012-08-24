@@ -24,6 +24,8 @@ class SimpleHTTPServer : public ITLSListener
     ~SimpleHTTPServer() { }
 
     HRESULT ProcessConnections();
+    HRESULT EnqueueSendApplicationData(const ByteVector* pvb);
+
     HRESULT OnSend(const ByteVector* pvb);
     HRESULT OnReceivedApplicationData(const ByteVector* pvb);
     HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);

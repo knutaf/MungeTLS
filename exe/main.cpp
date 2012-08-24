@@ -393,6 +393,46 @@ error:
     goto done;
 } // end function ProcessConnections
 
+HRESULT SimpleHTTPServer::EnqueueSendApplicationData(const ByteVector* pvb)
+{
+    static const size_t cbChunkSize = 50;
+    HRESULT hr = S_OK;
+
+    auto iter = pvb->begin();
+    while (iter < pvb->end())
+    {
+        ByteVector vbChunk;
+        size_t cbRemaining = pvb->end() - iter;
+        size_t cbNextChunk = cbChunkSize;
+        if (cbNextChunk > cbRemaining)
+        {
+            cbNextChunk = cbRemaining;
+        }
+
+        vbChunk.assign(iter, iter + cbNextChunk);
+        assert(vbChunk.size() <= cbChunkSize);
+        assert(vbChunk.size() <= cbRemaining);
+        assert(vbChunk.size() > 0);
+
+        hr = Connection()->EnqueueSendApplicationData(&vbChunk);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        // ensure we make progress
+        assert(cbNextChunk > 0);
+        iter += cbNextChunk;
+        assert(iter <= pvb->end());
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function EnqueueSendApplicationData
+
 // called when the TLS connection has some bytes to be sent over the network
 HRESULT SimpleHTTPServer::OnSend(const ByteVector* pvb)
 {
@@ -538,7 +578,7 @@ HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             // on first response, just send it now. no fancy tricks
             else
             {
-                hr = Connection()->EnqueueSendApplicationData(&vbApplicationData);
+                hr = EnqueueSendApplicationData(&vbApplicationData);
                 if (hr != S_OK)
                 {
                     goto error;
@@ -787,7 +827,7 @@ HRESULT SimpleHTTPServer::OnHandshakeComplete()
 
     if (!PendingResponse()->empty())
     {
-        hr = Connection()->EnqueueSendApplicationData(PendingResponse());
+        hr = EnqueueSendApplicationData(PendingResponse());
         if (hr != S_OK)
         {
             goto error;
