@@ -884,7 +884,7 @@ class TLSConnection
 
     private:
     HRESULT InitializeConnection(ConnectionParameters* pParams);
-    HRESULT StartNextHandshake(const MT_ClientHello* pClientHello);
+    HRESULT StartNextHandshake(MT_ClientHello* pClientHello);
     HRESULT FinishNextHandshake();
 
     HRESULT RespondToClientHello();
@@ -1785,24 +1785,6 @@ void ResizeVector(std::vector<T>* pVect, typename std::vector<T>::size_type siz)
 // specialized for byte vector
 template <>
 void ResizeVector(ByteVector* pv, typename ByteVector::size_type siz);
-
-HRESULT
-ComputePRF_TLS12(
-    Hasher* pHasher,
-    const ByteVector* pvbSecret,
-    PCSTR szLabel,
-    const ByteVector* pvbSeed,
-    size_t cbMinimumLengthDesired,
-    ByteVector* pvbPRF);
-
-HRESULT
-ComputePRF_TLS10(
-    Hasher* pHasher,
-    const ByteVector* pvbSecret,
-    PCSTR szLabel,
-    const ByteVector* pvbSeed,
-    size_t cbMinimumLengthDesired,
-    ByteVector* pvbPRF);
 
 HRESULT
 CryptoInfoFromCipherSuite(

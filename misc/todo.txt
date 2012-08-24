@@ -8,10 +8,14 @@ WORK:
 - if we have our own client impl, we can also implement some wonky compression scheme
 - give app the choice of whether batch up application data messages
 - use switch statements for handshake types in handlemessage
+  - while we're at it, break out unsupported/illegal handshake types a bit further. for example, it's downright illegal to receive a server hello
 - audit all asserts for appropriateness
 - support cached sessions with SessionIDs
 - KeyExchangeAlgorithm ctor makes some gross, simplifying assumptions about our supported cipher suites
 - rethink const-ness of encryption and decryption. not all things are modifying cipherer state, are they?
+- ExtensionData should be a variable length byte field
+- assumption that ServerHelloDone is empty. create an empty struct for it like hello request
+- clean up where we assign the read IV from the block. it's ugly
 
 MAYBE:
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon

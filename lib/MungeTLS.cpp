@@ -12,6 +12,42 @@
 #include "MungeTLS.h"
 #include "mtls_helper.h"
 
+/*
+** this is it. the big file with most of the important TLS implementation in
+** it! here are some notes about the coding style
+**
+** ---------- gotos:
+** the code uses gotos heavily in a very structured way. gotos are only used to
+** jump to the cleanup block in a function, basically a minimal replacement for
+** exceptions. when used, there are two labels: "done" and "error". if the code
+** encounters an error, it jumps to the "error" label, under which some
+** cleanup can be done, e.g. clearing out out-parameters. then it jumps UP to
+** the "done" label, which does any cleanup that would always happen. the done
+** label is placed above the goto label so that its cleanup code runs in the
+** normal case too.
+**
+** ---------- parsing/serializing:
+** A lot of the parsing and serializing code uses a few formulaic patterns. the
+** TLS protocol consists of basically parsing byte fields and variable-length
+** vectors. The parsing keeps track of a few variables that are moved along.
+**
+** - pv: "pointer to void" - always points to the next unparsed byte
+** - cb: "count of bytes" - always contains the number of bytes from pv not yet
+**     parsed
+** - hr: the HRESULT with the current success/fail error code
+** - cbField: the count of bytes needed for the field currently being parsed
+**
+** pv and cb obviously always need to be kept in lock-step, which is why they
+** are only ever manipulated using the ADVANCE_PARSE macro.
+**
+** ---------- long functions:
+** a lot of functions in here are pretty long, and not segmented into many
+** smaller functions. I chose to do this for bodies of code that do not have
+** reusable smaller parts. it saves having to test all of the smaller
+** functions individually.
+*/
+
+// catches underflow errors in a HRESULT
 #define SAFE_SUB(h, l, r)              \
 {                                      \
     (h) = SizeTSub((l), (r), &(l));    \
@@ -50,6 +86,7 @@ ComputePRF_TLS10(
 // same PRF used for both 1.0 and 1.1
 auto ComputePRF_TLS11 = ComputePRF_TLS10;
 
+// RFC-defined helper function for PRF
 HRESULT
 PRF_P_hash(
     Hasher* pHasher,
@@ -59,6 +96,7 @@ PRF_P_hash(
     size_t cbMinimumLengthDesired,
     ByteVector* pvbResult);
 
+// RFC-defined helper function for PRF
 HRESULT
 PRF_A(
     Hasher* pHasher,
@@ -78,26 +116,53 @@ TLSConnection::TLSConnection(ITLSListener* pListener)
 {
 } // end ctor TLSConnection
 
+// one-time initialization for this object
 HRESULT
 TLSConnection::Initialize()
 {
-    return InitializeConnection(CurrConn());
+    HRESULT hr = S_OK;
+
+    // ensure we don't try to initialize more than once
+    if (CurrConn()->PubKeyCipherer()->get() != nullptr)
+    {
+        assert(false);
+        hr = E_FAIL;
+        goto error;
+    }
+
+    // the current connection is used for parsing incoming records
+    hr = InitializeConnection(CurrConn());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
 } // end function Initialize
 
+// called when we receive a ClientHello message, to start off a new negotiation
 HRESULT
-TLSConnection::StartNextHandshake(const MT_ClientHello* pClientHello)
+TLSConnection::StartNextHandshake(MT_ClientHello* pClientHello)
 {
     HRESULT hr = S_OK;
 
-    // could pass this to OnInitializeCrypto
-    UNREFERENCED_PARAMETER(pClientHello);
-
     if (NextConn()->IsHandshakeInProgress())
     {
-        // may lift this restriction if okay...
+        // may lift this restriction if it's okay...
         assert(false);
     }
 
+    *NextConn()->ClientHello() = *pClientHello;
+
+    /*
+    ** the next connection will be used for collecting information about the
+    ** pending security negotation, but is not used for parsing any incoming
+    ** records; the current connection does that.
+    */
     hr = InitializeConnection(NextConn());
     if (hr != S_OK)
     {
@@ -111,10 +176,18 @@ error:
     goto done;
 } // end function StartNextHandshake
 
+/*
+** called when we have sent the Finished message, signaling the end of the
+** handshake/negotiation. at this point our current connection already has the
+** endpoint-specific parameters needed to parse or send messages, but we still
+** need to copy few miscellaneous pieces of data we've accumulated in NextConn.
+*/
 HRESULT
 TLSConnection::FinishNextHandshake()
 {
     HRESULT hr = S_OK;
+
+    assert(NextConn()->IsHandshakeInProgress());
 
     // copy last bits of state
     hr = NextConn()->CopyCommonParamsTo(CurrConn());
@@ -123,9 +196,11 @@ TLSConnection::FinishNextHandshake()
         goto error;
     }
 
-    // reset it to blank
+    // reset it to blank, ready for the next handshake to start whenever
     *NextConn() = ConnectionParameters();
+    assert(!NextConn()->IsHandshakeInProgress());
 
+    // lets the app know it can start sending app data
     hr = Listener()->OnHandshakeComplete();
     if (FAILED(hr))
     {
@@ -143,6 +218,15 @@ error:
     goto done;
 } // end function FinishNextHandshake
 
+/*
+** basically consists of calling the app to provide platform-specific crypto
+** objects that will be attached only to this connection. in practice, a few
+** of these objects probably don't need to be connection-specific (e.g. hasher)
+** but I don't want to make platform assumptions.
+**
+** it's painfully obvious how much of an intermediary we are between the conn
+** and the listener here. but that's okay
+*/
 HRESULT
 TLSConnection::InitializeConnection(
     ConnectionParameters* pParams
@@ -187,6 +271,18 @@ error:
     goto done;
 } // end function InitializeConnection
 
+/*
+** this is the top-level parsing functionality, one of the most important parts
+** of the code. The app calls this when they receive a chunk of data from the
+** network, and this results in us doing any or all of the following:
+**
+** - parse out handshake messages and store internal state about the progress
+**   of the handshake
+** - queue up handshake messages of our own to be sent back to the client
+** - generate one or more synchronous callbacks to the app to request input
+**   into the handshake process
+** - pass on application data to the app
+*/
 HRESULT
 TLSConnection::HandleMessage(
     ByteVector* pvb
@@ -194,9 +290,8 @@ TLSConnection::HandleMessage(
 {
     HRESULT hr = S_OK;
 
-    MT_TLSCiphertext message;
-    MT_TLSPlaintext record;
-    size_t cbConsumed = 0;
+    MT_TLSCiphertext ciphertext;
+    MT_TLSPlaintext plaintext;
 
     if (pvb->empty())
     {
@@ -204,74 +299,107 @@ TLSConnection::HandleMessage(
         goto done;
     }
 
-    *message.Conn() = this;
+    /*
+    ** absolutely first things first, hook up this message with this overall
+    ** connection. the message primarily uses this to invoke ITLSListener
+    ** functions to get more data from the app
+    */
+    *ciphertext.Conn() = this;
 
-    hr = message.ParseFromVect(pvb);
+    /*
+    ** this first step just parses the record layer portion out of it. at this
+    ** point, we assume the message is encrypted (though in actuality we might
+    ** be using null-encryption for now), so we don't yet have enough info to
+    ** decrypt it.
+    */
+    hr = ciphertext.ParseFromVect(pvb);
     if (hr != S_OK)
     {
         wprintf(L"failed to parse ciphered message: %08LX\n", hr);
         goto error;
     }
 
-    wprintf(L"successfully parsed TLSCiphertext. CT=%d\n", *message.ContentType()->Type());
+    wprintf(L"successfully parsed TLSCiphertext. CT=%d\n", *ciphertext.ContentType()->Type());
 
-    hr = message.SetSecurityParameters(CurrConn()->ReadParams());
+    // this supplies the necessary information to decrypt the message
+    hr = ciphertext.SetSecurityParameters(CurrConn()->ReadParams());
     if (hr != S_OK)
     {
         goto error;
     }
 
-    hr = message.Decrypt();
+    hr = ciphertext.Decrypt();
     if (hr != S_OK)
     {
         wprintf(L"failed to decrypt ciphertext: %08LX\n", hr);
         goto error;
     }
 
-    {
+    { // just logging
         ByteVector vbDecryptedFragment;
         wprintf(L"decrypted fragment:\n");
-        PrintByteVector(message.CipherFragment()->Content());
+        PrintByteVector(ciphertext.CipherFragment()->Content());
     }
 
-    hr = message.CheckSecurity();
+    /*
+    ** verify the integrity of the message using the MAC, if present. we could
+    ** choose to present the app with a choice of proceeding despite a MAC
+    ** failure, though in practice, when interoperating with any sane TLS
+    ** implementation, this means that something has gone horribly wrong on
+    ** either the client (their) or server (our) side.
+    */
+    hr = ciphertext.CheckSecurity();
     if (hr != S_OK)
     {
         wprintf(L"tlsciphertext failed security check: %08LX\n", hr);
         goto error;
     }
 
-    hr = message.ToTLSPlaintext(&record);
+    // from here on, we operate on the plaintext version of the record
+    hr = ciphertext.ToTLSPlaintext(&plaintext);
     if (hr != S_OK)
     {
         wprintf(L"failed to assign ciphertext to plaintext: %08LX\n", hr);
         goto error;
     }
 
+    /*
+    ** allow the app to know about the plaintext reciept, and whether it was
+    ** actually encrypted, as opposed to null-encrypted
+    */
     hr = Listener()->OnReceivingPlaintext(
-             &record,
-             message.EndParams()->IsEncrypted());
+             &plaintext,
+             ciphertext.EndParams()->IsEncrypted());
 
-    if (hr != S_OK)
+    // app could return "handled" or "ignored", or S_OK
+    if (FAILED(hr))
     {
         goto error;
     }
 
+    /*
+    ** update the next IV, if we're using a block cipher. this can be done at
+    ** any time after the Decrypt call (since that needs the previous IV) and
+    ** obviously before the next Decrypt call. Note that this is updating the
+    ** IV for the read-state only. The write-state is managed separately, per
+    ** RFC.
+    */
     if (CurrConn()->ReadParams()->Cipher()->type == CipherType_Block)
     {
+        // TODO: doc
         if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
         {
-            MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(message.CipherFragment());
+            MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(ciphertext.CipherFragment());
             CurrConn()->ReadParams()->IV()->assign(pBlockCipher->RawContent()->end() - CurrConn()->ReadParams()->Cipher()->cbIVSize, pBlockCipher->RawContent()->end());
         }
         else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
         {
-            MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(message.CipherFragment());
+            MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(ciphertext.CipherFragment());
             *CurrConn()->ReadParams()->IV() = *pBlockCipher->IVNext();
         }
         else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
         {
-            MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(message.CipherFragment());
+            MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(ciphertext.CipherFragment());
             *CurrConn()->ReadParams()->IV() = *pBlockCipher->IVNext();
         }
         else
@@ -280,28 +408,55 @@ TLSConnection::HandleMessage(
         }
     }
 
+    // make sure that whatever IV was assigned is correct for the cipher suite
     assert(CurrConn()->ReadParams()->IV()->size() == CurrConn()->ReadParams()->Cipher()->cbIVSize);
 
-    cbConsumed = message.Length();
-
-    if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+    /*
+    ** with plaintext in hand, we do content-type specific handling. Most
+    ** important for us are Handshake messages and ChangeCipherSpec messages,
+    ** which drive the handshake process forward.
+    */
+    if (*plaintext.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
     {
+        /*
+        ** parse out one or more Handshake messages. A record layer message
+        ** with a given content type can contain multiple contiguous messages
+        ** of the same type in the fragment, since each inner message has the
+        ** fields in place to identify its own length.
+        **
+        ** ParseStructures is templated by the structure type, e.g.
+        ** MT_Handshake
+        */
         vector<MT_Handshake> vStructures;
-        hr = ParseStructures(record.Fragment(), &vStructures);
+        hr = ParseStructures(plaintext.Fragment(), &vStructures);
         if (hr != S_OK)
         {
             goto error;
         }
 
+        // process each handshake message
         for (auto it = vStructures.begin(); it != vStructures.end(); it++)
         {
+            /*
+            ** At the end of the handshake, as a security measure, each
+            ** endpoint sends the other a hash of all the handshake-layer data
+            ** it has sent and received, so we need to make a copy of the
+            ** message here. NB: this archive does NOT contain any of the
+            ** record-layer message--ONLY the handshake-layer message.
+            */
             shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
             *spHandshakeMessage = *it;
 
             wprintf(L"successfully parsed Handshake. type=%d\n", *spHandshakeMessage->Type());
 
+            // handshake messages have their own inner "content type"
             if (*spHandshakeMessage->Type() == MT_Handshake::MTH_ClientHello)
             {
+                /*
+                ** initial contact from the client that starts a new handshake.
+                ** we parse out a bunch of information about what the client
+                ** advertises its capabilities as
+                */
                 MT_ClientHello clientHello;
 
                 hr = clientHello.ParseFromVect(spHandshakeMessage->Body());
@@ -311,30 +466,30 @@ TLSConnection::HandleMessage(
                     goto error;
                 }
 
-                wprintf(L"parsed client hello message:\n");
-                wprintf(L"version %04LX\n", *clientHello.ClientVersion()->Version());
-                if (clientHello.SessionID()->Count() > 0)
-                {
-                    wprintf(L"session ID %d (%d)\n", clientHello.SessionID()->Data()[0]);
-                }
-                else
-                {
-                    wprintf(L"no session ID specified\n");
-                }
+                { // all logging stuff
+                    wprintf(L"parsed client hello message:\n");
+                    wprintf(L"version %04LX\n", *clientHello.ClientVersion()->Version());
+                    if (clientHello.SessionID()->Count() > 0)
+                    {
+                        wprintf(L"session ID %d (%d)\n", clientHello.SessionID()->Data()[0]);
+                    }
+                    else
+                    {
+                        wprintf(L"no session ID specified\n");
+                    }
 
-                wprintf(L"%d crypto suites\n", clientHello.CipherSuites()->Count());
+                    wprintf(L"%d crypto suites\n", clientHello.CipherSuites()->Count());
 
-                wprintf(L"crypto suite 0: %02X %02X\n",
-                       *clientHello.CipherSuites()->at(0)->at(0),
-                       *clientHello.CipherSuites()->at(0)->at(1));
+                    wprintf(L"crypto suite 0: %02X %02X\n",
+                           *clientHello.CipherSuites()->at(0)->at(0),
+                           *clientHello.CipherSuites()->at(0)->at(1));
 
-                wprintf(L"%d compression methods: %d\n",
-                       clientHello.CompressionMethods()->Count(),
-                       *clientHello.CompressionMethods()->at(0)->Method());
+                    wprintf(L"%d compression methods: %d\n",
+                           clientHello.CompressionMethods()->Count(),
+                           *clientHello.CompressionMethods()->at(0)->Method());
 
-                wprintf(L"%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
+                    wprintf(L"%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
 
-                {
                     for (auto it = clientHello.Extensions()->Data()->begin(); it != clientHello.Extensions()->Data()->end(); it++)
                     {
                         if (*it->ExtensionType() == MT_Extension::MTEE_RenegotiationInfo)
@@ -343,7 +498,7 @@ TLSConnection::HandleMessage(
                             PrintByteVector(it->ExtensionData());
                         }
                     }
-                }
+                } // end logging
 
                 hr = StartNextHandshake(&clientHello);
                 if (hr != S_OK)
@@ -351,10 +506,14 @@ TLSConnection::HandleMessage(
                     goto error;
                 }
 
+                // archive the message for the Finished hash later
                 NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
 
-                *NextConn()->ClientHello() = clientHello;
-
+                /*
+                ** allow the app to select what protocol version to send in
+                ** response to the ClientHello, which has advertised a
+                ** particular version already
+                */
                 {
                     MT_ProtocolVersion protocolVersion = *clientHello.ClientVersion();
 
@@ -371,6 +530,12 @@ TLSConnection::HandleMessage(
 
                 *NextConn()->ClientRandom() = *(clientHello.Random());
 
+                /*
+                ** A particularly important block: allow the app to select the
+                ** cipher suite to be used, out of the list given by the
+                ** client. if the app ignores the callback, MungeTLS has a way
+                ** of picking its preferred choice
+                */
                 {
                     MT_CipherSuite cipherSuite;
 
@@ -381,11 +546,13 @@ TLSConnection::HandleMessage(
                         goto error;
                     }
 
+                    // pick the library's preference out of the client list
                     if (hrL == MT_S_LISTENER_IGNORED)
                     {
                         MT_CipherSuiteValue ePreferred;
                         vector<MT_CipherSuiteValue> vValues(NextConn()->ClientHello()->CipherSuites()->Count());
 
+                        // just extracting the enum value from the raw data
                         transform(
                             NextConn()->ClientHello()->CipherSuites()->Data()->begin(),
                             NextConn()->ClientHello()->CipherSuites()->Data()->end(),
@@ -427,10 +594,18 @@ TLSConnection::HandleMessage(
                         }
                     }
 
+                    /*
+                    ** same cipher suite is always used for read and write.
+                    ** it's important to note that setting this value here does
+                    ** NOT immediately switch over the library to encrypting/
+                    ** decrypting with this new cipher suite. this is all
+                    ** pending state until we receive and send ChangeCipherSpec
+                    ** messages.
+                    */
                     *NextConn()->ReadParams()->CipherSuite() = cipherSuite;
                     *NextConn()->WriteParams()->CipherSuite() = cipherSuite;
 
-                    {
+                    { // logging
                         MT_CipherSuiteValue eValue;
                         HRESULT hrTemp = cipherSuite.Value(&eValue);
                         assert(hrTemp == S_OK);
@@ -439,6 +614,7 @@ TLSConnection::HandleMessage(
                     }
                 }
 
+                // construct our server response to the client hello
                 hr = RespondToClientHello();
                 if (hr != S_OK)
                 {
@@ -447,6 +623,20 @@ TLSConnection::HandleMessage(
 
                 }
             }
+
+            /*
+            ** the ClientKeyExchange message is where the public key
+            ** cryptography takes place. the client has encrypted some data
+            ** (actually, the Random value it sent earlier) with our public
+            ** key, and we have to decrypt it, verify that it matches, and use
+            ** it to generate the bulk cipher keys used in the rest of the
+            ** connection
+            **
+            ** in theory, public/private key encryption could just be used for
+            ** all traffic in the connection, but it is computationally far
+            ** more expensive than symmetric key encryption, so it's merely
+            ** used as a bootstrap
+            */
             else if (*spHandshakeMessage->Type() == MT_Handshake::MTH_ClientKeyExchange)
             {
                 MT_KeyExchangeAlgorithm keyExchangeAlg;
@@ -456,7 +646,9 @@ TLSConnection::HandleMessage(
 
                 /*
                 ** at this point we should have exchanged hellos and therefore
-                ** agreed on a single cipher suite
+                ** agreed on a single cipher suite, so the following call to
+                ** get the key exchange algorithm can use either read or write
+                ** params
                 */
                 assert(*NextConn()->ReadParams()->CipherSuite() == *NextConn()->WriteParams()->CipherSuite());
 
@@ -475,13 +667,20 @@ TLSConnection::HandleMessage(
                 }
 
                 hr = keyExchange.ParseFromVect(spHandshakeMessage->Body());
-
                 if (hr != S_OK)
                 {
                     wprintf(L"failed to parse key exchange message from handshake body: %08LX\n", hr);
                     goto error;
                 }
 
+                /*
+                ** actually decrypt the structure using our public key
+                ** cipherer, which internally should already be primed with the
+                ** correct public/private key pair. note that this should be
+                ** using NextConn, not CurrConn, since we're handshaking using
+                ** potentially a new certificate (and consequently a new key
+                ** pair)
+                */
                 pExchangeKeys = keyExchange.ExchangeKeys();
                 hr = pExchangeKeys->DecryptStructure(NextConn()->PubKeyCipherer()->get());
                 if (hr != S_OK)
@@ -490,11 +689,14 @@ TLSConnection::HandleMessage(
                     goto error;
                 }
 
+                // archive the message since it's good, for the Finished hash
                 NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
 
+                // got the decrypted premaster secret
                 pSecret = pExchangeKeys->Structure();
                 wprintf(L"version %04LX\n", *pSecret->ClientVersion()->Version());
 
+                // generate a bunch of crypto material from this
                 hr = NextConn()->GenerateKeyMaterial(pSecret);
                 if (hr != S_OK)
                 {
@@ -505,6 +707,19 @@ TLSConnection::HandleMessage(
                 wprintf(L"computed master secret and key material:\n");
                 PrintByteVector(NextConn()->MasterSecret());
             }
+
+            /*
+            ** with the Finished message, the client has sent its last
+            ** handshake message. In fact, this message has already been
+            ** encrypted with the new connection parameters, so parsing this
+            ** message is needed only for verifying the integrity of the
+            ** client -> server stream.
+            **
+            ** verifying it involves computing a hash of all handshake messages
+            ** received so far (not including this very Finished message) and
+            ** comparing it with the decrypted body of this message. this hash
+            ** value is known as the "verify data"
+            */
             else if (*spHandshakeMessage->Type() == MT_Handshake::MTH_Finished)
             {
                 MT_Finished finishedMessage;
@@ -515,18 +730,21 @@ TLSConnection::HandleMessage(
                     goto error;
                 }
 
+                // used to access HandshakeMessages() for the hash calculation
                 hr = finishedMessage.SetConnectionParameters(NextConn());
                 if (hr != S_OK)
                 {
                     goto error;
                 }
 
+                // used to decrypt the message
                 hr = finishedMessage.SetSecurityParameters(NextConn()->ReadParams());
                 if (hr != S_OK)
                 {
                     goto error;
                 }
 
+                // do the actual hash check
                 hr = finishedMessage.CheckSecurity();
                 if (hr != S_OK)
                 {
@@ -534,10 +752,21 @@ TLSConnection::HandleMessage(
                     goto error;
                 }
 
+                /*
+                ** we have to store the verify data we received here to include
+                ** in a renegotiation, if one comes up
+                */
                 *NextConn()->ClientVerifyData() = *finishedMessage.VerifyData();
 
+                /*
+                ** yes, we archive this message, too. when the server sends its
+                ** own Finished message, guess what? it has to include all
+                ** handshake messages received so far, including the client
+                ** finished message
+                */
                 NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
 
+                // go ahead and do that response right now
                 hr = RespondToFinished();
                 if (hr != S_OK)
                 {
@@ -546,6 +775,8 @@ TLSConnection::HandleMessage(
 
                 }
             }
+
+            // TODO: doc
             else
             {
                 wprintf(L"not yet supporting handshake type %d\n", *spHandshakeMessage->Type());
@@ -554,15 +785,30 @@ TLSConnection::HandleMessage(
             }
         }
 
+        // sequence number is incremented AFTER processing a record
         (*CurrConn()->ReadParams()->SequenceNumber())++;
     }
-    else if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
+
+    /*
+    ** the ChangeCipherSpec message is one of the most important. its receipt
+    ** signals that the client is now going to switch to using the newly
+    ** negotiated crypto suite for all subsequent messages. At this point, we
+    ** copy over all the endpoint-specific data into the active connection,
+    ** so this change in decryption will automatically just work
+    */
+    else if (*plaintext.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
     {
+        // see note on first ParseStructures call about multiple structures
         vector<MT_ChangeCipherSpec> vStructures;
-        hr = ParseStructures(record.Fragment(), &vStructures);
+        hr = ParseStructures(plaintext.Fragment(), &vStructures);
         if (hr != S_OK)
         {
             goto error;
+        }
+
+        if (vStructures.size() > 1)
+        {
+            wprintf(L"warning: received %lu ChangeCipherSpec messages in a row\n", vStructures.size());
         }
 
         for (auto it = vStructures.begin(); it != vStructures.end(); it++)
@@ -577,10 +823,16 @@ TLSConnection::HandleMessage(
         */
         assert(*CurrConn()->ReadParams()->SequenceNumber() == 0);
     }
-    else if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_Alert)
+
+    /*
+    ** alert messages are basically errors and warnings. we don't really do
+    ** much with them right now, just print them out.
+    */
+    else if (*plaintext.ContentType()->Type() == MT_ContentType::MTCT_Type_Alert)
     {
+        // see note on first ParseStructures call about multiple structures
         vector<MT_Alert> vStructures;
-        hr = ParseStructures(record.Fragment(), &vStructures);
+        hr = ParseStructures(plaintext.Fragment(), &vStructures);
         if (hr != S_OK)
         {
             goto error;
@@ -591,27 +843,39 @@ TLSConnection::HandleMessage(
             wprintf(L"got alert: %s\n", it->ToString().c_str());
         }
 
+        // sequence number is incremented AFTER processing a record
         (*CurrConn()->ReadParams()->SequenceNumber())++;
     }
-    else if (*record.ContentType()->Type() == MT_ContentType::MTCT_Type_ApplicationData)
+
+    /*
+    ** actual data for the application! we don't examine it at all, just pass
+    ** it on in a callback to the app
+    */
+    else if (*plaintext.ContentType()->Type() == MT_ContentType::MTCT_Type_ApplicationData)
     {
         wprintf(L"application data:\n");
-        PrintByteVector(record.Fragment());
+        PrintByteVector(plaintext.Fragment());
 
-        hr = Listener()->OnReceivedApplicationData(record.Fragment());
-        if (hr != S_OK)
+        hr = Listener()->OnReceivedApplicationData(plaintext.Fragment());
+        if (FAILED(hr))
         {
             wprintf(L"warning: error in OnReceivedApplicationData with listener: %08LX\n", hr);
         }
 
+        // sequence number is incremented AFTER processing a record
         (*CurrConn()->ReadParams()->SequenceNumber())++;
     }
     else
     {
-        // TLSPlaintext.ParseFrom should filter out unknown content types
-        assert(false);
+        wprintf(L"unknown content type %02LX\n", *plaintext.ContentType()->Type());
+        hr = MT_E_UNKNOWN_CONTENT_TYPE;
+        goto error;
     }
 
+    /*
+    ** inform the app of any messages we've queued up in the course of handling
+    ** this block of data
+    */
     hr = SendQueuedMessages();
     if (hr != S_OK)
     {
@@ -619,8 +883,13 @@ TLSConnection::HandleMessage(
         goto error;
     }
 
-    assert(cbConsumed <= pvb->size());
-    pvb->erase(pvb->begin(), pvb->begin() + cbConsumed);
+    /*
+    ** the ciphertext object represents the raw data in pvb that we consumed,
+    ** so it has to be smaller in size than pvb. also, erase that section from
+    ** pvb, which the app is possibly appending data from the client into
+    */
+    assert(ciphertext.Length() <= pvb->size());
+    pvb->erase(pvb->begin(), pvb->begin() + ciphertext.Length());
 
 done:
     return hr;
@@ -629,6 +898,15 @@ error:
     goto done;
 } // end function HandleMessage
 
+/*
+** this function is called whenever we have a structure to send to the client.
+** it converts a plaintext object into a properly encrypted ciphertext object
+** according to the current connection's negotiated cipher suite.
+**
+** the ciphertext message isn't exactly sent yet, but it's in the queue to be
+** sent, so effectively committed in terms of updates to the IV and sequence
+** number.
+*/
 HRESULT
 TLSConnection::EnqueueMessage(
     shared_ptr<MT_TLSPlaintext> spPlaintext
@@ -648,8 +926,14 @@ TLSConnection::EnqueueMessage(
         goto error;
     }
 
+    /* TODO: doc
+    ** save the IV that will be used for encrypting the next
+    */
     CurrConn()->WriteParams()->IV()->assign(spCiphertext->Fragment()->end() - CurrConn()->WriteParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
     assert(CurrConn()->WriteParams()->IV()->size() == CurrConn()->WriteParams()->Cipher()->cbIVSize);
+
+    wprintf(L"next IV for writing:\n");
+    PrintByteVector(CurrConn()->WriteParams()->IV());
 
     PendingSends()->push_back(spCiphertext);
     (*CurrConn()->WriteParams()->SequenceNumber())++;
@@ -2557,7 +2841,12 @@ MT_VariableLengthField
 
         cbField = elem.Length();
         ADVANCE_PARSE();
+
         SAFE_SUB(hr, cbTotalElementsSize, cbField);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
     }
 
 done:
@@ -2806,7 +3095,12 @@ MT_FixedLengthStructure<F, Size>::ParseFromPriv(
 
         size_t cbField = elem.Length();
         ADVANCE_PARSE();
+
         SAFE_SUB(hr, cbTotalElementsSize, cbField);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
     }
 
     assert(Length() == Size);
@@ -5742,6 +6036,9 @@ MT_GenericBlockCipher_TLS11::ParseFromPriv(
 
     IVNext()->assign(pv, pv + cbField);
 
+    wprintf(L"received IV field:\n");
+    PrintByteVector(IVNext());
+
     ADVANCE_PARSE();
 
     pvEnd = &pv[cb - c_cbGenericBlockCipher_Padding_LFL];
@@ -5852,6 +6149,9 @@ MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
         goto error;
     }
 
+    wprintf(L"including IVNext field when writing:\n");
+    PrintByteVector(IVNext());
+
     std::copy(IVNext()->begin(), IVNext()->end(), pv);
 
     ADVANCE_PARSE();
@@ -5884,6 +6184,16 @@ MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
     ADVANCE_PARSE();
 
     assert(cb == 0);
+
+    /* TODO: remove
+    - server: generate key material IV = 0000
+    - client: generate key material IV = 0000
+    - server: send ciphertext. IV = 0000, IVNext = 0000
+    - server: IV = 0001
+    - client: decrypt with IV = 0000, IVNext = 0000
+    - server: send ciphertext. IV = 0001, IVNext = 0001
+    - client: decrypt with IVNext = 0000.... fails?
+    */
 
     hr = (*EndParams()->SymCipherer())->EncryptBuffer(
              &vbDecryptedStruct,
