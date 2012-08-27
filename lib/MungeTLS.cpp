@@ -926,10 +926,29 @@ TLSConnection::EnqueueMessage(
         goto error;
     }
 
-    /* TODO: doc
-    ** save the IV that will be used for encrypting the next
-    */
-    CurrConn()->WriteParams()->IV()->assign(spCiphertext->Fragment()->end() - CurrConn()->WriteParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
+    // TODO: doc
+    if (CurrConn()->WriteParams()->Cipher()->type == CipherType_Block)
+    {
+        if (*CurrConn()->WriteParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+        {
+            CurrConn()->WriteParams()->IV()->assign(spCiphertext->Fragment()->end() - CurrConn()->WriteParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
+        }
+        else if (*CurrConn()->WriteParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
+        {
+            MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(spCiphertext->CipherFragment());
+            *CurrConn()->WriteParams()->IV() = *pBlockCipher->IVNext();
+        }
+        else if (*CurrConn()->WriteParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
+        {
+            MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(spCiphertext->CipherFragment());
+            *CurrConn()->WriteParams()->IV() = *pBlockCipher->IVNext();
+        }
+        else
+        {
+            assert(false);
+        }
+    }
+
     assert(CurrConn()->WriteParams()->IV()->size() == CurrConn()->WriteParams()->Cipher()->cbIVSize);
 
     wprintf(L"next IV for writing:\n");
@@ -3718,6 +3737,15 @@ error:
     goto done;
 } // end function CheckSecurityPriv
 
+HRESULT
+MT_TLSCiphertext::GenerateNextIV(ByteVector* pvbIV)
+{
+    static BYTE iIVSeed = 1;
+    pvbIV->assign(EndParams()->Cipher()->cbIVSize, iIVSeed);
+    iIVSeed++;
+    return S_OK;
+} // end function GenerateNextIV
+
 /*********** MT_ContentType *****************/
 
 MT_ContentType::MT_ContentType()
@@ -5860,7 +5888,6 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
     wprintf(L"MAC hash text:\n");
     PrintByteVector(&vbHashText);
 
-
     hr = (*EndParams()->HashInst())->HMAC(
              pHashInfo,
              pvbMACKey,
@@ -6109,7 +6136,11 @@ MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
     size_t cbField = 0;
     ByteVector vbDecryptedStruct;
 
-    *IVNext() = *EndParams()->IV();
+    hr = Ciphertext()->GenerateNextIV(IVNext());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
     hr = ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
@@ -6321,7 +6352,6 @@ MT_GenericBlockCipher_TLS11::ComputeSecurityInfo(
 
     wprintf(L"MAC hash text:\n");
     PrintByteVector(&vbHashText);
-
 
     hr = (*EndParams()->HashInst())->HMAC(
              pHashInfo,

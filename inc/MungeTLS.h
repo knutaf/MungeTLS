@@ -1103,6 +1103,8 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
 
     HRESULT GetProtocolVersionForSecurity(MT_ProtocolVersion* pVersion);
 
+    HRESULT GenerateNextIV(ByteVector* pvbIV);
+
     private:
     HRESULT CheckSecurityPriv();
 

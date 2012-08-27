@@ -632,8 +632,8 @@ HRESULT SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello
     static const MT_CipherSuiteValue c_rgCipherSuites[] =
     {
         //MTCS_UNKNOWN,
-        MTCS_TLS_RSA_WITH_RC4_128_SHA
-        ,MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
+        MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
+        ,MTCS_TLS_RSA_WITH_RC4_128_SHA
         //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA
         //,MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256
         //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256
