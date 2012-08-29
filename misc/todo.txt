@@ -15,7 +15,6 @@ WORK:
 - rethink const-ness of encryption and decryption. not all things are modifying cipherer state, are they?
 - ExtensionData should be a variable length byte field
 - assumption that ServerHelloDone is empty. create an empty struct for it like hello request
-- clean up where we assign the read IV from the block. it's ugly
 
 MAYBE:
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon

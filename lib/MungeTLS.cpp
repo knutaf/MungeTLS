@@ -949,7 +949,7 @@ TLSConnection::EnqueueMessage(
 
     wprintf(L"write seq num is now %d\n", *CurrConn()->WriteParams()->SequenceNumber());
 
-
+    // primarily used for logging by the app
     hr = Listener()->OnEnqueuePlaintext(
              spPlaintext.get(),
              spCiphertext->EndParams()->IsEncrypted());
@@ -966,6 +966,7 @@ error:
     goto done;
 } // end function EnqueueMessage
 
+// alert the app about each message's raw bytes that need to be sent
 HRESULT
 TLSConnection::SendQueuedMessages()
 {
@@ -973,9 +974,9 @@ TLSConnection::SendQueuedMessages()
 
     if (!PendingSends()->empty())
     {
-        wprintf(L"sending %u messages\n", PendingSends()->size());
+        { // only logging
+            wprintf(L"sending %u messages\n", PendingSends()->size());
 
-        {
             for_each(PendingSends()->begin(), PendingSends()->end(),
             [](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
             {
@@ -988,13 +989,13 @@ TLSConnection::SendQueuedMessages()
         {
             if (hr == S_OK)
             {
-                ByteVector vbResponse;
+                ByteVector vbRecord;
 
-                hr = rspStructure->SerializeToVect(&vbResponse);
+                hr = rspStructure->SerializeToVect(&vbRecord);
                 if (hr == S_OK)
                 {
-                    hr = Listener()->OnSend(&vbResponse);
-                    if (hr != S_OK)
+                    hr = Listener()->OnSend(&vbRecord);
+                    if (FAILED(hr))
                     {
                         wprintf(L"warning: error in OnSend with listener: %08LX\n", hr);
                     }
@@ -1021,6 +1022,17 @@ error:
     goto done;
 } // end function SendQueuedMessages
 
+/*
+** having received a client hello, prepare and queue up the messages we should
+** respond with to drive the TLS handshake
+**
+** this ends up being a ServerHello, a Certificate, and a ServerHelloDone
+**
+** This function is a little complicated because it handles the app's choice of
+** whether to package multiple records of the same content type (in this case,
+** Handshake) into a single record layer message, or to split them up into
+** individual record layer messages.
+*/
 HRESULT
 TLSConnection::RespondToClientHello()
 {
@@ -1028,7 +1040,7 @@ TLSConnection::RespondToClientHello()
     MT_ClientHello* pClientHello = NextConn()->ClientHello();
     shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
-    // Server Hello
+    // ServerHello
     {
         MT_ProtocolVersion protocolVersion;
         MT_Random random;
@@ -1038,7 +1050,7 @@ TLSConnection::RespondToClientHello()
         MT_ServerHello serverHello;
         shared_ptr<MT_Handshake> spHandshake(new MT_Handshake());
 
-        // could call back to caller for this
+        // could call back to app for this. for now use the client's version
         *protocolVersion.Version() = *NextConn()->ReadParams()->Version();
 
         hr = random.PopulateNow();
@@ -1047,15 +1059,25 @@ TLSConnection::RespondToClientHello()
             goto error;
         }
 
+        // no compression support for now
         *compressionMethod.Method() = MT_CompressionMethod::MTCM_Null;
 
+        /*
+        ** prepare the renegotiation extension information. if we're doing a
+        ** second handshake (renegotiation), then fill in the requisite
+        ** Finished verify data from the prior handshake
+        **
+        ** the MT_RenegotiationInfoExtension object is a standard Extension. it
+        ** contains a MT_RenegotiatedConnection object, which has all of the
+        ** specific data about this type of extension
+        */
         {
             MT_RenegotiationInfoExtension renegotiationExtension;
             MT_RenegotiationInfoExtension::MT_RenegotiatedConnection rc;
 
             *renegotiationExtension.ExtensionType() = MT_Extension::MTEE_RenegotiationInfo;
 
-            // no previous verify data to use, i.e. not renegotiating
+            // we have previous verify data, so we're renegotiating
             if (!CurrConn()->ServerVerifyData()->Data()->empty())
             {
                 // also need client verify data
@@ -1090,15 +1112,31 @@ TLSConnection::RespondToClientHello()
             extensions.Data()->push_back(renegotiationExtension);
         }
 
-        *(serverHello.ServerVersion()) = protocolVersion;
-        *(serverHello.Random()) = random;
-        *(serverHello.SessionID()) = sessionID;
+        *serverHello.ServerVersion() = protocolVersion;
+        *serverHello.Random() = random;
+        *serverHello.SessionID() = sessionID;
 
-        assert(*NextConn()->ReadParams()->CipherSuite() == *NextConn()->WriteParams()->CipherSuite());
-        *(serverHello.CipherSuite()) = *NextConn()->ReadParams()->CipherSuite();
+        // just logging/warning
+        if (*NextConn()->ReadParams()->CipherSuite() == *NextConn()->WriteParams()->CipherSuite())
+        {
+            MT_CipherSuiteValue csvRead;
+            hr = NextConn()->ReadParams()->CipherSuite()->Value(&csvRead);
+            if (hr == S_OK)
+            {
+                MT_CipherSuiteValue csvWrite;
+                hr = NextConn()->WriteParams()->CipherSuite()->Value(&csvWrite);
+                if (hr == S_OK)
+                {
+                    wprintf(L"warning: choosing different read cipher suite (%04LX) and write cipher suite (%04LX)\n", csvRead, csvWrite);
+                }
+            }
 
-        *(serverHello.CompressionMethod()) = compressionMethod;
-        *(serverHello.Extensions()) = extensions;
+            hr = S_OK;
+        }
+
+        *serverHello.CipherSuite() = *NextConn()->ReadParams()->CipherSuite();
+        *serverHello.CompressionMethod() = compressionMethod;
+        *serverHello.Extensions() = extensions;
 
         *NextConn()->ServerRandom() = *(serverHello.Random());
 
@@ -1151,13 +1189,15 @@ TLSConnection::RespondToClientHello()
                  *pClientHello->ClientVersion()->Version(),
                  &pPlaintextPass);
 
+        /*
+        ** S_OK -> send the previous record layer message. The app chose to put
+        ** this handshake message in a new record layer message, passed back in
+        ** pPlaintextPass
+        **
+        ** S_FALSE -> keep accumulating data for this single plaintext message.
+        */
         if (hr == S_OK)
         {
-            /*
-            ** send the previous record layer message. The caller chose to put
-            ** this handshake message in a new record layer message, passed
-            ** back in pPlaintextPass
-            */
             hr = EnqueueMessage(spPlaintext);
             if (hr != S_OK)
             {
@@ -1174,12 +1214,13 @@ TLSConnection::RespondToClientHello()
 
         NextConn()->HandshakeMessages()->push_back(spHandshake);
 
+        // could be S_FALSE, so reset
         hr = S_OK;
     }
 
     assert(hr == S_OK);
 
-    // Server Hello Done
+    // ServerHelloDone
     {
         shared_ptr<MT_Handshake> spHandshake(new MT_Handshake());
         MT_TLSPlaintext* pPlaintextPass = spPlaintext.get();
@@ -1191,20 +1232,15 @@ TLSConnection::RespondToClientHello()
                  *pClientHello->ClientVersion()->Version(),
                  &pPlaintextPass);
 
+        // see above for comments at call to AddHandshakeMessage
         if (hr == S_OK)
         {
-            /*
-            ** send the previous record layer message. The caller chose to put
-            ** this handshake message in a new record layer message, passed
-            ** back in pPlaintextPass
-            */
             hr = EnqueueMessage(spPlaintext);
             if (hr != S_OK)
             {
                 goto error;
             }
 
-            // take ownership of memory allocated in AddHandshakeMessage
             spPlaintext.reset(pPlaintextPass);
         }
         else if (hr != S_FALSE)
