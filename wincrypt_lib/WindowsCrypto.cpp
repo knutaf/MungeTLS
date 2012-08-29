@@ -154,19 +154,24 @@ EncryptBuffer(
     {
         fFinal = FALSE;
 
-        assert(pvbIV != nullptr);
-
-        wprintf(L"setting IV to:\n");
-        PrintByteVector(pvbIV);
-
-        if (!CryptSetKeyParam(
-                 hKey,
-                 KP_IV,
-                 &pvbIV->front(),
-                 0))
+        if (pvbIV != nullptr)
         {
-            hr = HRESULT_FROM_WIN32(GetLastError());
-            goto error;
+            wprintf(L"setting IV to:\n");
+            PrintByteVector(pvbIV);
+
+            if (!CryptSetKeyParam(
+                     hKey,
+                     KP_IV,
+                     &pvbIV->front(),
+                     0))
+            {
+                hr = HRESULT_FROM_WIN32(GetLastError());
+                goto error;
+            }
+        }
+        else
+        {
+            wprintf(L"warning: no explicit IV given\n");
         }
 
         wprintf(L"duplicating key\n");
@@ -271,6 +276,12 @@ EncryptBuffer(
     }
 
 done:
+    if (hKeyNew != hKey)
+    {
+        CryptDestroyKey(hKeyNew);
+        hKeyNew = NULL;
+    }
+
     return hr;
 
 error:
@@ -313,19 +324,24 @@ DecryptBuffer(
         fFinal = TRUE;
         *pvbDecrypted = *pvbEncrypted;
 
-        assert(pvbIV != nullptr);
-
-        wprintf(L"setting IV to:\n");
-        PrintByteVector(pvbIV);
-
-        if (!CryptSetKeyParam(
-                 hKey,
-                 KP_IV,
-                 &pvbIV->front(),
-                 0))
+        if (pvbIV != nullptr)
         {
-            hr = HRESULT_FROM_WIN32(GetLastError());
-            goto error;
+            wprintf(L"setting IV to:\n");
+            PrintByteVector(pvbIV);
+
+            if (!CryptSetKeyParam(
+                     hKey,
+                     KP_IV,
+                     &pvbIV->front(),
+                     0))
+            {
+                hr = HRESULT_FROM_WIN32(GetLastError());
+                goto error;
+            }
+        }
+        else
+        {
+            wprintf(L"warning: decrypting without an explicit IV\n");
         }
 
         wprintf(L"duplicating key\n");
