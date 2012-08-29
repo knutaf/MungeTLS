@@ -378,29 +378,34 @@ TLSConnection::HandleMessage(
     }
 
     /*
-    ** update the next IV, if we're using a block cipher. this can be done at
-    ** any time after the Decrypt call (since that needs the previous IV) and
-    ** obviously before the next Decrypt call. Note that this is updating the
-    ** IV for the read-state only. The write-state is managed separately, per
-    ** RFC.
+    ** update the next IV, if we're using a block cipher. this can actually be
+    ** done any time after we've parsed the ciphertext block (even before
+    ** decryption). This only needs to be done for TLS 1.0 block ciphers
+    ** because TLS 1.1 and later block ciphers have their IV packaged in
+    ** plaintext along with the payload.
     */
     if (CurrConn()->ReadParams()->Cipher()->type == CipherType_Block)
     {
-        // TODO: doc
+        // for TLS 1.0 next IV is the last block of the previous ciphertext
         if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
         {
             MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(ciphertext.CipherFragment());
             CurrConn()->ReadParams()->IV()->assign(pBlockCipher->RawContent()->end() - CurrConn()->ReadParams()->Cipher()->cbIVSize, pBlockCipher->RawContent()->end());
         }
+
+        /*
+        ** for TLS 1.1 and 1.2, we track it just "for fun", since it's never
+        ** actually used. we could use it for logging or something
+        */
         else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
         {
             MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(ciphertext.CipherFragment());
-            *CurrConn()->ReadParams()->IV() = *pBlockCipher->IVNext();
+            *CurrConn()->ReadParams()->IV() = *pBlockCipher->IV();
         }
         else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
         {
             MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(ciphertext.CipherFragment());
-            *CurrConn()->ReadParams()->IV() = *pBlockCipher->IVNext();
+            *CurrConn()->ReadParams()->IV() = *pBlockCipher->IV();
         }
         else
         {
@@ -776,7 +781,6 @@ TLSConnection::HandleMessage(
                 }
             }
 
-            // TODO: doc
             else
             {
                 wprintf(L"not yet supporting handshake type %d\n", *spHandshakeMessage->Type());
@@ -926,33 +930,19 @@ TLSConnection::EnqueueMessage(
         goto error;
     }
 
-    // TODO: doc
+    /*
+    ** after the ciphetext is created, update the IV to be used on the next
+    ** ciphertext. in practice, this is either the last block of the ciphertext
+    ** or a new, "random" value.
+    */
     if (CurrConn()->WriteParams()->Cipher()->type == CipherType_Block)
     {
-        if (*CurrConn()->WriteParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
-        {
-            CurrConn()->WriteParams()->IV()->assign(spCiphertext->Fragment()->end() - CurrConn()->WriteParams()->Cipher()->cbIVSize, spCiphertext->Fragment()->end());
-        }
-        else if (*CurrConn()->WriteParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
-        {
-            MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(spCiphertext->CipherFragment());
-            *CurrConn()->WriteParams()->IV() = *pBlockCipher->IVNext();
-        }
-        else if (*CurrConn()->WriteParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
-        {
-            MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(spCiphertext->CipherFragment());
-            *CurrConn()->WriteParams()->IV() = *pBlockCipher->IVNext();
-        }
-        else
-        {
-            assert(false);
-        }
+        spCiphertext->GenerateNextIV(CurrConn()->WriteParams()->IV());
+        wprintf(L"next IV for writing:\n");
+        PrintByteVector(CurrConn()->WriteParams()->IV());
     }
 
     assert(CurrConn()->WriteParams()->IV()->size() == CurrConn()->WriteParams()->Cipher()->cbIVSize);
-
-    wprintf(L"next IV for writing:\n");
-    PrintByteVector(CurrConn()->WriteParams()->IV());
 
     PendingSends()->push_back(spCiphertext);
     (*CurrConn()->WriteParams()->SequenceNumber())++;
@@ -3740,10 +3730,28 @@ error:
 HRESULT
 MT_TLSCiphertext::GenerateNextIV(ByteVector* pvbIV)
 {
+    HRESULT hr = S_OK;
     static BYTE iIVSeed = 1;
-    pvbIV->assign(EndParams()->Cipher()->cbIVSize, iIVSeed);
-    iIVSeed++;
-    return S_OK;
+
+    switch (*EndParams()->Version())
+    {
+        case MT_ProtocolVersion::MTPV_TLS10:
+            pvbIV->assign(Fragment()->end() - EndParams()->Cipher()->cbIVSize, Fragment()->end());
+        break;
+
+        case MT_ProtocolVersion::MTPV_TLS11:
+        case MT_ProtocolVersion::MTPV_TLS12:
+            pvbIV->assign(EndParams()->Cipher()->cbIVSize, iIVSeed);
+            iIVSeed++;
+        break;
+
+        default:
+            assert(false);
+            hr = E_UNEXPECTED;
+        break;
+    }
+
+    return hr;
 } // end function GenerateNextIV
 
 /*********** MT_ContentType *****************/
@@ -6029,6 +6037,7 @@ MT_GenericBlockCipher_TLS11::ParseFromPriv(
     const BYTE* pvEnd = nullptr;
     MT_UINT8 cbPaddingLength = 0;
     size_t cbField = 0;
+    ByteVector vbEncryptedStruct;
     ByteVector vbDecryptedStruct;
 
     hr = MT_CipherFragment::ParseFromPriv(pv, cb);
@@ -6038,21 +6047,14 @@ MT_GenericBlockCipher_TLS11::ParseFromPriv(
     }
 
     /*
-    ** we have to be careful only to call this when we mean it, or else it
-    ** changes the internal state of the cipherer down in cryptapi
+    ** the IV is sent in the clear just in front of the ciphertext, which is
+    ** encrypted using this very IV. apparently that's safe and okay? I don't
+    ** really get it, but all right.
+    **
+    ** http://stackoverflow.com/q/3436864
     */
-    hr = (*EndParams()->SymCipherer())->DecryptBuffer(
-             RawContent(),
-             EndParams()->IV(),
-             &vbDecryptedStruct);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    pv = &vbDecryptedStruct.front();
-    cb = vbDecryptedStruct.size();
+    pv = &RawContent()->front();
+    cb = RawContent()->size();
 
     cbField = EndParams()->Cipher()->cbIVSize;
     if (cbField > cb)
@@ -6061,12 +6063,28 @@ MT_GenericBlockCipher_TLS11::ParseFromPriv(
         goto error;
     }
 
-    IVNext()->assign(pv, pv + cbField);
-
-    wprintf(L"received IV field:\n");
-    PrintByteVector(IVNext());
+    IV()->assign(pv, pv + cbField);
 
     ADVANCE_PARSE();
+
+    wprintf(L"received IV field:\n");
+    PrintByteVector(IV());
+
+    vbEncryptedStruct.assign(pv, pv + cb);
+
+    hr = (*EndParams()->SymCipherer())->DecryptBuffer(
+             &vbEncryptedStruct,
+             IV(),
+             &vbDecryptedStruct);
+
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    // re-set pv and cb for parsing out the rest from the plaintext
+    pv = &vbDecryptedStruct.front();
+    cb = vbDecryptedStruct.size();
 
     pvEnd = &pv[cb - c_cbGenericBlockCipher_Padding_LFL];
 
@@ -6134,13 +6152,10 @@ MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
     BYTE* pv = nullptr;
     size_t cb = 0;
     size_t cbField = 0;
-    ByteVector vbDecryptedStruct;
+    ByteVector vbPlaintextStruct;
+    ByteVector vbEncryptedStruct;
 
-    hr = Ciphertext()->GenerateNextIV(IVNext());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    *IV() = *EndParams()->IV();
 
     hr = ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
@@ -6157,35 +6172,27 @@ MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
 
     assert(MAC()->size() == EndParams()->Hash()->cbHashSize);
 
-    cb = IVNext()->size() +
-         Content()->size() +
+    /*
+    ** RawContent starts with plaintext IV, then append encrypted body + MAC.
+    ** apparently that's safe and okay to do.
+    **
+    ** http://stackoverflow.com/q/3436864
+    */
+    *RawContent() = *IV();
+
+    cb = Content()->size() +
          MAC()->size() +
          Padding()->size() +
          c_cbGenericBlockCipher_Padding_LFL; // padding length
 
-    {
+    { // just asserts
         const CipherInfo* pCipherInfo = EndParams()->Cipher();
         assert(pCipherInfo->type == CipherType_Block);
         assert((cb % pCipherInfo->cbBlockSize) == 0);
     }
 
-    ResizeVector(&vbDecryptedStruct, cb);
-    pv = &vbDecryptedStruct.front();
-
-    cbField = IVNext()->size();
-    assert(IVNext()->size() == EndParams()->Cipher()->cbIVSize);
-    if (cbField > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
-    wprintf(L"including IVNext field when writing:\n");
-    PrintByteVector(IVNext());
-
-    std::copy(IVNext()->begin(), IVNext()->end(), pv);
-
-    ADVANCE_PARSE();
+    ResizeVector(&vbPlaintextStruct, cb);
+    pv = &vbPlaintextStruct.front();
 
     cbField = Content()->size();
     assert(cbField <= cb);
@@ -6216,25 +6223,21 @@ MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
 
     assert(cb == 0);
 
-    /* TODO: remove
-    - server: generate key material IV = 0000
-    - client: generate key material IV = 0000
-    - server: send ciphertext. IV = 0000, IVNext = 0000
-    - server: IV = 0001
-    - client: decrypt with IV = 0000, IVNext = 0000
-    - server: send ciphertext. IV = 0001, IVNext = 0001
-    - client: decrypt with IVNext = 0000.... fails?
-    */
-
     hr = (*EndParams()->SymCipherer())->EncryptBuffer(
-             &vbDecryptedStruct,
-             EndParams()->IV(),
-             RawContent());
+             &vbPlaintextStruct,
+             IV(),
+             &vbEncryptedStruct);
 
     if (hr != S_OK)
     {
         goto error;
     }
+
+    // append encrypted portion
+    RawContent()->insert(
+        RawContent()->end(),
+        vbEncryptedStruct.begin(),
+        vbEncryptedStruct.end());
 
     assert(!RawContent()->empty());
 

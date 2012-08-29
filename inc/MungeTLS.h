@@ -1540,7 +1540,7 @@ class MT_GenericBlockCipher_TLS11 : public MT_CipherFragment
     MT_GenericBlockCipher_TLS11(MT_TLSCiphertext* pCiphertext);
     ~MT_GenericBlockCipher_TLS11() { }
 
-    ACCESSORS(ByteVector*, IVNext, &m_vbIVNext);
+    ACCESSORS(ByteVector*, IV, &m_vbIVNext);
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
     ACCESSORS(ByteVector*, Padding, &m_vbPadding);
     MT_UINT8 PaddingLength() const;
