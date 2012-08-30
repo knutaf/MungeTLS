@@ -2,13 +2,12 @@ BUGS:
 
 WORK:
 - TLS CLIENT
-- watch out for places where we expose an accessor on a base class, such as SymmetricCipherer
+  - if we have our own client impl, we can also implement some wonky compression scheme
 - go through all the code and rearrange order of functions to be more logical for read-through
 - change up goto style of main loop
-- if we have our own client impl, we can also implement some wonky compression scheme
 - audit all asserts for appropriateness
-- rethink const-ness of encryption and decryption. not all things are modifying cipherer state, are they?
 - support cached sessions with SessionIDs
+- macro to do error checking everywhere with logging too
 
 MAYBE:
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon
@@ -29,6 +28,7 @@ BY DESIGN:
 - ability to verify correct cert usages before using - caller is already picking the certs. they should check it as need be
 - GenerateKeyMaterial is just called by computemastersecret - seems fine. what's the problem?
 - make internal static for Cipher and Hash return by value instead? fine as is
+- rethink const-ness of encryption and decryption. not all things are modifying cipherer state, are they? - we'll leave it as is
 
 WON'T FIX:
 - think more about thread safety. what are the scenarios, anyway?

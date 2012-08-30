@@ -1327,6 +1327,12 @@ error:
     goto done;
 } // end function RespondToClientHello
 
+/*
+** once we receive a Finished message from the client, we have to construct our
+** own Finished message and send it back, which completes the handshake. first
+** we send a ChangeCipherSpec, which enables the pending cipher suite, so that
+** Finished message we send is encrypted with the new security parameters.
+*/
 HRESULT
 TLSConnection::RespondToFinished()
 {
@@ -1352,7 +1358,6 @@ TLSConnection::RespondToFinished()
             goto error;
         }
 
-        // ChangeCipherSpec resets sequence number
         hr = EnqueueMessage(spPlaintext);
         if (hr != S_OK)
         {
@@ -1386,6 +1391,7 @@ TLSConnection::RespondToFinished()
             goto error;
         }
 
+        // the payload is a hash of all of the handshake messages seen so far
         hr = finished.ComputeVerifyData(c_szServerFinished_PRFLabel, finished.VerifyData()->Data());
         if (hr != S_OK)
         {
@@ -1418,6 +1424,7 @@ TLSConnection::RespondToFinished()
             goto error;
         }
 
+        // we archive the handshake message just cause, though it won't be used
         NextConn()->HandshakeMessages()->push_back(spHandshake);
 
         *NextConn()->ServerVerifyData() = *finished.VerifyData();
@@ -1436,6 +1443,15 @@ error:
     goto done;
 } // end function RespondToFinished
 
+/*
+** when sending handshake messages, there are often multiple in a row to send.
+** this calls back to the app for the choice of whether to combine these
+** messages with the same content type into a single TLSPlaintext message or to
+** break them up into separate ones
+**
+** S_OK means we are returning a new plaintext message
+** S_FALSE means we are returning the same plaintext message
+*/
 HRESULT
 TLSConnection::AddHandshakeMessage(
     MT_Handshake* pHandshake,
@@ -1458,7 +1474,13 @@ TLSConnection::AddHandshakeMessage(
 
     if (fCreateFlags & MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE)
     {
-        pHandshake->SerializeAppendToVect((*ppPlaintext)->Fragment());
+        hr = pHandshake->SerializeAppendToVect((*ppPlaintext)->Fragment());
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        // indicates that we reused the existing plaintext message
         hr = S_FALSE;
     }
     else
@@ -1475,8 +1497,6 @@ TLSConnection::AddHandshakeMessage(
         {
             goto error;
         }
-
-        // hr = S_OK; implied
     }
 
 done:
@@ -1486,6 +1506,10 @@ error:
     goto done;
 } // end function AddHandshakeMessage
 
+/*
+** this is how the app calls the connection to send some application data. we
+** package it up, encrypt it, and queue it for sending
+*/
 HRESULT
 TLSConnection::EnqueueSendApplicationData(
     const ByteVector* pvb
@@ -1520,6 +1544,12 @@ error:
     goto done;
 } // end function EnqueueSendApplicationData
 
+/*
+** this lets the app start a renegotiation by queueing up a HelloRequest
+** message. Actually, this doesn't start a renegotiation; it just *requests*
+** that the client start a renegotiation, since they are always initiated from
+** the client
+*/
 HRESULT
 TLSConnection::EnqueueStartRenegotiation()
 {
@@ -1708,6 +1738,7 @@ error:
 
 /*********** Utility functions *****************/
 
+// reads an integer value in network byte order
 template <typename N>
 HRESULT
 ReadNetworkLong(
@@ -1717,16 +1748,19 @@ ReadNetworkLong(
     N* pResult
 )
 {
-    assert(pResult != nullptr);
-    assert(cbToRead <= sizeof(size_t));
-
     HRESULT hr = S_OK;
+
+    if (cbToRead > sizeof(N))
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
 
     *pResult = 0;
 
     while (cbToRead > 0)
     {
-        if (cb <= 0)
+        if (cb == 0)
         {
             hr = MT_E_INCOMPLETE_MESSAGE;
             goto error;
@@ -1756,10 +1790,13 @@ WriteNetworkLong(
     size_t cb
 )
 {
-    assert(pv != nullptr);
-    assert(cbToWrite <= sizeof(I));
-
     HRESULT hr = S_OK;
+
+    if (cbToWrite > sizeof(I))
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
 
     if (cbToWrite > cb)
     {
@@ -1813,15 +1850,17 @@ WriteRandomBytes(
     return hr;
 } // end function WriteRandomBytes
 
+/*
+** translates a SYSTEMTIME object into a 64-bit time value representing seconds
+** since midnight on Jan 1 1970 GMT, which is suitable for inclusion in the
+** "gmt_unix_time" field in the TLS RFC.
+*/
 HRESULT
 EpochTimeFromSystemTime(
     const SYSTEMTIME* pST,
     ULARGE_INTEGER* pLI
 )
 {
-    assert(pLI != nullptr);
-    assert(pST != nullptr);
-
     HRESULT hr = S_OK;
 
     const SYSTEMTIME st1Jan1970 =
@@ -1840,6 +1879,7 @@ EpochTimeFromSystemTime(
     FILETIME ft1Jan1970 = {0};
     ULARGE_INTEGER li1Jan1970 = {0};
 
+    // convert system time object into a large integer
     if (!SystemTimeToFileTime(pST, &ft))
     {
         hr = HRESULT_FROM_WIN32(GetLastError());
@@ -1849,6 +1889,7 @@ EpochTimeFromSystemTime(
     pLI->LowPart = ft.dwLowDateTime;
     pLI->HighPart = ft.dwHighDateTime;
 
+    // convert Jan 1 1970 into a large integer
     if (!SystemTimeToFileTime(&st1Jan1970, &ft1Jan1970))
     {
         hr = HRESULT_FROM_WIN32(GetLastError());
@@ -1858,8 +1899,8 @@ EpochTimeFromSystemTime(
     li1Jan1970.LowPart = ft1Jan1970.dwLowDateTime;
     li1Jan1970.HighPart = ft1Jan1970.dwHighDateTime;
 
+    // subtract specified time object from Jan 1 1970 to get elapsed time
     hr = ULongLongSub(pLI->QuadPart, li1Jan1970.QuadPart, &pLI->QuadPart);
-
     if (hr != S_OK)
     {
         goto error;
@@ -1875,6 +1916,10 @@ error:
     goto done;
 } // end function EpochTimeFromSystemTime
 
+/*
+** Serializes a number of structures to a vector, contiguously. "T" here should
+** typically be a subclass of MT_Structure.
+*/
 template <typename T>
 HRESULT
 SerializeMessagesToVector(
@@ -1898,14 +1943,13 @@ SerializeMessagesToVector(
         }
     );
 
-    if (hr == S_OK)
-    {
-        assert(cbTotal == pvb->size());
-    }
+    // if we succeeded, our tracked size should match the vector's size
+    assert(hr != S_OK || cbTotal == pvb->size());
 
     return hr;
 } // end function SerializeMessagesToVector
 
+// exactly the same as above, but using shared ptrs
 template <typename T>
 HRESULT
 SerializeMessagesToVector(
@@ -1929,10 +1973,8 @@ SerializeMessagesToVector(
         }
     );
 
-    if (hr == S_OK)
-    {
-        assert(cbTotal == pvb->size());
-    }
+    // if we succeeded, our tracked size should match the vector's size
+    assert(hr != S_OK || cbTotal == pvb->size());
 
     return hr;
 } // end function SerializeMessagesToVector
@@ -1947,6 +1989,7 @@ ResizeVector<T>(
     pv->resize(siz);
 } // end function ResizeVector<T>
 
+// specialization of above, for bytes
 template <>
 void
 ResizeVector<BYTE>(
@@ -1971,6 +2014,10 @@ HRESULT PrintByteVector(const ByteVector* pvb)
      return S_OK;
 } // end function PrintByteVector
 
+/*
+** considers pvb as a byte blob containing one or more structures of type T.
+** tries to parse all of the contiguous structures out of it
+*/
 template <typename T>
 HRESULT
 ParseStructures(
@@ -1988,26 +2035,36 @@ ParseStructures(
 
     while (cb > 0)
     {
+        size_t cbField = 0;
+
+        // instantiate an object of type T at the end
         vStructures.emplace_back();
+
+        // try to populate the new element by parsing from the byte blob
         hr = vStructures.back().ParseFrom(pv, cb);
         if (hr != S_OK)
         {
+            // if we failed to parse, remove the new element and exit
             vStructures.pop_back();
             break;
         }
 
-        assert(vStructures.back().Length() <= cb);
-        pv += vStructures.back().Length();
-        cb -= vStructures.back().Length();
+        cbField = vStructures.back().Length();
+        ADVANCE_PARSE();
     }
 
     if (vStructures.empty())
     {
+        // if we parsed nothing, there must have been some error
         assert(hr != S_OK);
         goto error;
     }
 
-    pvStructures->insert(pvStructures->end(), vStructures.begin(), vStructures.end());
+    // append newly parsed structures to the input vector
+    pvStructures->insert(
+        pvStructures->end(),
+        vStructures.begin(),
+        vStructures.end());
 
 done:
     return hr;
@@ -4353,7 +4410,6 @@ MT_Random::PopulateNow()
 
     ULARGE_INTEGER li = {0};
     hr = EpochTimeFromSystemTime(&st, &li);
-
     if (hr != S_OK)
     {
         goto error;
