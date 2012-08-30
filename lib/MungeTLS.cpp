@@ -4831,20 +4831,6 @@ const vector<MT_CipherSuiteValue>* GetCipherSuitePreference()
     return &s_veCipherSuiteValues;
 } // end function GetCipherSuitePreference
 
-bool
-IsKnownCipherSuite(
-    MT_CipherSuiteValue eSuite
-)
-{
-    const vector<MT_CipherSuiteValue>* pveCipherSuites = GetCipherSuitePreference();
-
-    return (find(
-                pveCipherSuites->begin(),
-                pveCipherSuites->end(),
-                eSuite)
-                != pveCipherSuites->end());
-} // end function IsKnownCipherSuite
-
 HRESULT
 ChooseBestCipherSuite(
     const vector<MT_CipherSuiteValue>* pveClientPreference,
@@ -4902,13 +4888,23 @@ MT_CipherSuite::KeyExchangeAlgorithm(
         goto error;
     }
 
-    if (IsKnownCipherSuite(eCSV))
+    switch (eCSV)
     {
-        *pAlg = MTKEA_rsa;
-    }
-    else
-    {
+        case MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256:
+        case MTCS_TLS_RSA_WITH_AES_256_CBC_SHA:
+        case MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256:
+        case MTCS_TLS_RSA_WITH_AES_128_CBC_SHA:
+        case MTCS_TLS_RSA_WITH_RC4_128_SHA:
+        case MTCS_TLS_RSA_WITH_RC4_128_MD5:
+        {
+            *pAlg = MTKEA_rsa;
+        }
+        break;
+
+        default:
         hr = MT_E_UNKNOWN_CIPHER_SUITE;
+        goto error;
+        break;
     }
 
 done:

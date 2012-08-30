@@ -437,8 +437,6 @@ typedef MT_VariableLengthField<
 
 const std::vector<MT_CipherSuiteValue>* GetCipherSuitePreference();
 
-bool IsKnownCipherSuite(MT_CipherSuiteValue eSuite);
-
 HRESULT
 ChooseBestCipherSuite(
     const std::vector<MT_CipherSuiteValue>* pveClientPreference,

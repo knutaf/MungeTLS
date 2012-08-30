@@ -7,7 +7,6 @@ WORK:
 - change up goto style of main loop
 - if we have our own client impl, we can also implement some wonky compression scheme
 - audit all asserts for appropriateness
-- KeyExchangeAlgorithm ctor makes some gross, simplifying assumptions about our supported cipher suites
 - rethink const-ness of encryption and decryption. not all things are modifying cipherer state, are they?
 - support cached sessions with SessionIDs
 - add ADVANCE_PARSE at the end of all serialize/parse
