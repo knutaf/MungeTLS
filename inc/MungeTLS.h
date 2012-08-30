@@ -886,6 +886,7 @@ class TLSConnection
     HRESULT InitializeConnection(ConnectionParameters* pParams);
     HRESULT StartNextHandshake(MT_ClientHello* pClientHello);
     HRESULT FinishNextHandshake();
+    HRESULT HandleHandshakeMessage(const MT_Handshake* pHandshake);
 
     HRESULT RespondToClientHello();
     HRESULT RespondToFinished();

@@ -132,75 +132,83 @@ EncryptBuffer(
     ** asymmetric block, e.g. RSA public key encryption. we encypt one block,
     ** and that's it, so we set fFinal to true
     */
-    if (cipherType == CipherType_Asymmetric_Block)
+    switch (cipherType)
     {
-        fFinal = TRUE;
-    }
-
-    /*
-    ** block ciphers, e.g. AES-128. Unfortunately, I have no idea why you need
-    ** to set fFinal to false for this. I figured it out through trial and
-    ** error.
-    **
-    ** we have to do a trick for setting the IV that's documented along with
-    ** CryptEncryptBuffer (http://msdn.microsoft.com/en-us/library/windows/desktop/aa379924(v=vs.85).aspx)
-    **
-    ** that is, the state of the key with respect to IV is not set until a
-    ** "final" block has been encrypted, normally. to get around this, we can
-    ** set the IV, then duplicate the key, which copies all pending changes
-    ** into the new key.
-    */
-    else if (cipherType == CipherType_Block)
-    {
-        fFinal = FALSE;
-
-        if (pvbIV != nullptr)
+        case CipherType_Asymmetric_Block:
         {
-            wprintf(L"setting IV to:\n");
-            PrintByteVector(pvbIV);
+            fFinal = TRUE;
+        }
+        break;
 
-            if (!CryptSetKeyParam(
+        /*
+        ** block ciphers, e.g. AES-128. Unfortunately, I have no idea why you
+        ** need to set fFinal to false for this. I figured it out through trial
+        ** and error.
+        **
+        ** we have to do a trick for setting the IV that's documented along
+        ** with CryptEncryptBuffer
+        * (http://msdn.microsoft.com/en-us/library/windows/desktop/aa379924(v=vs.85).aspx)
+        **
+        ** that is, the state of the key with respect to IV is not set until a
+        ** "final" block has been encrypted, normally. to get around this, we
+        ** can set the IV, then duplicate the key, which copies all pending
+        ** changes into the new key.
+        */
+        case CipherType_Block:
+        {
+            fFinal = FALSE;
+
+            if (pvbIV != nullptr)
+            {
+                wprintf(L"setting IV to:\n");
+                PrintByteVector(pvbIV);
+
+                if (!CryptSetKeyParam(
+                         hKey,
+                         KP_IV,
+                         &pvbIV->front(),
+                         0))
+                {
+                    hr = HRESULT_FROM_WIN32(GetLastError());
+                    goto error;
+                }
+            }
+            else
+            {
+                wprintf(L"warning: no explicit IV given\n");
+            }
+
+            wprintf(L"duplicating key\n");
+            if (!CryptDuplicateKey(
                      hKey,
-                     KP_IV,
-                     &pvbIV->front(),
-                     0))
+                     NULL,
+                     0,
+                     &hKeyNew))
             {
                 hr = HRESULT_FROM_WIN32(GetLastError());
                 goto error;
             }
         }
-        else
-        {
-            wprintf(L"warning: no explicit IV given\n");
-        }
+        break;
 
-        wprintf(L"duplicating key\n");
-        if (!CryptDuplicateKey(
-                 hKey,
-                 NULL,
-                 0,
-                 &hKeyNew))
+        /*
+        ** stream ciphers, by definition, won't have any "final" data. we set
+        ** this to false to keep the stream from resetting any internal state.
+        */
+        case CipherType_Stream:
         {
-            hr = HRESULT_FROM_WIN32(GetLastError());
+            fFinal = FALSE;
+        }
+        break;
+
+        // no other cipher types supported
+        default:
+        {
+            assert(false);
+            hr = MT_E_UNSUPPORTED_CIPHER;
             goto error;
         }
-    }
-
-    /*
-    ** stream ciphers, by definition, won't have any "final" data. we set this
-    ** to false to keep the stream from resetting any internal state.
-    */
-    else if (cipherType == CipherType_Stream)
-    {
-        fFinal = FALSE;
-    }
-
-    // no other cipher types supported
-    else
-    {
-        assert(false);
-        hr = MT_E_UNSUPPORTED_CIPHER;
-        goto error;
+        break;
     }
 
     hr = SizeTToDWord(pvbCleartext->size(), &cb);
@@ -306,66 +314,79 @@ DecryptBuffer(
     wprintf(L"decrypting. ciphertext (%d bytes):\n", pvbEncrypted->size());
     PrintByteVector(pvbEncrypted);
 
-    if (pCipherInfo->type == CipherType_Asymmetric_Block)
-    {
-        assert(pvbIV == nullptr);
-
-        // CryptDecrypt expects input in little endian
-        *pvbDecrypted = ReverseByteOrder(pvbEncrypted);
-        fFinal = TRUE;
-    }
-
     /*
-    ** what really makes me rage is that fFinal is TRUE for *decrypting* block
-    ** ciphers, but FALSE for *encrypting* them. what is going on!?
+    ** during this we set pvbDecrypted to pvbEncrypted, because the subsequent
+    ** CryptDecrypt call will decrypt it in-place.
     */
-    else if (pCipherInfo->type == CipherType_Block)
+    switch (pCipherInfo->type)
     {
-        fFinal = TRUE;
-        *pvbDecrypted = *pvbEncrypted;
-
-        if (pvbIV != nullptr)
+        case CipherType_Asymmetric_Block:
         {
-            wprintf(L"setting IV to:\n");
-            PrintByteVector(pvbIV);
+            assert(pvbIV == nullptr);
 
-            if (!CryptSetKeyParam(
+            // CryptDecrypt expects input in little endian
+            *pvbDecrypted = ReverseByteOrder(pvbEncrypted);
+            fFinal = TRUE;
+        }
+        break;
+
+        /*
+        ** what really makes me rage is that fFinal is TRUE for *decrypting*
+        ** block ciphers, but FALSE for *encrypting* them. what is going on!?
+        */
+        case CipherType_Block:
+        {
+            fFinal = TRUE;
+            *pvbDecrypted = *pvbEncrypted;
+
+            if (pvbIV != nullptr)
+            {
+                wprintf(L"setting IV to:\n");
+                PrintByteVector(pvbIV);
+
+                if (!CryptSetKeyParam(
+                         hKey,
+                         KP_IV,
+                         &pvbIV->front(),
+                         0))
+                {
+                    hr = HRESULT_FROM_WIN32(GetLastError());
+                    goto error;
+                }
+            }
+            else
+            {
+                wprintf(L"warning: decrypting without an explicit IV\n");
+            }
+
+            wprintf(L"duplicating key\n");
+            if (!CryptDuplicateKey(
                      hKey,
-                     KP_IV,
-                     &pvbIV->front(),
-                     0))
+                     NULL,
+                     0,
+                     &hKeyNew))
             {
                 hr = HRESULT_FROM_WIN32(GetLastError());
                 goto error;
             }
         }
-        else
-        {
-            wprintf(L"warning: decrypting without an explicit IV\n");
-        }
+        break;
 
-        wprintf(L"duplicating key\n");
-        if (!CryptDuplicateKey(
-                 hKey,
-                 NULL,
-                 0,
-                 &hKeyNew))
+        case CipherType_Stream:
         {
-            hr = HRESULT_FROM_WIN32(GetLastError());
+            assert(pvbIV == nullptr);
+            *pvbDecrypted = *pvbEncrypted;
+            fFinal = FALSE;
+        }
+        break;
+
+        default:
+        {
+            assert(false);
+            hr = MT_E_UNSUPPORTED_CIPHER;
             goto error;
         }
-    }
-    else if (pCipherInfo->type == CipherType_Stream)
-    {
-        assert(pvbIV == nullptr);
-        *pvbDecrypted = *pvbEncrypted;
-        fFinal = FALSE;
-    }
-    else
-    {
-        assert(false);
-        hr = MT_E_UNSUPPORTED_CIPHER;
-        goto error;
+        break;
     }
 
     hr = SizeTToDWord(pvbDecrypted->size(), &cb);
@@ -641,7 +662,7 @@ error:
 ** silly.
 **
 ** 1. acquire the private key provider
-** 2. use that to get the public key (???)
+** 2. use that to get the associated public key (???)
 ** 3. export the public key as a blob
 ** 4. import the public key into an ephemeral key container
 **
@@ -1172,26 +1193,38 @@ WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
 {
     HRESULT hr = S_OK;
 
-    if (alg == CipherAlg_RC4_128)
+    switch (alg)
     {
-        *pAlgID = CALG_RC4;
-    }
-    else if (alg == CipherAlg_AES_128)
-    {
-        *pAlgID = CALG_AES_128;
-    }
-    else if (alg == CipherAlg_AES_256)
-    {
-        *pAlgID = CALG_AES_256;
-    }
-    else if (alg == CipherAlg_NULL)
-    {
-        hr = S_FALSE;
-    }
-    else
-    {
-        hr = MT_E_UNSUPPORTED_CIPHER;
-        goto error;
+        case CipherAlg_RC4_128:
+        {
+            *pAlgID = CALG_RC4;
+        }
+        break;
+
+        case CipherAlg_AES_128:
+        {
+            *pAlgID = CALG_AES_128;
+        }
+        break;
+
+        case CipherAlg_AES_256:
+        {
+            *pAlgID = CALG_AES_256;
+        }
+        break;
+
+        case CipherAlg_NULL:
+        {
+            hr = S_FALSE;
+        }
+        break;
+
+        default:
+        {
+            hr = MT_E_UNSUPPORTED_CIPHER;
+            goto error;
+        }
+        break;
     }
 
 done:
@@ -1446,22 +1479,32 @@ WindowsHasher::WindowsHashAlgFromMTHashInfo(
 {
     HRESULT hr = S_OK;
 
-    if (pHashInfo->alg == HashAlg_MD5)
+    switch (pHashInfo->alg)
     {
-        *pAlg = CALG_MD5;
-    }
-    else if (pHashInfo->alg == HashAlg_SHA1)
-    {
-        *pAlg = CALG_SHA1;
-    }
-    else if (pHashInfo->alg == HashAlg_SHA256)
-    {
-        *pAlg = CALG_SHA_256;
-    }
-    else
-    {
-        hr = MT_E_UNSUPPORTED_HASH;
-        goto error;
+        case HashAlg_MD5:
+        {
+            *pAlg = CALG_MD5;
+        }
+        break;
+
+        case HashAlg_SHA1:
+        {
+            *pAlg = CALG_SHA1;
+        }
+        break;
+
+        case HashAlg_SHA256:
+        {
+            *pAlg = CALG_SHA_256;
+        }
+        break;
+
+        default:
+        {
+            hr = MT_E_UNSUPPORTED_HASH;
+            goto error;
+        }
+        break;
     }
 
 done:

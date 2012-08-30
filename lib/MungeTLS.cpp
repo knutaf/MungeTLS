@@ -386,30 +386,39 @@ TLSConnection::HandleMessage(
     */
     if (CurrConn()->ReadParams()->Cipher()->type == CipherType_Block)
     {
-        // for TLS 1.0 next IV is the last block of the previous ciphertext
-        if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+        switch (*CurrConn()->ReadParams()->Version())
         {
-            MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(ciphertext.CipherFragment());
-            CurrConn()->ReadParams()->IV()->assign(pBlockCipher->RawContent()->end() - CurrConn()->ReadParams()->Cipher()->cbIVSize, pBlockCipher->RawContent()->end());
-        }
+            // for TLS 1.0 next IV is the last block of the previous ciphertext
+            case MT_ProtocolVersion::MTPV_TLS10:
+            {
+                MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(ciphertext.CipherFragment());
+                CurrConn()->ReadParams()->IV()->assign(pBlockCipher->RawContent()->end() - CurrConn()->ReadParams()->Cipher()->cbIVSize, pBlockCipher->RawContent()->end());
+            }
+            break;
 
-        /*
-        ** for TLS 1.1 and 1.2, we track it just "for fun", since it's never
-        ** actually used. we could use it for logging or something
-        */
-        else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
-        {
-            MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(ciphertext.CipherFragment());
-            *CurrConn()->ReadParams()->IV() = *pBlockCipher->IV();
-        }
-        else if (*CurrConn()->ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
-        {
-            MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(ciphertext.CipherFragment());
-            *CurrConn()->ReadParams()->IV() = *pBlockCipher->IV();
-        }
-        else
-        {
-            assert(false);
+            /*
+            ** for TLS 1.1 and 1.2, we track it just "for fun", since it's
+            ** never actually used. we could use it for logging or something
+            */
+            case MT_ProtocolVersion::MTPV_TLS11:
+            {
+                MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(ciphertext.CipherFragment());
+                *CurrConn()->ReadParams()->IV() = *pBlockCipher->IV();
+            }
+            break;
+
+            case MT_ProtocolVersion::MTPV_TLS12:
+            {
+                MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(ciphertext.CipherFragment());
+                *CurrConn()->ReadParams()->IV() = *pBlockCipher->IV();
+            }
+            break;
+
+            default:
+            {
+                assert(false);
+            }
+            break;
         }
     }
 
@@ -421,459 +430,134 @@ TLSConnection::HandleMessage(
     ** important for us are Handshake messages and ChangeCipherSpec messages,
     ** which drive the handshake process forward.
     */
-    if (*plaintext.ContentType()->Type() == MT_ContentType::MTCT_Type_Handshake)
+    switch (*plaintext.ContentType()->Type())
     {
-        /*
-        ** parse out one or more Handshake messages. A record layer message
-        ** with a given content type can contain multiple contiguous messages
-        ** of the same type in the fragment, since each inner message has the
-        ** fields in place to identify its own length.
-        **
-        ** ParseStructures is templated by the structure type, e.g.
-        ** MT_Handshake
-        */
-        vector<MT_Handshake> vStructures;
-        hr = ParseStructures(plaintext.Fragment(), &vStructures);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        // process each handshake message
-        for (auto it = vStructures.begin(); it != vStructures.end(); it++)
+        case MT_ContentType::MTCT_Type_Handshake:
         {
             /*
-            ** At the end of the handshake, as a security measure, each
-            ** endpoint sends the other a hash of all the handshake-layer data
-            ** it has sent and received, so we need to make a copy of the
-            ** message here. NB: this archive does NOT contain any of the
-            ** record-layer message--ONLY the handshake-layer message.
-            */
-            shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
-            *spHandshakeMessage = *it;
-
-            wprintf(L"successfully parsed Handshake. type=%d\n", *spHandshakeMessage->Type());
-
-            // handshake messages have their own inner "content type"
-            if (*spHandshakeMessage->Type() == MT_Handshake::MTH_ClientHello)
-            {
-                /*
-                ** initial contact from the client that starts a new handshake.
-                ** we parse out a bunch of information about what the client
-                ** advertises its capabilities as
-                */
-                MT_ClientHello clientHello;
-
-                hr = clientHello.ParseFromVect(spHandshakeMessage->Body());
-                if (hr != S_OK)
-                {
-                    wprintf(L"failed to parse client hello: %08LX\n", hr);
-                    goto error;
-                }
-
-                { // all logging stuff
-                    wprintf(L"parsed client hello message:\n");
-                    wprintf(L"version %04LX\n", *clientHello.ClientVersion()->Version());
-                    if (clientHello.SessionID()->Count() > 0)
-                    {
-                        wprintf(L"session ID %d (%d)\n", clientHello.SessionID()->Data()[0]);
-                    }
-                    else
-                    {
-                        wprintf(L"no session ID specified\n");
-                    }
-
-                    wprintf(L"%d crypto suites\n", clientHello.CipherSuites()->Count());
-
-                    wprintf(L"crypto suite 0: %02X %02X\n",
-                           *clientHello.CipherSuites()->at(0)->at(0),
-                           *clientHello.CipherSuites()->at(0)->at(1));
-
-                    wprintf(L"%d compression methods: %d\n",
-                           clientHello.CompressionMethods()->Count(),
-                           *clientHello.CompressionMethods()->at(0)->Method());
-
-                    wprintf(L"%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
-
-                    for (auto it = clientHello.Extensions()->Data()->begin(); it != clientHello.Extensions()->Data()->end(); it++)
-                    {
-                        if (*it->ExtensionType() == MT_Extension::MTEE_RenegotiationInfo)
-                        {
-                            wprintf(L"found renegotiation info:\n");
-                            PrintByteVector(it->ExtensionData());
-                        }
-                    }
-                } // end logging
-
-                hr = StartNextHandshake(&clientHello);
-                if (hr != S_OK)
-                {
-                    goto error;
-                }
-
-                // archive the message for the Finished hash later
-                NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
-
-                /*
-                ** allow the app to select what protocol version to send in
-                ** response to the ClientHello, which has advertised a
-                ** particular version already
-                */
-                {
-                    MT_ProtocolVersion protocolVersion = *clientHello.ClientVersion();
-
-                    HRESULT hrL = Listener()->OnSelectProtocolVersion(&protocolVersion);
-                    if (FAILED(hrL))
-                    {
-                        hr = hrL;
-                        goto error;
-                    }
-
-                    *NextConn()->ReadParams()->Version() = *protocolVersion.Version();
-                    *NextConn()->WriteParams()->Version() = *protocolVersion.Version();
-                }
-
-                *NextConn()->ClientRandom() = *(clientHello.Random());
-
-                /*
-                ** A particularly important block: allow the app to select the
-                ** cipher suite to be used, out of the list given by the
-                ** client. if the app ignores the callback, MungeTLS has a way
-                ** of picking its preferred choice
-                */
-                {
-                    MT_CipherSuite cipherSuite;
-
-                    HRESULT hrL = Listener()->OnSelectCipherSuite(&clientHello, &cipherSuite);
-                    if (FAILED(hrL))
-                    {
-                        hr = hrL;
-                        goto error;
-                    }
-
-                    // pick the library's preference out of the client list
-                    if (hrL == MT_S_LISTENER_IGNORED)
-                    {
-                        MT_CipherSuiteValue ePreferred;
-                        vector<MT_CipherSuiteValue> vValues(NextConn()->ClientHello()->CipherSuites()->Count());
-
-                        // just extracting the enum value from the raw data
-                        transform(
-                            NextConn()->ClientHello()->CipherSuites()->Data()->begin(),
-                            NextConn()->ClientHello()->CipherSuites()->Data()->end(),
-                            vValues.begin(),
-                            [&hr](const MT_CipherSuite& rSuite)
-                            {
-                                if (hr == S_OK)
-                                {
-                                    MT_CipherSuiteValue eValue;
-                                    hr = rSuite.Value(&eValue);
-                                    return eValue;
-                                }
-                                else
-                                {
-                                    return MTCS_UNKNOWN;
-                                }
-                            }
-                        );
-
-                        if (hr != S_OK)
-                        {
-                            goto error;
-                        }
-
-                        hr = ChooseBestCipherSuite(
-                                 &vValues,
-                                 GetCipherSuitePreference(),
-                                 &ePreferred);
-
-                        if (hr != S_OK)
-                        {
-                            goto error;
-                        }
-
-                        hr = cipherSuite.SetValue(ePreferred);
-                        if (hr != S_OK)
-                        {
-                            goto error;
-                        }
-                    }
-
-                    /*
-                    ** same cipher suite is always used for read and write.
-                    ** it's important to note that setting this value here does
-                    ** NOT immediately switch over the library to encrypting/
-                    ** decrypting with this new cipher suite. this is all
-                    ** pending state until we receive and send ChangeCipherSpec
-                    ** messages.
-                    */
-                    *NextConn()->ReadParams()->CipherSuite() = cipherSuite;
-                    *NextConn()->WriteParams()->CipherSuite() = cipherSuite;
-
-                    { // logging
-                        MT_CipherSuiteValue eValue;
-                        HRESULT hrTemp = cipherSuite.Value(&eValue);
-                        assert(hrTemp == S_OK);
-
-                        wprintf(L"chosen cipher suite %04LX\n", eValue);
-                    }
-                }
-
-                // construct our server response to the client hello
-                hr = RespondToClientHello();
-                if (hr != S_OK)
-                {
-                    wprintf(L"failed RespondToClientHello: %08LX\n", hr);
-                    goto error;
-
-                }
-            }
-
-            /*
-            ** the ClientKeyExchange message is where the public key
-            ** cryptography takes place. the client has encrypted some data
-            ** (actually, the Random value it sent earlier) with our public
-            ** key, and we have to decrypt it, verify that it matches, and use
-            ** it to generate the bulk cipher keys used in the rest of the
-            ** connection
+            ** parse out one or more Handshake messages. A record layer message
+            ** with a given content type can contain multiple contiguous
+            ** messages of the same type in the fragment, since each inner
+            ** message has the fields in place to identify its own length.
             **
-            ** in theory, public/private key encryption could just be used for
-            ** all traffic in the connection, but it is computationally far
-            ** more expensive than symmetric key encryption, so it's merely
-            ** used as a bootstrap
+            ** ParseStructures is templated by the structure type, e.g.
+            ** MT_Handshake
             */
-            else if (*spHandshakeMessage->Type() == MT_Handshake::MTH_ClientKeyExchange)
+            vector<MT_Handshake> vStructures;
+            hr = ParseStructures(plaintext.Fragment(), &vStructures);
+            if (hr != S_OK)
             {
-                MT_KeyExchangeAlgorithm keyExchangeAlg;
-                MT_ClientKeyExchange<MT_EncryptedPreMasterSecret> keyExchange;
-                MT_EncryptedPreMasterSecret* pExchangeKeys = nullptr;
-                MT_PreMasterSecret* pSecret = nullptr;
-
-                /*
-                ** at this point we should have exchanged hellos and therefore
-                ** agreed on a single cipher suite, so the following call to
-                ** get the key exchange algorithm can use either read or write
-                ** params
-                */
-                assert(*NextConn()->ReadParams()->CipherSuite() == *NextConn()->WriteParams()->CipherSuite());
-
-                hr = NextConn()->ReadParams()->CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg);
-                if (hr != S_OK)
-                {
-                    wprintf(L"failed to get key exchange algorithm: %08LX\n", hr);
-                    goto error;
-                }
-
-                if (keyExchangeAlg != MTKEA_rsa)
-                {
-                    wprintf(L"unsupported key exchange type: %d\n", keyExchangeAlg);
-                    hr = MT_E_UNSUPPORTED_KEY_EXCHANGE;
-                    goto error;
-                }
-
-                hr = keyExchange.ParseFromVect(spHandshakeMessage->Body());
-                if (hr != S_OK)
-                {
-                    wprintf(L"failed to parse key exchange message from handshake body: %08LX\n", hr);
-                    goto error;
-                }
-
-                /*
-                ** actually decrypt the structure using our public key
-                ** cipherer, which internally should already be primed with the
-                ** correct public/private key pair. note that this should be
-                ** using NextConn, not CurrConn, since we're handshaking using
-                ** potentially a new certificate (and consequently a new key
-                ** pair)
-                */
-                pExchangeKeys = keyExchange.ExchangeKeys();
-                hr = pExchangeKeys->DecryptStructure(NextConn()->PubKeyCipherer()->get());
-                if (hr != S_OK)
-                {
-                    wprintf(L"failed to decrypt structure: %08LX\n", hr);
-                    goto error;
-                }
-
-                // archive the message since it's good, for the Finished hash
-                NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
-
-                // got the decrypted premaster secret
-                pSecret = pExchangeKeys->Structure();
-                wprintf(L"version %04LX\n", *pSecret->ClientVersion()->Version());
-
-                // generate a bunch of crypto material from this
-                hr = NextConn()->GenerateKeyMaterial(pSecret);
-                if (hr != S_OK)
-                {
-                    wprintf(L"failed to compute master secret: %08LX\n", hr);
-                    goto error;
-                }
-
-                wprintf(L"computed master secret and key material:\n");
-                PrintByteVector(NextConn()->MasterSecret());
-            }
-
-            /*
-            ** with the Finished message, the client has sent its last
-            ** handshake message. In fact, this message has already been
-            ** encrypted with the new connection parameters, so parsing this
-            ** message is needed only for verifying the integrity of the
-            ** client -> server stream.
-            **
-            ** verifying it involves computing a hash of all handshake messages
-            ** received so far (not including this very Finished message) and
-            ** comparing it with the decrypted body of this message. this hash
-            ** value is known as the "verify data"
-            */
-            else if (*spHandshakeMessage->Type() == MT_Handshake::MTH_Finished)
-            {
-                MT_Finished finishedMessage;
-                hr = finishedMessage.ParseFromVect(spHandshakeMessage->Body());
-                if (hr != S_OK)
-                {
-                    wprintf(L"failed to parse finished message: %08LX\n", hr);
-                    goto error;
-                }
-
-                // used to access HandshakeMessages() for the hash calculation
-                hr = finishedMessage.SetConnectionParameters(NextConn());
-                if (hr != S_OK)
-                {
-                    goto error;
-                }
-
-                // used to decrypt the message
-                hr = finishedMessage.SetSecurityParameters(NextConn()->ReadParams());
-                if (hr != S_OK)
-                {
-                    goto error;
-                }
-
-                // do the actual hash check
-                hr = finishedMessage.CheckSecurity();
-                if (hr != S_OK)
-                {
-                    wprintf(L"security failed on finished message: %08LX\n", hr);
-                    goto error;
-                }
-
-                /*
-                ** we have to store the verify data we received here to include
-                ** in a renegotiation, if one comes up
-                */
-                *NextConn()->ClientVerifyData() = *finishedMessage.VerifyData();
-
-                /*
-                ** yes, we archive this message, too. when the server sends its
-                ** own Finished message, guess what? it has to include all
-                ** handshake messages received so far, including the client
-                ** finished message
-                */
-                NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
-
-                // go ahead and do that response right now
-                hr = RespondToFinished();
-                if (hr != S_OK)
-                {
-                    wprintf(L"failed RespondToFinished: %08LX\n", hr);
-                    goto error;
-
-                }
-            }
-
-            else
-            {
-                wprintf(L"not yet supporting handshake type %d\n", *spHandshakeMessage->Type());
-                hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
                 goto error;
             }
-        }
 
-        // sequence number is incremented AFTER processing a record
-        (*CurrConn()->ReadParams()->SequenceNumber())++;
-    }
+            for (auto it = vStructures.begin(); it != vStructures.end(); it++)
+            {
+                hr = HandleHandshakeMessage(&(*it));
+                if (hr != S_OK)
+                {
+                   goto error;
+                }
+            }
 
-    /*
-    ** the ChangeCipherSpec message is one of the most important. its receipt
-    ** signals that the client is now going to switch to using the newly
-    ** negotiated crypto suite for all subsequent messages. At this point, we
-    ** copy over all the endpoint-specific data into the active connection,
-    ** so this change in decryption will automatically just work
-    */
-    else if (*plaintext.ContentType()->Type() == MT_ContentType::MTCT_Type_ChangeCipherSpec)
-    {
-        // see note on first ParseStructures call about multiple structures
-        vector<MT_ChangeCipherSpec> vStructures;
-        hr = ParseStructures(plaintext.Fragment(), &vStructures);
-        if (hr != S_OK)
-        {
-            goto error;
+            // sequence number is incremented AFTER processing a record
+            (*CurrConn()->ReadParams()->SequenceNumber())++;
         }
-
-        if (vStructures.size() > 1)
-        {
-            wprintf(L"warning: received %lu ChangeCipherSpec messages in a row\n", vStructures.size());
-        }
-
-        for (auto it = vStructures.begin(); it != vStructures.end(); it++)
-        {
-            wprintf(L"change cipher spec found: %d\n", *it->Type());
-            *CurrConn()->ReadParams() = *NextConn()->ReadParams();
-        }
+        break;
 
         /*
-        ** after copying the next endpoint state, which has not been touched,
-        ** its sequence number should already be 0 without having to reset it
+        ** the ChangeCipherSpec message is one of the most important. its
+        ** receipt signals that the client is now going to switch to using the
+        ** newly negotiated crypto suite for all subsequent messages. At this
+        ** point, we copy over all the endpoint-specific data into the active
+        ** connection, so this change in decryption will automatically just
+        ** work
         */
-        assert(*CurrConn()->ReadParams()->SequenceNumber() == 0);
-    }
-
-    /*
-    ** alert messages are basically errors and warnings. we don't really do
-    ** much with them right now, just print them out.
-    */
-    else if (*plaintext.ContentType()->Type() == MT_ContentType::MTCT_Type_Alert)
-    {
-        // see note on first ParseStructures call about multiple structures
-        vector<MT_Alert> vStructures;
-        hr = ParseStructures(plaintext.Fragment(), &vStructures);
-        if (hr != S_OK)
+        case MT_ContentType::MTCT_Type_ChangeCipherSpec:
         {
+            // see note on first ParseStructures call about multiple structures
+            vector<MT_ChangeCipherSpec> vStructures;
+            hr = ParseStructures(plaintext.Fragment(), &vStructures);
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+
+            /*
+            ** though we repeat this action for all the CCS messages, it's
+            ** totally redundant to have more than one per direction in a
+            ** handshake
+            */
+            if (vStructures.size() > 1)
+            {
+                wprintf(L"warning: received %lu ChangeCipherSpec messages in a row\n", vStructures.size());
+            }
+
+            for (auto it = vStructures.begin(); it != vStructures.end(); it++)
+            {
+                wprintf(L"change cipher spec found: %d\n", *it->Type());
+                *CurrConn()->ReadParams() = *NextConn()->ReadParams();
+            }
+
+            /*
+            ** after copying the pending endpoint state, which has not been
+            ** touched, its sequence number should already be 0 without having
+            ** to reset it
+            */
+            assert(*CurrConn()->ReadParams()->SequenceNumber() == 0);
+        }
+        break;
+
+        /*
+        ** alert messages are basically errors and warnings. we don't really do
+        ** much with them right now, just print them out.
+        */
+        case MT_ContentType::MTCT_Type_Alert:
+        {
+            // see note on first ParseStructures call about multiple structures
+            vector<MT_Alert> vStructures;
+            hr = ParseStructures(plaintext.Fragment(), &vStructures);
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+
+            for (auto it = vStructures.begin(); it != vStructures.end(); it++)
+            {
+                wprintf(L"got alert: %s\n", it->ToString().c_str());
+            }
+
+            // sequence number is incremented AFTER processing a record
+            (*CurrConn()->ReadParams()->SequenceNumber())++;
+        }
+        break;
+
+        /*
+        ** actual data for the application! we don't examine it at all, just
+        ** pass it on in a callback to the app
+        */
+        case MT_ContentType::MTCT_Type_ApplicationData:
+        {
+            wprintf(L"application data:\n");
+            PrintByteVector(plaintext.Fragment());
+
+            hr = Listener()->OnReceivedApplicationData(plaintext.Fragment());
+            if (FAILED(hr))
+            {
+                wprintf(L"warning: error in OnReceivedApplicationData with listener: %08LX\n", hr);
+            }
+
+            // sequence number is incremented AFTER processing a record
+            (*CurrConn()->ReadParams()->SequenceNumber())++;
+        }
+        break;
+
+        default:
+        {
+            wprintf(L"unknown content type %02LX\n", *plaintext.ContentType()->Type());
+            hr = MT_E_UNKNOWN_CONTENT_TYPE;
             goto error;
         }
-
-        for (auto it = vStructures.begin(); it != vStructures.end(); it++)
-        {
-            wprintf(L"got alert: %s\n", it->ToString().c_str());
-        }
-
-        // sequence number is incremented AFTER processing a record
-        (*CurrConn()->ReadParams()->SequenceNumber())++;
-    }
-
-    /*
-    ** actual data for the application! we don't examine it at all, just pass
-    ** it on in a callback to the app
-    */
-    else if (*plaintext.ContentType()->Type() == MT_ContentType::MTCT_Type_ApplicationData)
-    {
-        wprintf(L"application data:\n");
-        PrintByteVector(plaintext.Fragment());
-
-        hr = Listener()->OnReceivedApplicationData(plaintext.Fragment());
-        if (FAILED(hr))
-        {
-            wprintf(L"warning: error in OnReceivedApplicationData with listener: %08LX\n", hr);
-        }
-
-        // sequence number is incremented AFTER processing a record
-        (*CurrConn()->ReadParams()->SequenceNumber())++;
-    }
-    else
-    {
-        wprintf(L"unknown content type %02LX\n", *plaintext.ContentType()->Type());
-        hr = MT_E_UNKNOWN_CONTENT_TYPE;
-        goto error;
+        break;
     }
 
     /*
@@ -901,6 +585,376 @@ done:
 error:
     goto done;
 } // end function HandleMessage
+
+HRESULT
+TLSConnection::HandleHandshakeMessage(
+    const MT_Handshake* pHandshakeMessage
+)
+{
+    HRESULT hr = S_OK;
+
+    /*
+    ** At the end of the handshake, as a security measure, each endpoint sends
+    ** the other a hash of all the handshake-layer data it has sent and
+    ** received, so we need to make a copy of the message here and archive it.
+    ** NB: this archive does NOT contain any of the record-layer message--ONLY
+    ** the handshake-layer message.
+    */
+    shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
+    *spHandshakeMessage = *pHandshakeMessage;
+
+    wprintf(L"handling Handshake of type=%d\n", *spHandshakeMessage->Type());
+
+    // handshake messages have their own inner "content type"
+    switch (*spHandshakeMessage->Type())
+    {
+        /*
+        ** initial contact from the client that starts a new handshake. we
+        ** parse out a bunch of information about what the client advertises
+        ** its capabilities as
+        */
+        case MT_Handshake::MTH_ClientHello:
+        {
+            MT_ClientHello clientHello;
+
+            hr = clientHello.ParseFromVect(spHandshakeMessage->Body());
+            if (hr != S_OK)
+            {
+                wprintf(L"failed to parse client hello: %08LX\n", hr);
+                goto error;
+            }
+
+            { // all logging stuff
+                wprintf(L"parsed client hello message:\n");
+                wprintf(L"version %04LX\n", *clientHello.ClientVersion()->Version());
+                if (clientHello.SessionID()->Count() > 0)
+                {
+                    wprintf(L"session ID %d (%d)\n", clientHello.SessionID()->Data()[0]);
+                }
+                else
+                {
+                    wprintf(L"no session ID specified\n");
+                }
+
+                wprintf(L"%d crypto suites\n", clientHello.CipherSuites()->Count());
+
+                wprintf(L"crypto suite 0: %02X %02X\n",
+                       *clientHello.CipherSuites()->at(0)->at(0),
+                       *clientHello.CipherSuites()->at(0)->at(1));
+
+                wprintf(L"%d compression methods: %d\n",
+                       clientHello.CompressionMethods()->Count(),
+                       *clientHello.CompressionMethods()->at(0)->Method());
+
+                wprintf(L"%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
+
+                for (auto it = clientHello.Extensions()->Data()->begin(); it != clientHello.Extensions()->Data()->end(); it++)
+                {
+                    if (*it->ExtensionType() == MT_Extension::MTEE_RenegotiationInfo)
+                    {
+                        wprintf(L"found renegotiation info:\n");
+                        PrintByteVector(it->ExtensionData());
+                    }
+                }
+            } // end logging
+
+            hr = StartNextHandshake(&clientHello);
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+
+            // archive the message for the Finished hash later
+            NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
+
+            /*
+            ** allow the app to select what protocol version to send in
+            ** response to the ClientHello, which has advertised a
+            ** particular version already
+            */
+            {
+                MT_ProtocolVersion protocolVersion = *clientHello.ClientVersion();
+
+                HRESULT hrL = Listener()->OnSelectProtocolVersion(&protocolVersion);
+                if (FAILED(hrL))
+                {
+                    hr = hrL;
+                    goto error;
+                }
+
+                *NextConn()->ReadParams()->Version() = *protocolVersion.Version();
+                *NextConn()->WriteParams()->Version() = *protocolVersion.Version();
+            }
+
+            *NextConn()->ClientRandom() = *(clientHello.Random());
+
+            /*
+            ** A particularly important block: allow the app to select the
+            ** cipher suite to be used, out of the list given by the
+            ** client. if the app ignores the callback, MungeTLS has a way
+            ** of picking its preferred choice
+            */
+            {
+                MT_CipherSuite cipherSuite;
+
+                HRESULT hrL = Listener()->OnSelectCipherSuite(&clientHello, &cipherSuite);
+                if (FAILED(hrL))
+                {
+                    hr = hrL;
+                    goto error;
+                }
+
+                // pick the library's preference out of the client list
+                if (hrL == MT_S_LISTENER_IGNORED)
+                {
+                    MT_CipherSuiteValue ePreferred;
+                    vector<MT_CipherSuiteValue> vValues(NextConn()->ClientHello()->CipherSuites()->Count());
+
+                    // just extracting the enum value from the raw data
+                    transform(
+                        NextConn()->ClientHello()->CipherSuites()->Data()->begin(),
+                        NextConn()->ClientHello()->CipherSuites()->Data()->end(),
+                        vValues.begin(),
+                        [&hr](const MT_CipherSuite& rSuite)
+                        {
+                            if (hr == S_OK)
+                            {
+                                MT_CipherSuiteValue eValue;
+                                hr = rSuite.Value(&eValue);
+                                return eValue;
+                            }
+                            else
+                            {
+                                return MTCS_UNKNOWN;
+                            }
+                        }
+                    );
+
+                    if (hr != S_OK)
+                    {
+                        goto error;
+                    }
+
+                    hr = ChooseBestCipherSuite(
+                             &vValues,
+                             GetCipherSuitePreference(),
+                             &ePreferred);
+
+                    if (hr != S_OK)
+                    {
+                        goto error;
+                    }
+
+                    hr = cipherSuite.SetValue(ePreferred);
+                    if (hr != S_OK)
+                    {
+                        goto error;
+                    }
+                }
+
+                /*
+                ** same cipher suite is always used for read and write.
+                ** it's important to note that setting this value here does
+                ** NOT immediately switch over the library to encrypting/
+                ** decrypting with this new cipher suite. this is all
+                ** *pending* state until we receive and send ChangeCipherSpec
+                ** messages.
+                */
+                *NextConn()->ReadParams()->CipherSuite() = cipherSuite;
+                *NextConn()->WriteParams()->CipherSuite() = cipherSuite;
+
+                { // logging
+                    MT_CipherSuiteValue eValue;
+                    HRESULT hrTemp = cipherSuite.Value(&eValue);
+                    assert(hrTemp == S_OK);
+
+                    wprintf(L"chosen cipher suite %04LX\n", eValue);
+                }
+            }
+
+            /*
+            ** having recorded all that stuff and made some choices about
+            ** protocol version and cipher suite, WELL ALLOW ME TO RETORT
+            */
+            hr = RespondToClientHello();
+            if (hr != S_OK)
+            {
+                wprintf(L"failed RespondToClientHello: %08LX\n", hr);
+                goto error;
+
+            }
+        }
+        break;
+
+        /*
+        ** the ClientKeyExchange message is where the public key
+        ** cryptography takes place. the client has encrypted some data
+        ** (actually, the Random value it sent earlier) with our public
+        ** key, and we have to decrypt it, verify that it matches, and use
+        ** it to generate the bulk cipher keys used in the rest of the
+        ** connection
+        **
+        ** in theory, public/private key encryption could just be used for
+        ** all traffic in the connection, but it is computationally far
+        ** more expensive than symmetric key encryption, so it's merely
+        ** used as a bootstrap
+        */
+        case MT_Handshake::MTH_ClientKeyExchange:
+        {
+            MT_KeyExchangeAlgorithm keyExchangeAlg;
+            MT_ClientKeyExchange<MT_EncryptedPreMasterSecret> keyExchange;
+            MT_EncryptedPreMasterSecret* pExchangeKeys = nullptr;
+            MT_PreMasterSecret* pSecret = nullptr;
+
+            /*
+            ** at this point we should have exchanged hellos and therefore
+            ** agreed on a single cipher suite, so the following call to
+            ** get the key exchange algorithm can use either read or write
+            ** params
+            */
+            assert(*NextConn()->ReadParams()->CipherSuite() == *NextConn()->WriteParams()->CipherSuite());
+
+            hr = NextConn()->ReadParams()->CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg);
+            if (hr != S_OK)
+            {
+                wprintf(L"failed to get key exchange algorithm: %08LX\n", hr);
+                goto error;
+            }
+
+            if (keyExchangeAlg != MTKEA_rsa)
+            {
+                wprintf(L"unsupported key exchange type: %d\n", keyExchangeAlg);
+                hr = MT_E_UNSUPPORTED_KEY_EXCHANGE;
+                goto error;
+            }
+
+            hr = keyExchange.ParseFromVect(spHandshakeMessage->Body());
+            if (hr != S_OK)
+            {
+                wprintf(L"failed to parse key exchange message from handshake body: %08LX\n", hr);
+                goto error;
+            }
+
+            /*
+            ** actually decrypt the structure using our public key
+            ** cipherer, which internally should already be primed with the
+            ** correct public/private key pair. note that this should be
+            ** using NextConn, not CurrConn, since we're handshaking using
+            ** potentially a new certificate (and consequently a new key
+            ** pair)
+            */
+            pExchangeKeys = keyExchange.ExchangeKeys();
+            hr = pExchangeKeys->DecryptStructure(NextConn()->PubKeyCipherer()->get());
+            if (hr != S_OK)
+            {
+                wprintf(L"failed to decrypt structure: %08LX\n", hr);
+                goto error;
+            }
+
+            // archive the message since it's good, for the Finished hash
+            NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
+
+            // got the decrypted premaster secret
+            pSecret = pExchangeKeys->Structure();
+            wprintf(L"version %04LX\n", *pSecret->ClientVersion()->Version());
+
+            // generate a bunch of crypto material from this
+            hr = NextConn()->GenerateKeyMaterial(pSecret);
+            if (hr != S_OK)
+            {
+                wprintf(L"failed to compute master secret: %08LX\n", hr);
+                goto error;
+            }
+
+            wprintf(L"computed master secret and key material:\n");
+            PrintByteVector(NextConn()->MasterSecret());
+        }
+        break;
+
+        /*
+        ** with the Finished message, the client has sent its last
+        ** handshake message. In fact, this message has already been
+        ** encrypted with the new connection parameters, so parsing this
+        ** message is needed only for verifying the integrity of the
+        ** client -> server stream.
+        **
+        ** verifying it involves computing a hash of all handshake messages
+        ** received so far (not including this very Finished message) and
+        ** comparing it with the decrypted body of this message. this hash
+        ** value is known as the "verify data"
+        */
+        case MT_Handshake::MTH_Finished:
+        {
+            MT_Finished finishedMessage;
+            hr = finishedMessage.ParseFromVect(spHandshakeMessage->Body());
+            if (hr != S_OK)
+            {
+                wprintf(L"failed to parse finished message: %08LX\n", hr);
+                goto error;
+            }
+
+            // used to access HandshakeMessages() for the hash calculation
+            hr = finishedMessage.SetConnectionParameters(NextConn());
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+
+            // used to decrypt the message
+            hr = finishedMessage.SetSecurityParameters(NextConn()->ReadParams());
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+
+            // do the actual hash check
+            hr = finishedMessage.CheckSecurity();
+            if (hr != S_OK)
+            {
+                wprintf(L"security failed on finished message: %08LX\n", hr);
+                goto error;
+            }
+
+            /*
+            ** we have to store the verify data we received here to include
+            ** in a renegotiation, if one comes up
+            */
+            *NextConn()->ClientVerifyData() = *finishedMessage.VerifyData();
+
+            /*
+            ** yes, we archive this message, too. when the server sends its
+            ** own Finished message, guess what? it has to include all
+            ** handshake messages received so far, including the client
+            ** finished message
+            */
+            NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
+
+            // go ahead and do that response right now
+            hr = RespondToFinished();
+            if (hr != S_OK)
+            {
+                wprintf(L"failed RespondToFinished: %08LX\n", hr);
+                goto error;
+
+            }
+        }
+        break;
+
+        default:
+        {
+            wprintf(L"not yet supporting handshake type %d\n", *spHandshakeMessage->Type());
+            hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
+            goto error;
+        }
+        break;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function HandleHandshakeMessage
 
 /*
 ** this function is called whenever we have a structure to send to the client.
@@ -1050,7 +1104,7 @@ TLSConnection::RespondToClientHello()
         MT_ServerHello serverHello;
         shared_ptr<MT_Handshake> spHandshake(new MT_Handshake());
 
-        // could call back to app for this. for now use the client's version
+        // this was previously chosen by calling back to the app
         *protocolVersion.Version() = *NextConn()->ReadParams()->Version();
 
         hr = random.PopulateNow();
@@ -2106,39 +2160,50 @@ ConnectionParameters::ComputePRF(
 
     wprintf(L"protocol version for PRF algorithm: %04LX\n", *ReadParams()->Version());
 
-    if (*ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+    switch (*ReadParams()->Version())
     {
-        hr = ComputePRF_TLS10(
-                 ReadParams()->HashInst()->get(),
-                 pvbSecret,
-                 szLabel,
-                 pvbSeed,
-                 cbLengthDesired,
-                 pvbPRF);
-    }
-    else if (*ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
-    {
-        hr = ComputePRF_TLS11(
-                 ReadParams()->HashInst()->get(),
-                 pvbSecret,
-                 szLabel,
-                 pvbSeed,
-                 cbLengthDesired,
-                 pvbPRF);
-    }
-    else if (*ReadParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
-    {
-        hr = ComputePRF_TLS12(
-                 ReadParams()->HashInst()->get(),
-                 pvbSecret,
-                 szLabel,
-                 pvbSeed,
-                 cbLengthDesired,
-                 pvbPRF);
-    }
-    else
-    {
-        assert(false);
+        case MT_ProtocolVersion::MTPV_TLS10:
+        {
+            hr = ComputePRF_TLS10(
+                     ReadParams()->HashInst()->get(),
+                     pvbSecret,
+                     szLabel,
+                     pvbSeed,
+                     cbLengthDesired,
+                     pvbPRF);
+        }
+        break;
+
+        case MT_ProtocolVersion::MTPV_TLS11:
+        {
+            hr = ComputePRF_TLS11(
+                     ReadParams()->HashInst()->get(),
+                     pvbSecret,
+                     szLabel,
+                     pvbSeed,
+                     cbLengthDesired,
+                     pvbPRF);
+        }
+        break;
+
+        case MT_ProtocolVersion::MTPV_TLS12:
+        {
+            hr = ComputePRF_TLS12(
+                     ReadParams()->HashInst()->get(),
+                     pvbSecret,
+                     szLabel,
+                     pvbSeed,
+                     cbLengthDesired,
+                     pvbPRF);
+        }
+        break;
+
+        default:
+        {
+            assert(false);
+            hr = MT_E_UNKNOWN_PROTOCOL_VERSION;
+        }
+        break;
     }
 
     if (hr != S_OK)
@@ -2651,61 +2716,83 @@ CryptoInfoFromCipherSuite(
         goto error;
     }
 
-    if (pHashInfo)
+    if (pHashInfo != nullptr)
     {
-        if (eCSV == MTCS_TLS_RSA_WITH_NULL_NULL)
+        switch (eCSV)
         {
-            *pHashInfo = c_HashInfo_NULL;
-        }
-        else if (eCSV == MTCS_TLS_RSA_WITH_NULL_SHA ||
-                 eCSV == MTCS_TLS_RSA_WITH_RC4_128_SHA ||
-                 eCSV == MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA ||
-                 eCSV == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
-                 eCSV == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA)
-        {
-            *pHashInfo = c_HashInfo_SHA1;
-        }
-        else if (eCSV == MTCS_TLS_RSA_WITH_NULL_SHA256 ||
-                 eCSV == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256 ||
-                 eCSV == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
-        {
-            *pHashInfo = c_HashInfo_SHA256;
-        }
-        else
-        {
-            hr = MT_E_UNSUPPORTED_HASH;
-            goto error;
+            case MTCS_TLS_RSA_WITH_NULL_NULL:
+            {
+                *pHashInfo = c_HashInfo_NULL;
+            }
+            break;
+
+            case MTCS_TLS_RSA_WITH_NULL_SHA:
+            case MTCS_TLS_RSA_WITH_RC4_128_SHA:
+            case MTCS_TLS_RSA_WITH_3DES_EDE_CBC_SHA:
+            case MTCS_TLS_RSA_WITH_AES_128_CBC_SHA:
+            case MTCS_TLS_RSA_WITH_AES_256_CBC_SHA:
+            {
+                *pHashInfo = c_HashInfo_SHA1;
+            }
+            break;
+
+            case MTCS_TLS_RSA_WITH_NULL_SHA256:
+            case MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256:
+            case MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256:
+            {
+                *pHashInfo = c_HashInfo_SHA256;
+            }
+            break;
+
+            default:
+            {
+                hr = MT_E_UNSUPPORTED_HASH;
+                goto error;
+            }
+            break;
         }
     }
 
-    if (pCipherInfo)
+    if (pCipherInfo != nullptr)
     {
-        if (eCSV == MTCS_TLS_RSA_WITH_NULL_NULL ||
-            eCSV == MTCS_TLS_RSA_WITH_NULL_MD5 ||
-            eCSV == MTCS_TLS_RSA_WITH_NULL_SHA ||
-            eCSV == MTCS_TLS_RSA_WITH_NULL_SHA256)
+        switch (eCSV)
         {
-            *pCipherInfo = c_CipherInfo_NULL;
-        }
-        else if (eCSV == MTCS_TLS_RSA_WITH_RC4_128_MD5 ||
-                 eCSV ==  MTCS_TLS_RSA_WITH_RC4_128_SHA)
-        {
-            *pCipherInfo = c_CipherInfo_RC4_128;
-        }
-        else if (eCSV == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA ||
-                 eCSV == MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256)
-        {
-            *pCipherInfo = c_CipherInfo_AES_128;
-        }
-        else if (eCSV == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA ||
-                 eCSV == MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256)
-        {
-            *pCipherInfo = c_CipherInfo_AES_256;
-        }
-        else
-        {
-            hr = MT_E_UNSUPPORTED_CIPHER;
-            goto error;
+            case MTCS_TLS_RSA_WITH_NULL_NULL:
+            case MTCS_TLS_RSA_WITH_NULL_MD5:
+            case MTCS_TLS_RSA_WITH_NULL_SHA:
+            case MTCS_TLS_RSA_WITH_NULL_SHA256:
+            {
+                *pCipherInfo = c_CipherInfo_NULL;
+            }
+            break;
+
+            case MTCS_TLS_RSA_WITH_RC4_128_MD5:
+            case MTCS_TLS_RSA_WITH_RC4_128_SHA:
+            {
+                *pCipherInfo = c_CipherInfo_RC4_128;
+            }
+            break;
+
+            case MTCS_TLS_RSA_WITH_AES_128_CBC_SHA:
+            case MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256:
+            {
+                *pCipherInfo = c_CipherInfo_AES_128;
+            }
+            break;
+
+            case MTCS_TLS_RSA_WITH_AES_256_CBC_SHA:
+            case MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256:
+            {
+                *pCipherInfo = c_CipherInfo_AES_256;
+            }
+            break;
+
+            default:
+            {
+                hr = MT_E_UNSUPPORTED_CIPHER;
+                goto error;
+            }
+            break;
         }
     }
 
@@ -3523,32 +3610,50 @@ MT_TLSCiphertext::SetSecurityParameters(
         goto error;
     }
 
-    if (EndParams()->Cipher()->type == CipherType_Stream)
+    switch (EndParams()->Cipher()->type)
     {
-        m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericStreamCipher(this));
-    }
-    else if (EndParams()->Cipher()->type == CipherType_Block)
-    {
-        if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10)
+        case CipherType_Stream:
         {
-            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS10(this));
+            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericStreamCipher(this));
         }
-        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
+        break;
+
+        case CipherType_Block:
         {
-            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS11(this));
+            switch (*EndParams()->Version())
+            {
+                case MT_ProtocolVersion::MTPV_TLS10:
+                {
+                    m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS10(this));
+                }
+                break;
+
+                case MT_ProtocolVersion::MTPV_TLS11:
+                {
+                    m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS11(this));
+                }
+                break;
+
+                case MT_ProtocolVersion::MTPV_TLS12:
+                {
+                    m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS12(this));
+                }
+                break;
+
+                default:
+                {
+                    assert(false);
+                }
+                break;
+            }
         }
-        else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
-        {
-            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS12(this));
-        }
-        else
+        break;
+
+        default:
         {
             assert(false);
         }
-    }
-    else
-    {
-        assert(false);
+        break;
     }
 
     hr = CipherFragment()->SetSecurityParameters(EndParams());
@@ -3657,21 +3762,16 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
 {
     HRESULT hr = S_OK;
 
-    if (EndParams()->Cipher()->type == CipherType_Stream ||
-        (EndParams()->Cipher()->type == CipherType_Block &&
-         (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10 ||
-          *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11 ||
-          *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)))
+    assert(EndParams()->Cipher()->type == CipherType_Stream ||
+           (EndParams()->Cipher()->type == CipherType_Block &&
+            (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10 ||
+             *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11 ||
+             *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)));
+
+    hr = CipherFragment()->UpdateWriteSecurity();
+    if (hr != S_OK)
     {
-        hr = CipherFragment()->UpdateWriteSecurity();
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-    }
-    else
-    {
-        assert(false);
+        goto error;
     }
 
 done:
@@ -3739,21 +3839,16 @@ MT_TLSCiphertext::CheckSecurityPriv()
 {
     HRESULT hr = S_OK;
 
-    if (EndParams()->Cipher()->type == CipherType_Stream ||
-        (EndParams()->Cipher()->type == CipherType_Block &&
-         (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10 ||
-          *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11 ||
-          *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)))
+    assert(EndParams()->Cipher()->type == CipherType_Stream ||
+           (EndParams()->Cipher()->type == CipherType_Block &&
+            (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10 ||
+             *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11 ||
+             *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)));
+
+    hr = CipherFragment()->CheckSecurity();
+    if (hr != S_OK)
     {
-        hr = CipherFragment()->CheckSecurity();
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-    }
-    else
-    {
-        assert(false);
+        goto error;
     }
 
 done:
@@ -5194,56 +5289,64 @@ MT_Finished::ComputeVerifyData(
         goto error;
     }
 
-    if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10 ||
-        *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11)
+    switch (*EndParams()->Version())
     {
-        ByteVector vbMD5HandshakeHash;
-        ByteVector vbSHA1HandshakeHash;
-        ByteVector vbHandshakeHash;
-
-        hr = (*EndParams()->HashInst())->Hash(
-                 &c_HashInfo_MD5,
-                 &vbHandshakeMessages,
-                 &vbMD5HandshakeHash);
-
-        if (hr != S_OK)
+        case MT_ProtocolVersion::MTPV_TLS10:
+        case MT_ProtocolVersion::MTPV_TLS11:
         {
+            ByteVector vbMD5HandshakeHash;
+            ByteVector vbSHA1HandshakeHash;
+            ByteVector vbHandshakeHash;
+
+            hr = (*EndParams()->HashInst())->Hash(
+                     &c_HashInfo_MD5,
+                     &vbHandshakeMessages,
+                     &vbMD5HandshakeHash);
+
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+
+            hr = (*EndParams()->HashInst())->Hash(
+                     &c_HashInfo_SHA1,
+                     &vbHandshakeMessages,
+                     &vbSHA1HandshakeHash);
+
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+
+            vbHashedHandshakeMessages = vbMD5HandshakeHash;
+            vbHashedHandshakeMessages.insert(
+                vbHashedHandshakeMessages.end(),
+                vbSHA1HandshakeHash.begin(),
+                vbSHA1HandshakeHash.end());
+        }
+        break;
+
+        case MT_ProtocolVersion::MTPV_TLS12:
+        {
+            hr = (*EndParams()->HashInst())->Hash(
+                     &c_HashInfo_SHA256,
+                     &vbHandshakeMessages,
+                     &vbHashedHandshakeMessages);
+
+            if (hr != S_OK)
+            {
+                goto error;
+            }
+        }
+        break;
+
+        default:
+        {
+            wprintf(L"unrecognized version: %04LX\n", *EndParams()->Version());
+            hr = MT_E_UNKNOWN_PROTOCOL_VERSION;
             goto error;
         }
-
-        hr = (*EndParams()->HashInst())->Hash(
-                 &c_HashInfo_SHA1,
-                 &vbHandshakeMessages,
-                 &vbSHA1HandshakeHash);
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        vbHashedHandshakeMessages = vbMD5HandshakeHash;
-        vbHashedHandshakeMessages.insert(
-            vbHashedHandshakeMessages.end(),
-            vbSHA1HandshakeHash.begin(),
-            vbSHA1HandshakeHash.end());
-    }
-    else if (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)
-    {
-        hr = (*EndParams()->HashInst())->Hash(
-                 &c_HashInfo_SHA256,
-                 &vbHandshakeMessages,
-                 &vbHashedHandshakeMessages);
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-    }
-    else
-    {
-        wprintf(L"unrecognized version: %04LX\n", *EndParams()->Version());
-        hr = MT_E_UNKNOWN_PROTOCOL_VERSION;
-        goto error;
+        break;
     }
 
     hr = ConnParams()->ComputePRF(
