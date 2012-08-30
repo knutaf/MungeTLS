@@ -653,7 +653,7 @@ TLSConnection::HandleHandshakeMessage(
                     if (*it->ExtensionType() == MT_Extension::MTEE_RenegotiationInfo)
                     {
                         wprintf(L"found renegotiation info:\n");
-                        PrintByteVector(it->ExtensionData());
+                        PrintByteVector(it->ExtensionData()->Data());
                     }
                 }
             } // end logging
@@ -5099,7 +5099,7 @@ error:
 MT_Extension::MT_Extension()
     : MT_Structure(),
       m_extensionType(MTEE_Unknown),
-      m_vbExtensionData()
+      m_extensionData()
 {
 } // end ctor MT_Extension
 
@@ -5111,7 +5111,6 @@ MT_Extension::ParseFromPriv(
 {
     HRESULT hr = S_OK;
     size_t cbField = c_cbExtensionType_Length;
-    size_t cbExtensionLength = 0;
 
     hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(ExtensionType()));
     if (hr != S_OK)
@@ -5121,25 +5120,13 @@ MT_Extension::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    cbField = c_cbExtensionData_LFL;
-    hr = ReadNetworkLong(pv, cb, cbField, &cbExtensionLength);
+    hr = ExtensionData()->ParseFrom(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
-    ADVANCE_PARSE();
-
-    cbField = cbExtensionLength;
-
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    ExtensionData()->assign(pv, pv + cbField);
-    assert(ExtensionData()->size() == cbExtensionLength);
+    cbField = ExtensionData()->Length();
 
     ADVANCE_PARSE();
 
@@ -5154,8 +5141,7 @@ size_t
 MT_Extension::Length() const
 {
     size_t cbLength = c_cbExtensionType_Length +
-                      c_cbExtensionData_LFL +
-                      ExtensionData()->size();
+                      ExtensionData()->Length();
     return cbLength;
 } // end function Length
 
@@ -5177,23 +5163,13 @@ MT_Extension::SerializePriv(
 
     ADVANCE_PARSE();
 
-    cbField = c_cbExtensionData_LFL;
-    hr = WriteNetworkLong(ExtensionData()->size(), cbField, pv, cb);
+    hr = ExtensionData()->Serialize(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
-    ADVANCE_PARSE();
-
-    cbField = ExtensionData()->size();
-    if (cbField > cb)
-    {
-        goto error;
-    }
-
-    std::copy(ExtensionData()->begin(), ExtensionData()->end(), pv);
-
+    cbField = ExtensionData()->Length();
     ADVANCE_PARSE();
 
 done:
@@ -7014,7 +6990,7 @@ MT_RenegotiationInfoExtension::CheckExtensionDataIntegrity() const
         goto error;
     }
 
-    if (vbConnection == *MT_Extension::ExtensionData())
+    if (vbConnection == *MT_Extension::ExtensionData()->Data())
     {
         hr = S_OK;
     }
@@ -7030,7 +7006,7 @@ error:
     goto done;
 } // end function CheckExtensionDataIntegrity
 
-const ByteVector*
+const MT_ExtensionData*
 MT_RenegotiationInfoExtension::ExtensionData() const
 {
 #if DBG
@@ -7058,7 +7034,7 @@ MT_RenegotiationInfoExtension::SetRenegotiatedConnection(
     HRESULT hr = S_OK;
     m_renegotiatedConnection = *pRenegotiatedConnection;
 
-    hr = RenegotiatedConnection()->SerializeToVect(MT_Extension::ExtensionData());
+    hr = RenegotiatedConnection()->SerializeToVect(MT_Extension::ExtensionData()->Data());
     if (hr != S_OK)
     {
         goto error;

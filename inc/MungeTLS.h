@@ -497,7 +497,16 @@ typedef MT_VariableLengthField<
 **   extension type 0xff01)...
 */
 const size_t c_cbExtensionType_Length = 2;
+
 const size_t c_cbExtensionData_LFL = 2;
+const size_t c_cbExtensionData_MinLength = 0;
+const size_t c_cbExtensionData_MaxLength = MAXFORBYTES(c_cbExtensionData_LFL);
+typedef MT_VariableLengthByteField<
+            c_cbExtensionData_LFL,
+            c_cbExtensionData_MinLength,
+            c_cbExtensionData_MaxLength>
+        MT_ExtensionData;
+
 class MT_Extension : public MT_Structure
 {
     public:
@@ -513,7 +522,7 @@ class MT_Extension : public MT_Structure
     size_t Length() const;
 
     ACCESSORS(MTE_ExtensionType*, ExtensionType, &m_extensionType);
-    ACCESSORS(ByteVector*, ExtensionData, &m_vbExtensionData);
+    ACCESSORS(MT_ExtensionData*, ExtensionData, &m_extensionData);
 
     protected:
     virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
@@ -521,7 +530,7 @@ class MT_Extension : public MT_Structure
 
     private:
     MTE_ExtensionType m_extensionType;
-    ByteVector m_vbExtensionData;
+    MT_ExtensionData m_extensionData;
 };
 
 /*
@@ -580,7 +589,7 @@ class MT_RenegotiationInfoExtension : public MT_Extension
     ~MT_RenegotiationInfoExtension() { }
 
     // overriding from superclass for integrity check
-    const ByteVector* ExtensionData() const;
+    const MT_ExtensionData* ExtensionData() const;
 
     // needed to implement by hand for integrity check
     const MT_RenegotiatedConnection* RenegotiatedConnection() const;
