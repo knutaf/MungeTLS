@@ -1108,6 +1108,7 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
 
     private:
     HRESULT CheckSecurityPriv();
+    bool HasKnownCipherFragmentType();
 
     std::shared_ptr<MT_CipherFragment> m_spCipherFragment;
 };
@@ -1690,6 +1691,24 @@ class MT_Alert : public MT_Structure
 
     MT_AlertLevel m_eLevel;
     MT_AlertDescription m_eDescription;
+};
+
+/*
+** TLS 1.0
+** struct { } ServerHelloDone;
+*/
+const size_t c_cbServerHelloDone_Length = 0;
+class MT_ServerHelloDone : public MT_Structure
+{
+    public:
+    MT_ServerHelloDone();
+    ~MT_ServerHelloDone() { }
+
+    size_t Length() const { return c_cbServerHelloDone_Length; }
+
+    private:
+    // HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 };
 
 /*

@@ -1276,10 +1276,17 @@ TLSConnection::RespondToClientHello()
 
     // ServerHelloDone
     {
+        MT_ServerHelloDone serverHelloDone;
         shared_ptr<MT_Handshake> spHandshake(new MT_Handshake());
         MT_TLSPlaintext* pPlaintextPass = spPlaintext.get();
 
         *spHandshake->Type() = MT_Handshake::MTH_ServerHelloDone;
+
+        hr = serverHelloDone.SerializeToVect(spHandshake->Body());
+        if (hr != S_OK)
+        {
+            goto error;
+        }
 
         hr = AddHandshakeMessage(
                  spHandshake.get(),
@@ -6918,6 +6925,26 @@ Hasher::HMAC(
 
     return E_NOTIMPL;
 } // end function HMAC
+
+/*********** MT_ServerHelloDone *****************/
+
+MT_ServerHelloDone::MT_ServerHelloDone()
+    : MT_Structure()
+{
+} // end ctor MT_ServerHelloDone
+
+HRESULT
+MT_ServerHelloDone::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    UNREFERENCED_PARAMETER(pv);
+    UNREFERENCED_PARAMETER(cb);
+
+    // 0-byte structure
+    return S_OK;
+} // end function SerializePriv
 
 /*********** MT_HelloRequest *****************/
 

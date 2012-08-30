@@ -7,11 +7,10 @@ WORK:
 - change up goto style of main loop
 - if we have our own client impl, we can also implement some wonky compression scheme
 - audit all asserts for appropriateness
-- support cached sessions with SessionIDs
 - KeyExchangeAlgorithm ctor makes some gross, simplifying assumptions about our supported cipher suites
 - rethink const-ness of encryption and decryption. not all things are modifying cipherer state, are they?
 - ExtensionData should be a variable length byte field
-- assumption that ServerHelloDone is empty. create an empty struct for it like hello request
+- support cached sessions with SessionIDs
 
 MAYBE:
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon
