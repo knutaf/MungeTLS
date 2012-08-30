@@ -3051,11 +3051,10 @@ MT_VariableLengthField
 
     for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
     {
-        cbField = iter->Length();
-
         hr = iter->Serialize(pv, cb);
         assert(hr == S_OK);
 
+        cbField = iter->Length();
         ADVANCE_PARSE();
     }
 
@@ -3268,11 +3267,10 @@ MT_FixedLengthStructure<F, Size>::SerializePriv(
 
     for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
     {
-        size_t cbField = iter->Length();
-
         hr = iter->Serialize(pv, cb);
         assert(hr == S_OK);
 
+        size_t cbField = iter->Length();
         ADVANCE_PARSE();
     }
 
@@ -4402,7 +4400,7 @@ MT_ClientHello::MT_ClientHello()
       m_compressionMethods(),
       m_extensions()
 {
-}
+} // end ctor MT_ClientHello
 
 HRESULT
 MT_ClientHello::ParseFromPriv(
@@ -4472,7 +4470,7 @@ done:
 
 error:
     goto done;
-}
+} // end function ParseFromPriv
 
 size_t
 MT_ClientHello::Length() const
@@ -4493,7 +4491,7 @@ MT_CompressionMethod::MT_CompressionMethod()
     : MT_Structure(),
       m_eMethod(MTCM_Unknown)
 {
-}
+} // end ctor MT_CompressionMethod
 
 HRESULT
 MT_CompressionMethod::ParseFromPriv(
@@ -5123,7 +5121,6 @@ MT_Extension::ParseFromPriv(
     }
 
     cbField = ExtensionData()->Length();
-
     ADVANCE_PARSE();
 
 done:
@@ -6953,6 +6950,7 @@ MT_RenegotiationInfoExtension::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
+    size_t cbField = 0;
     MT_RenegotiatedConnection rc;
 
     hr = rc.ParseFrom(pv, cb);
@@ -6966,6 +6964,9 @@ MT_RenegotiationInfoExtension::ParseFromPriv(
     {
         goto error;
     }
+
+    cbField = rc.Length();
+    ADVANCE_PARSE();
 
 done:
     return hr;

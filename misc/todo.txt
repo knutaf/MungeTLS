@@ -9,7 +9,6 @@ WORK:
 - audit all asserts for appropriateness
 - rethink const-ness of encryption and decryption. not all things are modifying cipherer state, are they?
 - support cached sessions with SessionIDs
-- add ADVANCE_PARSE at the end of all serialize/parse
 
 MAYBE:
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon
