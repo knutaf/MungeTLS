@@ -1047,12 +1047,12 @@ error:
 
 WindowsSymmetricCipherer::WindowsSymmetricCipherer()
     : SymmetricCipherer(),
-      m_spKey(nullptr)
+      m_spKey()
 {
 } // end ctor WindowsSymmetricCipherer
 
 HRESULT
-WindowsSymmetricCipherer::Initialize(
+WindowsSymmetricCipherer::SetCipherInfo(
     const ByteVector* pvbKey,
     const CipherInfo* pCipherInfo
 )
@@ -1060,7 +1060,7 @@ WindowsSymmetricCipherer::Initialize(
     HRESULT hr = S_OK;
     ALG_ID algID;
 
-    hr = SymmetricCipherer::Initialize(pvbKey, pCipherInfo);
+    hr = SymmetricCipherer::SetCipherInfo(pvbKey, pCipherInfo);
     if (hr != S_OK)
     {
         goto error;
@@ -1097,7 +1097,7 @@ done:
 
 error:
     goto done;
-} // end function Initialize
+} // end function SetCipherInfo
 
 HRESULT
 WindowsSymmetricCipherer::EncryptBuffer(

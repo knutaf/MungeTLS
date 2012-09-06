@@ -5,7 +5,6 @@ WORK:
   - if we have our own client impl, we can also implement some wonky compression scheme
 - go through all the code and rearrange order of functions to be more logical for read-through
 - change up goto style of main loop
-- audit all asserts for appropriateness
 - support cached sessions with SessionIDs
 - macro to do error checking everywhere with logging too
 

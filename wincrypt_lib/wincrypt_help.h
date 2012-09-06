@@ -121,7 +121,7 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
     ~WindowsSymmetricCipherer() { }
 
     HRESULT
-    Initialize(
+    SetCipherInfo(
         const ByteVector* pvbKey,
         const CipherInfo* pCipherInfo);
 

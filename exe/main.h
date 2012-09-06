@@ -41,7 +41,8 @@ class SimpleHTTPServer : public ITLSListener
         std::shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
         std::shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
         std::shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
-        std::shared_ptr<Hasher>* pspHasher);
+        std::shared_ptr<Hasher>* pspClientHasher,
+        std::shared_ptr<Hasher>* pspServerHasher);
 
     HRESULT
     OnReconcileSecurityVersion(

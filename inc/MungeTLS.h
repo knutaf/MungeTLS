@@ -123,6 +123,7 @@ class MT_GenericStreamCipher;
 class MT_GenericBlockCipher_TLS10;
 class MT_GenericBlockCipher_TLS11;
 class MT_Alert;
+class MT_ServerHelloDone;
 class MT_HelloRequest;
 
 /*
@@ -734,7 +735,8 @@ class ConnectionParameters
         std::shared_ptr<PublicKeyCipherer> spPubKeyCipherer,
         std::shared_ptr<SymmetricCipherer> spClientSymCipherer,
         std::shared_ptr<SymmetricCipherer> spServerSymCipherer,
-        std::shared_ptr<Hasher> spHasher);
+        std::shared_ptr<Hasher> spClientHasher,
+        std::shared_ptr<Hasher> spServerHasher);
 
     ACCESSORS(MT_CertificateList*, CertChain, &m_certChain);
     ACCESSORS(std::shared_ptr<PublicKeyCipherer>*, PubKeyCipherer, &m_spPubKeyCipherer);
@@ -938,7 +940,8 @@ class ITLSListener
         std::shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
         std::shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
         std::shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
-        std::shared_ptr<Hasher>* pspHasher) = 0;
+        std::shared_ptr<Hasher>* pspClientHasher,
+        std::shared_ptr<Hasher>* pspServerHasher) = 0;
 
     /*
     ** called during the handshake when filling in ServerHello.server_version

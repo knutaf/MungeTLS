@@ -180,7 +180,7 @@ class SymmetricCipherer
 
     virtual
     HRESULT
-    Initialize(
+    SetCipherInfo(
         const ByteVector* pvbKey,
         const CipherInfo* pCipherInfo) = 0;
 

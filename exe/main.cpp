@@ -673,7 +673,8 @@ SimpleHTTPServer::OnInitializeCrypto(
     shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
     shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
     shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
-    shared_ptr<Hasher>* pspHasher
+    shared_ptr<Hasher>* pspClientHasher,
+    shared_ptr<Hasher>* pspServerHasher
 )
 {
     HRESULT hr = S_OK;
@@ -681,7 +682,8 @@ SimpleHTTPServer::OnInitializeCrypto(
     shared_ptr<WindowsPublicKeyCipherer> spPubKeyCipherer;
     shared_ptr<WindowsSymmetricCipherer> spClientSymCipherer;
     shared_ptr<WindowsSymmetricCipherer> spServerSymCipherer;
-    shared_ptr<WindowsHasher> spHasher;
+    shared_ptr<WindowsHasher> spClientHasher;
+    shared_ptr<WindowsHasher> spServerHasher;
 
     hr = LookupCertificate(
              CERT_SYSTEM_STORE_CURRENT_USER,
@@ -709,7 +711,8 @@ SimpleHTTPServer::OnInitializeCrypto(
     spClientSymCipherer = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
     spServerSymCipherer = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
 
-    spHasher = shared_ptr<WindowsHasher>(new WindowsHasher());
+    spClientHasher = shared_ptr<WindowsHasher>(new WindowsHasher());
+    spServerHasher = shared_ptr<WindowsHasher>(new WindowsHasher());
 
     // convert to internal MT_CertificateList
     hr = MTCertChainFromWinChain(pCertChainCtx, pCertChain);
@@ -721,7 +724,8 @@ SimpleHTTPServer::OnInitializeCrypto(
     *pspPubKeyCipherer = spPubKeyCipherer;
     *pspClientSymCipherer = spClientSymCipherer;
     *pspServerSymCipherer = spServerSymCipherer;
-    *pspHasher = spHasher;
+    *pspClientHasher = spClientHasher;
+    *pspServerHasher = spServerHasher;
 
 done:
     if (pCertChainCtx)

@@ -238,14 +238,16 @@ TLSConnection::InitializeConnection(
     shared_ptr<PublicKeyCipherer> spPubKeyCipherer;
     shared_ptr<SymmetricCipherer> spClientSymCipherer;
     shared_ptr<SymmetricCipherer> spServerSymCipherer;
-    shared_ptr<Hasher> spHasher;
+    shared_ptr<Hasher> spClientHasher;
+    shared_ptr<Hasher> spServerHasher;
 
     hr = Listener()->OnInitializeCrypto(
              &certChain,
              &spPubKeyCipherer,
              &spClientSymCipherer,
              &spServerSymCipherer,
-             &spHasher);
+             &spClientHasher,
+             &spServerHasher);
 
     if (hr != S_OK)
     {
@@ -257,7 +259,8 @@ TLSConnection::InitializeConnection(
              spPubKeyCipherer,
              spClientSymCipherer,
              spServerSymCipherer,
-             spHasher);
+             spClientHasher,
+             spServerHasher);
 
     if (hr != S_OK)
     {
@@ -2099,6 +2102,11 @@ EndpointParameters::Initialize(
     return S_OK;
 } // end function Initialize
 
+/*
+** cache the answer internally and return it after the first time. this allows
+** us to return a const pointer to it without requiring that the caller also
+** free it
+*/
 const CipherInfo*
 EndpointParameters::Cipher() const
 {
@@ -2117,6 +2125,7 @@ EndpointParameters::Cipher() const
     return &cipherInfo;
 } // end function Cipher
 
+// same comment as for Cipher()
 const HashInfo*
 EndpointParameters::Hash() const
 {
@@ -2144,33 +2153,53 @@ EndpointParameters::IsEncrypted() const
 ConnectionParameters::ConnectionParameters()
     : m_certChain(),
       m_spPubKeyCipherer(),
-      m_vbMasterSecret(),
       m_clientHello(),
       m_clientRandom(),
       m_serverRandom(),
       m_clientVerifyData(),
       m_serverVerifyData(),
+      m_vbMasterSecret(),
+      m_readParams(),
+      m_writeParams(),
       m_vHandshakeMessages()
 {
 } // end ctor ConnectionParameters
 
+/*
+** this can be called at three different times:
+** - early, before any messages arrive
+** - after receiving a ClientHello, to prep the new connection for handshake
+** - after receiving a ClientHello when there is already an active, secure
+**   connection, when starting a renegotiation
+**
+** in all cases, this is a fresh connection, so is basically pretty blank
+** aside from the objects passed in here
+*/
 HRESULT
 ConnectionParameters::Initialize(
     const MT_CertificateList* pCertChain,
     shared_ptr<PublicKeyCipherer> spPubKeyCipherer,
     shared_ptr<SymmetricCipherer> spClientSymCipherer,
     shared_ptr<SymmetricCipherer> spServerSymCipherer,
-    shared_ptr<Hasher> spHasher
+    shared_ptr<Hasher> spClientHasher,
+    shared_ptr<Hasher> spServerHasher
 )
 {
     HRESULT hr = S_OK;
 
-    assert(CertChain()->Data()->empty());
+    if (!CertChain()->Data()->empty())
+    {
+        hr = E_UNEXPECTED;
+        goto error;
+    }
 
     *CertChain() = *pCertChain;
     m_spPubKeyCipherer = spPubKeyCipherer;
 
-    hr = spClientSymCipherer->Initialize(
+
+    assert(ReadParams()->Cipher()->alg == CipherAlg_NULL);
+
+    hr = spClientSymCipherer->SetCipherInfo(
              ReadParams()->Key(),
              ReadParams()->Cipher());
 
@@ -2179,7 +2208,10 @@ ConnectionParameters::Initialize(
         goto error;
     }
 
-    hr = spServerSymCipherer->Initialize(
+
+    assert(WriteParams()->Cipher()->alg == CipherAlg_NULL);
+
+    hr = spServerSymCipherer->SetCipherInfo(
              WriteParams()->Key(),
              WriteParams()->Cipher());
 
@@ -2188,14 +2220,14 @@ ConnectionParameters::Initialize(
         goto error;
     }
 
-    // for now passing same hasher into both endpoints. could split up
-    hr = ReadParams()->Initialize(spClientSymCipherer, spHasher);
+
+    hr = ReadParams()->Initialize(spClientSymCipherer, spClientHasher);
     if (hr != S_OK)
     {
         goto error;
     }
 
-    hr = WriteParams()->Initialize(spServerSymCipherer, spHasher);
+    hr = WriteParams()->Initialize(spServerSymCipherer, spServerHasher);
     if (hr != S_OK)
     {
         goto error;
@@ -2465,7 +2497,7 @@ ConnectionParameters::GenerateKeyMaterial(
         assert(itKeyBlock == vbKeyBlock.end());
 
 
-        hr = (*ReadParams()->SymCipherer())->Initialize(
+        hr = (*ReadParams()->SymCipherer())->SetCipherInfo(
                  ReadParams()->Key(),
                  ReadParams()->Cipher());
 
@@ -2474,7 +2506,7 @@ ConnectionParameters::GenerateKeyMaterial(
             goto error;
         }
 
-        hr = (*WriteParams()->SymCipherer())->Initialize(
+        hr = (*WriteParams()->SymCipherer())->SetCipherInfo(
                  WriteParams()->Key(),
                  WriteParams()->Cipher());
 
@@ -6864,7 +6896,7 @@ SymmetricCipherer::SymmetricCipherer()
 } // end ctor SymmetricCipherer
 
 HRESULT
-SymmetricCipherer::Initialize(
+SymmetricCipherer::SetCipherInfo(
     const ByteVector* pvbKey,
     const CipherInfo* pCipherInfo
 )
@@ -6872,8 +6904,12 @@ SymmetricCipherer::Initialize(
     UNREFERENCED_PARAMETER(pvbKey);
 
     *Cipher() = *pCipherInfo;
+
+    // if you pick null cipher, then better send an empty key
+    assert(Cipher()->alg != CipherAlg_NULL || pvbKey->empty());
+
     return S_OK;
-} // end function Initialize
+} // end function SetCipherInfo
 
 HRESULT
 SymmetricCipherer::EncryptBuffer(
