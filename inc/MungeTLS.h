@@ -1107,10 +1107,9 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
         std::shared_ptr<MT_TLSCiphertext>* pspCiphertext);
 
     HRESULT SetSecurityParameters(EndpointParameters* pEndParams);
-    HRESULT Encrypt();
     HRESULT Decrypt();
 
-    HRESULT UpdateFragmentSecurity();
+    HRESULT Protect();
 
     HRESULT GetProtocolVersionForSecurity(MT_ProtocolVersion* pVersion);
 

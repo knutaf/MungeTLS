@@ -7,6 +7,8 @@ WORK:
 - change up goto style of main loop
 - support cached sessions with SessionIDs
 - macro to do error checking everywhere with logging too
+- function for assigning a vector with length checking
+- function for copying a vector over to a byte blob, with length checking
 
 MAYBE:
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon

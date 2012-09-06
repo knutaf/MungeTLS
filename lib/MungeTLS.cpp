@@ -1719,13 +1719,7 @@ TLSConnection::CreateCiphertext(
     *pCiphertext->ProtocolVersion() = protocolVersion;
     *pCiphertext->CipherFragment()->Content() = *pvbFragment;
 
-    hr = pCiphertext->UpdateFragmentSecurity();
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = pCiphertext->Encrypt();
+    hr = pCiphertext->Protect();
     if (hr != S_OK)
     {
         goto error;
@@ -3046,17 +3040,22 @@ MT_Structure::SerializeToVect(
     return SerializeAppendToVect(pvb);
 } // end function SerializeToVect
 
+/*
+** make the vector big enough to also hold this object's serialized contents,
+** but remember the original end. serialize this object just after the original
+** end
+*/
 HRESULT
 MT_Structure::SerializeAppendToVect(
     ByteVector* pvb
 ) const
 {
-    size_t cSize = pvb->size();
-    ResizeVector(pvb, cSize + Length());
+    size_t cbSize = pvb->size();
+    ResizeVector(pvb, cbSize + Length());
 
-    ByteVector::iterator end = pvb->begin() + cSize;
+    ByteVector::iterator end = pvb->begin() + cbSize;
 
-    assert(pvb->end() - (end + Length()) >= 0);
+    assert(pvb->end() >= (end + Length()));
     return Serialize(&(*end), Length());
 } // end function SerializeAppendToVect
 
@@ -3089,7 +3088,7 @@ MT_VariableLengthFieldBase
     C_ASSERT(LengthFieldSize <= sizeof(size_t));
     C_ASSERT(MAXFORBYTES(LengthFieldSize) >= MaxSize);
     C_ASSERT(MaxSize >= MinSize);
-}
+} // end ctor MT_VariableLengthFieldBase
 
 template <typename F,
           size_t LengthFieldSize,
@@ -3114,16 +3113,21 @@ MT_VariableLengthFieldBase
     typename vector<F>::size_type pos
 )
 {
+    // adds auto-resizing. risky!
     if (pos >= Data()->size())
     {
         ResizeVector(Data(), pos + 1);
     }
 
     return &(Data()->at(pos));
-}
+} // end function at
 
 /*********** MT_VariableLengthField *****************/
 
+/*
+** parse a number of structures of type F out of a chunk of bytes. essentially,
+** F needs to be a subclass of MT_Structure
+*/
 template <typename F,
           size_t LengthFieldSize,
           size_t MinSize,
@@ -3169,6 +3173,11 @@ MT_VariableLengthField
     while (cbTotalElementsSize > 0)
     {
         F elem;
+
+        /*
+        ** the overall vector declares that it's only taking up
+        ** cbTotalElementsSize bytes, so don't consume anything beyond that.
+        */
         hr = elem.ParseFrom(pv, cbTotalElementsSize);
         if (hr != S_OK)
         {
@@ -3177,9 +3186,9 @@ MT_VariableLengthField
 
         Data()->push_back(elem);
 
+        // deduct from both cb and cbTotalElementsSize
         cbField = elem.Length();
         ADVANCE_PARSE();
-
         SAFE_SUB(hr, cbTotalElementsSize, cbField);
         if (hr != S_OK)
         {
@@ -3204,8 +3213,7 @@ MT_VariableLengthField
 <F, LengthFieldSize, MinSize, MaxSize>
 ::DataLength() const
 {
-    assert(MAXFORBYTES(LengthFieldSize) >= MaxSize);
-
+    // count the byte length of all the elements
     size_t cbTotalDataLength = accumulate(
         Data()->begin(),
         Data()->end(),
@@ -3234,24 +3242,23 @@ MT_VariableLengthField
 ) const
 {
     HRESULT hr = S_OK;
-
-    if (Length() > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
     size_t cbField = LengthFieldSize;
 
     hr = WriteNetworkLong(DataLength(), cbField, pv, cb);
-    assert(hr == S_OK);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
 
     ADVANCE_PARSE();
 
     for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
     {
         hr = iter->Serialize(pv, cb);
-        assert(hr == S_OK);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
 
         cbField = iter->Length();
         ADVANCE_PARSE();
@@ -3348,23 +3355,23 @@ MT_VariableLengthByteField
 ) const
 {
     HRESULT hr = S_OK;
+    size_t cbField = LengthFieldSize;
 
-    if (Length() > cb)
+    hr = WriteNetworkLong(DataLength(), cbField, pv, cb);
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = DataLength();
+    if (cbField > cb)
     {
         hr = E_INSUFFICIENT_BUFFER;
         goto error;
     }
 
-    size_t cbField = LengthFieldSize;
-
-    hr = WriteNetworkLong(DataLength(), cbField, pv, cb);
-    assert(hr == S_OK);
-
-    ADVANCE_PARSE();
-
-    cbField = DataLength();
-
-    assert(cbField <= cb);
     std::copy(Data()->begin(), Data()->end(), pv);
 
     ADVANCE_PARSE();
@@ -3384,7 +3391,7 @@ MT_FixedLengthStructureBase<F, Size>::MT_FixedLengthStructureBase()
       m_vData()
 {
     C_ASSERT(Size > 0);
-}
+} // end ctor MT_FixedLengthStructureBase
 
 template <typename F,
           size_t Size>
@@ -3393,13 +3400,14 @@ MT_FixedLengthStructureBase<F, Size>::at(
     typename vector<F>::size_type pos
 )
 {
+    // automatic vector resizing, oh my!
     if (pos >= Data()->size())
     {
         ResizeVector(Data(), pos + 1);
     }
 
     return &(Data()->at(pos));
-}
+} // end function at
 
 /*********** MT_FixedLengthStructure *****************/
 
@@ -3419,6 +3427,7 @@ MT_FixedLengthStructure<F, Size>::ParseFromPriv(
         goto error;
     }
 
+    // don't consume more than the declared cbTotalElementsSize
     while (cbTotalElementsSize > 0)
     {
         F elem;
@@ -3430,6 +3439,7 @@ MT_FixedLengthStructure<F, Size>::ParseFromPriv(
 
         Data()->push_back(elem);
 
+        // advance both cb and cbTotalElementsSize
         size_t cbField = elem.Length();
         ADVANCE_PARSE();
 
@@ -3458,16 +3468,13 @@ MT_FixedLengthStructure<F, Size>::SerializePriv(
 {
     HRESULT hr = S_OK;
 
-    if (Length() > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
     for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
     {
         hr = iter->Serialize(pv, cb);
-        assert(hr == S_OK);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
 
         size_t cbField = iter->Length();
         ADVANCE_PARSE();
@@ -3484,6 +3491,7 @@ template <typename F, size_t Size>
 size_t
 MT_FixedLengthStructure<F, Size>::Length() const
 {
+    // count up the size of the elements in this vector
     size_t cbTotalDataLength = accumulate(
         Data()->begin(),
         Data()->end(),
@@ -3535,16 +3543,16 @@ MT_FixedLengthByteStructure<Size>::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
+    size_t cbField = Data()->size();
 
-    if (Length() > cb)
+    if (cbField > cb)
     {
         hr = E_INSUFFICIENT_BUFFER;
         goto error;
     }
 
-    size_t cbField = Data()->size();
+    assert(Length() <= cb);
 
-    assert(cbField <= cb);
     std::copy(Data()->begin(), Data()->end(), pv);
 
     ADVANCE_PARSE();
@@ -3616,8 +3624,7 @@ template <typename T>
 size_t
 MT_PublicKeyEncryptedStructure<T>::Length() const
 {
-    size_t cbLength = EncryptedStructure()->size();
-    return cbLength;
+    return EncryptedStructure()->size();
 } // end function Length
 
 template <typename T>
@@ -3639,7 +3646,6 @@ MT_PublicKeyEncryptedStructure<T>::DecryptStructure(
     }
 
     hr = Structure()->ParseFromVect(PlaintextStructure());
-
     if (hr != S_OK)
     {
         goto error;
@@ -3801,6 +3807,14 @@ MT_TLSCiphertext::MT_TLSCiphertext()
 {
 } // end ctor MT_TLSCiphertext
 
+/*
+** this doubles as a factory that knows how to create the right type of cipher
+** fragment to use for the payload. this pivots on the cipher type and the
+** protocol version
+**
+** note that we pass in "this" when creating the cipher fragment. it calls back
+** up to us to get to the app for questions sometimes
+*/
 HRESULT
 MT_TLSCiphertext::SetSecurityParameters(
     EndpointParameters* pEndParams
@@ -3846,6 +3860,7 @@ MT_TLSCiphertext::SetSecurityParameters(
 
                 default:
                 {
+                    // at this point we should've filtered out unknown versions
                     assert(false);
                 }
                 break;
@@ -3855,11 +3870,13 @@ MT_TLSCiphertext::SetSecurityParameters(
 
         default:
         {
+            // indicates we've added a new cipher type without updating here
             assert(false);
         }
         break;
     }
 
+    // propagate down the endpoint parameters to the fragment
     hr = CipherFragment()->SetSecurityParameters(EndParams());
     if (hr != S_OK)
     {
@@ -3879,6 +3896,7 @@ MT_TLSCiphertext::Decrypt()
     HRESULT hr = S_OK;
 
     /*
+    ** the resultant ParseFromPriv call does the actual decryption.
     ** it is crucial that this pass in exactly the fragment assigned to this
     ** TLSCiphertext--no more, no less--because CipherFragment itself has no
     ** way to validate the length. it just accepts everything it's given
@@ -3897,35 +3915,20 @@ error:
 } // end function Decrypt
 
 HRESULT
-MT_TLSCiphertext::Encrypt()
-{
-    HRESULT hr = S_OK;
-
-    hr = CipherFragment()->SerializeToVect(Fragment());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function Encrypt
-
-HRESULT
 MT_TLSCiphertext::ToTLSPlaintext(
     MT_TLSPlaintext* pPlaintext
 )
 {
+    // catch if the plaintext we're copying into isn't blank. that's dangerous
     assert(*pPlaintext->Conn() == nullptr);
+
+    // plaintext becomes associated with the same connection as this ciphertext
     *pPlaintext->Conn() = *Conn();
 
     *(pPlaintext->ContentType()) = *ContentType();
     *(pPlaintext->ProtocolVersion()) = *ProtocolVersion();
 
-    // assumes it has already been decrypted
+    // assumes the ciphertext has already been decrypted
     *(pPlaintext->Fragment()) = *(CipherFragment()->Content());
 
     return S_OK;
@@ -3962,7 +3965,7 @@ error:
 } // end function FromTLSPlaintext
 
 HRESULT
-MT_TLSCiphertext::UpdateFragmentSecurity()
+MT_TLSCiphertext::Protect()
 {
     HRESULT hr = S_OK;
 
@@ -3978,12 +3981,18 @@ MT_TLSCiphertext::UpdateFragmentSecurity()
         goto error;
     }
 
+    hr = CipherFragment()->SerializeToVect(Fragment());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
 done:
     return hr;
 
 error:
     goto done;
-} // end function UpdateFragmentSecurity
+} // end function Protect
 
 HRESULT
 MT_TLSCiphertext::GetProtocolVersionForSecurity(
@@ -4095,7 +4104,7 @@ MT_ContentType::MT_ContentType()
     : MT_Structure(),
       m_eType(MTCT_Type_Unknown)
 {
-}
+} // end ctor MT_ContentType
 
 HRESULT
 MT_ContentType::ParseFromPriv(
