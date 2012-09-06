@@ -2240,6 +2240,10 @@ error:
     goto done;
 } // end function Initialize
 
+/*
+** multiplex to run the TLS pseudorandom function appropriate to the current
+** protocol version.
+*/
 HRESULT
 ConnectionParameters::ComputePRF(
     const ByteVector* pvbSecret,
@@ -2251,6 +2255,10 @@ ConnectionParameters::ComputePRF(
 {
     HRESULT hr = S_OK;
 
+    /*
+    ** PRF should only be called at times after the version and cipher suite
+    ** are finalized
+    */
     assert(*ReadParams()->Version() == *WriteParams()->Version());
     assert(*ReadParams()->Hash() == *WriteParams()->Hash());
 
@@ -2317,6 +2325,12 @@ error:
     goto done;
 } // end function ComputePRF
 
+/*
+** TLS 1.0
+** master_secret = PRF(pre_master_secret, "master secret",
+**                     ClientHello.random + ServerHello.random)
+** [0..47];
+*/
 HRESULT
 ConnectionParameters::ComputeMasterSecret(
     const MT_PreMasterSecret* pPreMasterSecret
@@ -2373,6 +2387,28 @@ error:
     goto done;
 } // end function ComputeMasterSecret
 
+/*
+** the key_block is a chunk of data produced by the PRF that is partitioned
+** into the various pieces of cryptographic material needed in the connection.
+**
+** TLS 1.0
+** To generate the key material, compute
+
+** key_block = PRF(SecurityParameters.master_secret,
+**                    "key expansion",
+**                    SecurityParameters.server_random +
+**                    SecurityParameters.client_random);
+**
+** until enough output has been generated. Then the key_block is
+** partitioned as follows:
+**
+** client_write_MAC_secret[SecurityParameters.hash_size]
+** server_write_MAC_secret[SecurityParameters.hash_size]
+** client_write_key[SecurityParameters.key_material_length]
+** server_write_key[SecurityParameters.key_material_length]
+** client_write_IV[SecurityParameters.IV_size]
+** server_write_IV[SecurityParameters.IV_size]
+*/
 HRESULT
 ConnectionParameters::GenerateKeyMaterial(
     const MT_PreMasterSecret* pPreMasterSecret
@@ -2392,6 +2428,7 @@ ConnectionParameters::GenerateKeyMaterial(
         goto error;
     }
 
+    // should only be called when cipher and hash are finalized
     assert(*ReadParams()->Cipher() == *WriteParams()->Cipher());
     assert(*ReadParams()->Hash() == *WriteParams()->Hash());
 
@@ -2441,59 +2478,55 @@ ConnectionParameters::GenerateKeyMaterial(
     PrintByteVector(&vbKeyBlock);
 
     {
+        // iterate through the key material, splitting into the various parts
         auto itKeyBlock = vbKeyBlock.begin();
 
-        size_t cbField = ReadParams()->Hash()->cbMACKeySize;
-        ReadParams()->MACKey()->assign(itKeyBlock, itKeyBlock + cbField);
-        itKeyBlock += cbField;
+        // grabs the next chunk into the specified byte vector
+        auto fnPartitionBlock =
+            [&itKeyBlock, &vbKeyBlock, this]
+            (ByteVector* pvb, size_t cbField, PCWSTR wszLabel)
+            {
+                assert(itKeyBlock <= vbKeyBlock.end() - cbField);
+                pvb->assign(itKeyBlock, itKeyBlock + cbField);
+                itKeyBlock += cbField;
 
-        wprintf(L"ReadParams()->MACKey\n");
-        PrintByteVector(ReadParams()->MACKey());
+                wprintf(L"%s\n", wszLabel);
+                PrintByteVector(pvb);
+            };
 
-        assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = WriteParams()->Hash()->cbMACKeySize;
-        WriteParams()->MACKey()->assign(itKeyBlock, itKeyBlock + cbField);
-        itKeyBlock += cbField;
+        fnPartitionBlock(
+            ReadParams()->MACKey(),
+            ReadParams()->Hash()->cbMACKeySize,
+            L"ReadParams()->MACKey()");
 
-        wprintf(L"WriteParams()->MACKey\n");
-        PrintByteVector(WriteParams()->MACKey());
-
-
-
-        assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = ReadParams()->Cipher()->cbKeyMaterialSize;
-        ReadParams()->Key()->assign(itKeyBlock, itKeyBlock + cbField);
-        itKeyBlock += cbField;
-
-        wprintf(L"ReadParams()->Key\n");
-        PrintByteVector(ReadParams()->Key());
-
-        assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = WriteParams()->Cipher()->cbKeyMaterialSize;
-        WriteParams()->Key()->assign(itKeyBlock, itKeyBlock + cbField);
-        itKeyBlock += cbField;
-
-        wprintf(L"WriteParams()->Key\n");
-        PrintByteVector(WriteParams()->Key());
+        fnPartitionBlock(
+            WriteParams()->MACKey(),
+            WriteParams()->Hash()->cbMACKeySize,
+            L"WriteParams()->MACKey()");
 
 
+        fnPartitionBlock(
+            ReadParams()->Key(),
+            ReadParams()->Cipher()->cbKeyMaterialSize,
+            L"ReadParams()->Key()");
 
-        assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = ReadParams()->Cipher()->cbIVSize;
-        ReadParams()->IV()->assign(itKeyBlock, itKeyBlock + cbField);
-        itKeyBlock += cbField;
+        fnPartitionBlock(
+            WriteParams()->Key(),
+            WriteParams()->Cipher()->cbKeyMaterialSize,
+            L"WriteParams()->Key()");
 
-        wprintf(L"ReadParams()->IV\n");
-        PrintByteVector(ReadParams()->IV());
 
-        assert(itKeyBlock <= vbKeyBlock.end());
-        cbField = WriteParams()->Cipher()->cbIVSize;
-        WriteParams()->IV()->assign(itKeyBlock, itKeyBlock + cbField);
-        itKeyBlock += cbField;
+        fnPartitionBlock(
+            ReadParams()->IV(),
+            ReadParams()->Cipher()->cbIVSize,
+            L"ReadParams()->IV()");
 
-        wprintf(L"WriteParams()->IV\n");
-        PrintByteVector(WriteParams()->IV());
+        fnPartitionBlock(
+            WriteParams()->IV(),
+            WriteParams()->Cipher()->cbIVSize,
+            L"WriteParams()->IV()");
 
+        // we should have consumed all the data
         assert(itKeyBlock == vbKeyBlock.end());
 
 
