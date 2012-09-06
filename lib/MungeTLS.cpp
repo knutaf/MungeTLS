@@ -2562,6 +2562,11 @@ error:
     goto done;
 } // end function GenerateKeyMaterial
 
+/*
+** copies leftover parameters aside from endpoint-specific ones to another
+** connection parameters object. this is used in the last stage of finalizing
+** a handshake, to make a connection the active one
+*/
 HRESULT
 ConnectionParameters::CopyCommonParamsTo(
     ConnectionParameters* pDest
@@ -2587,6 +2592,10 @@ ConnectionParameters::IsHandshakeInProgress() const
 
 /*********** crypto stuff *****************/
 
+/*
+** TLS 1.2
+** PRF(secret, label, seed) = P_<hash>(secret, label + seed)
+*/
 HRESULT
 ComputePRF_TLS12(
     Hasher* pHasher,
@@ -2627,6 +2636,35 @@ error:
     goto done;
 } // end function ComputePRF_TLS12
 
+/*
+** TLS 1.0
+** "
+** TLS's PRF is created by splitting the secret into two halves and
+** using one half to generate data with P_MD5 and the other half to
+** generate data with P_SHA-1, then exclusive-or'ing the outputs of
+** these two expansion functions together.
+**
+** S1 and S2 are the two halves of the secret and each is the same
+** length. S1 is taken from the first half of the secret, S2 from the
+** second half. Their length is created by rounding up the length of the
+** overall secret divided by two; thus, if the original secret is an odd
+** number of bytes long, the last byte of S1 will be the same as the
+** first byte of S2.
+**
+**     L_S = length in bytes of secret;
+**     L_S1 = L_S2 = ceil(L_S / 2);
+**
+** The secret is partitioned into two halves (with the possibility of
+** one shared byte) as described above, S1 taking the first L_S1 bytes
+** and S2 the last L_S2 bytes.
+**
+** The PRF is then defined as the result of mixing the two pseudorandom
+** streams by exclusive-or'ing them together.
+**
+**     PRF(secret, label, seed) = P_MD5(S1, label + seed) XOR
+**                                P_SHA-1(S2, label + seed);
+** "
+*/
 HRESULT
 ComputePRF_TLS10(
     Hasher* pHasher,
@@ -2646,8 +2684,12 @@ ComputePRF_TLS10(
     ByteVector vbS1_Expanded;
     ByteVector vbS2_Expanded;
 
+    // label + seed, to be used later
     vbLabelAndSeed.assign(szLabel, szLabel + strlen(szLabel));
-    vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
+    vbLabelAndSeed.insert(
+        vbLabelAndSeed.end(),
+        pvbSeed->begin(),
+        pvbSeed->end());
 
     wprintf(L"label + seed = (%d)\n", vbLabelAndSeed.size());
     PrintByteVector(&vbLabelAndSeed);
@@ -2677,6 +2719,7 @@ ComputePRF_TLS10(
 
     assert(vbS1.size() == vbS2.size());
 
+    // get the MD5 hash
     hr = PRF_P_hash(
              pHasher,
              &c_HashInfo_MD5,
@@ -2690,6 +2733,7 @@ ComputePRF_TLS10(
         goto error;
     }
 
+    // get the SHA1 hash
     hr = PRF_P_hash(
              pHasher,
              &c_HashInfo_SHA1,
@@ -2703,10 +2747,12 @@ ComputePRF_TLS10(
         goto error;
     }
 
+    // PRF_P_hash can return more than we asked for. trim it down
     assert(vbS1_Expanded.size() >= cbLengthDesired);
     assert(vbS2_Expanded.size() >= cbLengthDesired);
     ResizeVector(pvbPRF, cbLengthDesired);
 
+    // XOR the MD5 and SHA1 hashes together
     transform(
         vbS1_Expanded.begin(),
         vbS1_Expanded.begin() + cbLengthDesired,
@@ -2722,6 +2768,12 @@ error:
     goto done;
 } // end function ComputePRF_TLS10
 
+/*
+** TLS 1.0
+** A() is defined as:
+**     A(0) = seed
+**     A(i) = HMAC_hash(secret, A(i-1))
+*/
 HRESULT
 PRF_A(
     Hasher* pHasher,
@@ -2738,6 +2790,7 @@ PRF_A(
     // A(0) = seed
     *pvbResult = *pvbSeed;
 
+    // hash "i" number of times
     while (i > 0)
     {
         vbTemp = *pvbResult;
@@ -2764,6 +2817,21 @@ error:
     goto done;
 } // end function PRF_A
 
+/*
+** TLS 1.0
+** "
+** First, we define a data expansion function, P_hash(secret, data)
+** which uses a single hash function to expand a secret and seed into an
+** arbitrary quantity of output:
+**
+**     P_hash(secret, seed) = HMAC_hash(secret, A(1) + seed) +
+**                            HMAC_hash(secret, A(2) + seed) +
+**                            HMAC_hash(secret, A(3) + seed) + ...
+** "
+**
+** this returns >= cbMinimumLengthDesired bytes. the calling function is
+** responsible for throwing away any excess
+*/
 HRESULT
 PRF_P_hash(
     Hasher* pHasher,
@@ -2778,7 +2846,7 @@ PRF_P_hash(
 
     assert(pvbResult->empty());
 
-    // starts from A(1), not A(0)
+    // starts from A(1), not A(0). keep expanding until we have enough output
     for (UINT i = 1; pvbResult->size() < cbMinimumLengthDesired; i++)
     {
         wprintf(L"PRF_P generated %d out of %d bytes\n", pvbResult->size(), cbMinimumLengthDesired);
@@ -2799,6 +2867,7 @@ PRF_P_hash(
             goto error;
         }
 
+        // A(i) + seed
         vbInnerSeed.insert(vbInnerSeed.end(), pvbSeed->begin(), pvbSeed->end());
 
         hr = pHasher->HMAC(
@@ -2812,6 +2881,7 @@ PRF_P_hash(
             goto error;
         }
 
+        // append each iteration's new data
         pvbResult->insert(pvbResult->end(), vbIteration.begin(), vbIteration.end());
     }
 
@@ -2823,6 +2893,12 @@ error:
     goto done;
 } // end function PRF_P_hash
 
+/*
+** turns a cipher suite value from the wire (like 0x0005) into a cipher suite
+** info object that has all of the parameters of it, like key length and so on
+**
+** caller can ask for the cipher info, hash info, or both
+*/
 HRESULT
 CryptoInfoFromCipherSuite(
     const MT_CipherSuite* pCipherSuite,
@@ -2931,6 +3007,7 @@ done:
 error:
     goto done;
 } // end function CryptoInfoFromCipherSuite
+
 
 /*********** MT_Structure *****************/
 
