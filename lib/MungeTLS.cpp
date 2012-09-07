@@ -43,8 +43,8 @@
 ** ---------- long functions:
 ** a lot of functions in here are pretty long, and not segmented into many
 ** smaller functions. I chose to do this for bodies of code that do not have
-** reusable smaller parts. it saves having to test all of the smaller
-** functions individually.
+** smaller parts I'd be likely to reuse. it saves having to test all of the
+** smaller functions individually.
 */
 
 // catches underflow errors in a HRESULT
@@ -3964,6 +3964,7 @@ error:
     goto done;
 } // end function FromTLSPlaintext
 
+// effectively adds a MAC to the payload and encrypts the whole thing
 HRESULT
 MT_TLSCiphertext::Protect()
 {
@@ -4033,8 +4034,8 @@ MT_TLSCiphertext::GetProtocolVersionForSecurity(
         {
             goto error;
         }
-        // else retain current record's protocol version
 
+        // else retain current record's protocol version
         hr = S_OK;
     }
 
@@ -4047,6 +4048,7 @@ error:
     goto done;
 } // end function GetProtocolVersionForSecurity
 
+// effectively checks the MAC
 HRESULT
 MT_TLSCiphertext::CheckSecurityPriv()
 {
@@ -4071,6 +4073,7 @@ error:
     goto done;
 } // end function CheckSecurityPriv
 
+// the next IV to use is either the last ciphertext block or a "random" value
 HRESULT
 MT_TLSCiphertext::GenerateNextIV(ByteVector* pvbIV)
 {
@@ -4215,7 +4218,7 @@ MT_ProtocolVersion::ParseFromPriv(
 
     if (!IsKnownVersion(*Version()))
     {
-        wprintf(L"warning: unknown protocol version: %02X\n", *Version());
+        wprintf(L"warning: unknown protocol version: %04X\n", *Version());
     }
 
 done:
@@ -4264,33 +4267,6 @@ MT_ProtocolVersion::IsKnownVersion(
 
 /*********** MT_Handshake *****************/
 
-const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeKnownTypes[] =
-{
-    MTH_HelloRequest,
-    MTH_ClientHello,
-    MTH_ServerHello,
-    MTH_Certificate,
-    MTH_ServerKeyExchange,
-    MTH_CertificateRequest,
-    MTH_ServerHelloDone,
-    MTH_CertificateVerify,
-    MTH_ClientKeyExchange,
-    MTH_Finished,
-    MTH_Unknown,
-};
-
-const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeSupportedTypes[] =
-{
-    MTH_ClientHello,
-    MTH_ServerHello,
-    MTH_Certificate,
-    MTH_ServerKeyExchange,
-    MTH_ServerHelloDone,
-    MTH_CertificateVerify,
-    MTH_ClientKeyExchange,
-    MTH_Finished,
-};
-
 MT_Handshake::MT_Handshake()
     : MT_Structure(),
       m_eType(MTH_Unknown),
@@ -4317,12 +4293,6 @@ MT_Handshake::ParseFromPriv(
     if (!IsKnownType(*Type()))
     {
         wprintf(L"warning: unknown handshake type: %d\n", *Type());
-    }
-
-    if (!IsSupportedType(*Type()))
-    {
-        hr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
-        goto error;
     }
 
     ADVANCE_PARSE();
@@ -4362,6 +4332,21 @@ MT_Handshake::Length() const
            PayloadLength();
 } // end function Length
 
+const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeKnownTypes[] =
+{
+    MTH_HelloRequest,
+    MTH_ClientHello,
+    MTH_ServerHello,
+    MTH_Certificate,
+    MTH_ServerKeyExchange,
+    MTH_CertificateRequest,
+    MTH_ServerHelloDone,
+    MTH_CertificateVerify,
+    MTH_ClientKeyExchange,
+    MTH_Finished,
+    MTH_Unknown,
+};
+
 bool
 MT_Handshake::IsKnownType(
     MTH_HandshakeType eType
@@ -4369,14 +4354,6 @@ MT_Handshake::IsKnownType(
 {
     return (find(c_rgeKnownTypes, c_rgeKnownTypes+ARRAYSIZE(c_rgeKnownTypes), eType) != c_rgeKnownTypes+ARRAYSIZE(c_rgeKnownTypes));
 } // end function IsKnownType
-
-bool
-MT_Handshake::IsSupportedType(
-    MTH_HandshakeType eType
-)
-{
-    return (find(c_rgeSupportedTypes, c_rgeSupportedTypes+ARRAYSIZE(c_rgeSupportedTypes), eType) != c_rgeSupportedTypes+ARRAYSIZE(c_rgeSupportedTypes));
-} // end function IsSupportedType
 
 HRESULT
 MT_Handshake::SerializePriv(
@@ -4719,7 +4696,7 @@ MT_CompressionMethod::ParseFromPriv(
 
     if (*Method() != MTCM_Null)
     {
-        wprintf(L"unknown compression method: %d\n", *Method());
+        wprintf(L"warning: unknown compression method: %d\n", *Method());
     }
 
     ADVANCE_PARSE();
@@ -4908,8 +4885,8 @@ MT_SessionID::PopulateWithRandom()
     HRESULT hr = S_OK;
 
     ResizeVector(Data(), MaxLength());
-    hr = WriteRandomBytes(&Data()->front(), Data()->size());
 
+    hr = WriteRandomBytes(&Data()->front(), Data()->size());
     if (hr != S_OK)
     {
         goto error;
@@ -5011,62 +4988,6 @@ MT_PreMasterSecret::Length() const
 
 /*********** MT_CipherSuite *****************/
 
-const MT_CipherSuiteValue c_rgeCipherSuitePreference[] =
-{
-      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256,
-      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA,
-      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256,
-      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA,
-      MTCS_TLS_RSA_WITH_RC4_128_SHA,
-      MTCS_TLS_RSA_WITH_RC4_128_MD5
-};
-
-const vector<MT_CipherSuiteValue>* GetCipherSuitePreference()
-{
-    static vector<MT_CipherSuiteValue> s_veCipherSuiteValues;
-
-    // first time initialization
-    if (s_veCipherSuiteValues.empty())
-    {
-        s_veCipherSuiteValues.assign(
-            c_rgeCipherSuitePreference,
-            c_rgeCipherSuitePreference + ARRAYSIZE(c_rgeCipherSuitePreference));
-    }
-
-    return &s_veCipherSuiteValues;
-} // end function GetCipherSuitePreference
-
-HRESULT
-ChooseBestCipherSuite(
-    const vector<MT_CipherSuiteValue>* pveClientPreference,
-    const vector<MT_CipherSuiteValue>* pveServerPreference,
-    MT_CipherSuiteValue* pePreferredCipherSuite
-)
-{
-    HRESULT hr = S_OK;
-
-    for (auto itServer = pveServerPreference->begin(); itServer != pveServerPreference->end(); itServer++)
-    {
-        for (auto itClient = pveClientPreference->begin(); itClient != pveClientPreference->end(); itClient++)
-        {
-            if (*itClient == *itServer)
-            {
-                *pePreferredCipherSuite = *itServer;
-                goto done;
-            }
-        }
-    }
-
-    hr = MT_E_NO_PREFERRED_CIPHER_SUITE;
-    goto error;
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ChooseBestCipherSuite
-
 MT_CipherSuite::MT_CipherSuite()
     : MT_FixedLengthByteStructure()
 {
@@ -5076,6 +4997,8 @@ MT_CipherSuite::MT_CipherSuite(MT_CipherSuiteValue eValue)
     : MT_FixedLengthByteStructure()
 {
     HRESULT hr = SetValue(eValue);
+
+    // catch if it's ever okay, because we're not throwing exceptions right now
     assert(hr == S_OK);
 } // end ctor MT_CipherSuite
 
@@ -5107,8 +5030,10 @@ MT_CipherSuite::KeyExchangeAlgorithm(
         break;
 
         default:
-        hr = MT_E_UNKNOWN_CIPHER_SUITE;
-        goto error;
+        {
+            hr = MT_E_UNKNOWN_CIPHER_SUITE;
+            goto error;
+        }
         break;
     }
 
@@ -5193,6 +5118,71 @@ MT_CipherSuite::operator==(
     return eValue == eOtherValue;
 } // end operator==
 
+const MT_CipherSuiteValue c_rgeCipherSuitePreference[] =
+{
+      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256,
+      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA,
+      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256,
+      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA,
+      MTCS_TLS_RSA_WITH_RC4_128_SHA,
+      MTCS_TLS_RSA_WITH_RC4_128_MD5
+};
+
+const vector<MT_CipherSuiteValue>* GetCipherSuitePreference()
+{
+    static vector<MT_CipherSuiteValue> s_veCipherSuiteValues;
+
+    C_ASSERT(ARRAYSIZE(c_rgeCipherSuitePreference) > 0);
+
+    // first time initialization
+    if (s_veCipherSuiteValues.empty())
+    {
+        s_veCipherSuiteValues.assign(
+            c_rgeCipherSuitePreference,
+            c_rgeCipherSuitePreference + ARRAYSIZE(c_rgeCipherSuitePreference));
+    }
+
+    return &s_veCipherSuiteValues;
+} // end function GetCipherSuitePreference
+
+/*
+** the client advertises its cipher suite preference in the ClientHello
+** message. on the server here, we have an internal ordering of preference, and
+** this function puts the two together and picks the server's favorite that the
+** client also advertises support for
+*/
+HRESULT
+ChooseBestCipherSuite(
+    const vector<MT_CipherSuiteValue>* pveClientPreference,
+    const vector<MT_CipherSuiteValue>* pveServerPreference,
+    MT_CipherSuiteValue* pePreferredCipherSuite
+)
+{
+    HRESULT hr = S_OK;
+
+    // loop through server supports. if client also supports it, woot
+    for (auto itServer = pveServerPreference->begin(); itServer != pveServerPreference->end(); itServer++)
+    {
+        for (auto itClient = pveClientPreference->begin(); itClient != pveClientPreference->end(); itClient++)
+        {
+            if (*itClient == *itServer)
+            {
+                *pePreferredCipherSuite = *itServer;
+                goto done;
+            }
+        }
+    }
+
+    hr = MT_E_NO_PREFERRED_CIPHER_SUITE;
+    goto error;
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ChooseBestCipherSuite
+
 /*********** MT_ClientKeyExchange *****************/
 
 template <typename KeyType>
@@ -5258,7 +5248,7 @@ MT_ChangeCipherSpec::ParseFromPriv(
 
     if (*Type() != MTCCS_ChangeCipherSpec)
     {
-        wprintf(L"unrecognized change cipher spec type: %d\n", *Type());
+        wprintf(L"warning: unrecognized change cipher spec type: %d\n", *Type());
     }
 
     ADVANCE_PARSE();
@@ -5406,6 +5396,12 @@ MT_Finished::SerializePriv(
     return VerifyData()->Serialize(pv, cb);
 } // end function SerializePriv
 
+/*
+** using data gathered across the whole handshake, compute some "verify data"
+** that can be used to ensure that the client sent us data encrypted with the
+** correct cipher suite. this is basically a hash of all the handshake messages
+** involved so far
+*/
 HRESULT
 MT_Finished::CheckSecurityPriv()
 {
@@ -5438,6 +5434,19 @@ error:
     goto done;
 } // end function CheckSecurityPriv
 
+/*
+** TLS 1.0
+** verify_data
+**     PRF(master_secret, finished_label, MD5(handshake_messages) +
+**     SHA-1(handshake_messages)) [0..11];
+**
+** TLS 1.2
+** verify_data
+**    PRF(master_secret, finished_label, Hash(handshake_messages))
+**       [0..verify_data_length-1];
+**
+** take a hash (or two) of all handshake messages using the master secret
+*/
 HRESULT
 MT_Finished::ComputeVerifyData(
     PCSTR szLabel,
@@ -5449,8 +5458,8 @@ MT_Finished::ComputeVerifyData(
     ByteVector vbHandshakeMessages;
     ByteVector vbHashedHandshakeMessages;
 
-    {
-        wprintf(L"working on the following handshake messages:\n");
+    { // just logging
+        wprintf(L"compute verify data: working on the following handshake messages:\n");
         for_each(
             ConnParams()->HandshakeMessages()->begin(),
             ConnParams()->HandshakeMessages()->end(),
@@ -5481,6 +5490,7 @@ MT_Finished::ComputeVerifyData(
             ByteVector vbSHA1HandshakeHash;
             ByteVector vbHandshakeHash;
 
+            // MD5 hash
             hr = (*EndParams()->HashInst())->Hash(
                      &c_HashInfo_MD5,
                      &vbHandshakeMessages,
@@ -5491,6 +5501,7 @@ MT_Finished::ComputeVerifyData(
                 goto error;
             }
 
+            // SHA1 hash
             hr = (*EndParams()->HashInst())->Hash(
                      &c_HashInfo_SHA1,
                      &vbHandshakeMessages,
@@ -5501,6 +5512,7 @@ MT_Finished::ComputeVerifyData(
                 goto error;
             }
 
+            // concatenate
             vbHashedHandshakeMessages = vbMD5HandshakeHash;
             vbHashedHandshakeMessages.insert(
                 vbHashedHandshakeMessages.end(),
@@ -5509,6 +5521,7 @@ MT_Finished::ComputeVerifyData(
         }
         break;
 
+        // TLS 1.2 just uses a SHA-256 hash
         case MT_ProtocolVersion::MTPV_TLS12:
         {
             hr = (*EndParams()->HashInst())->Hash(
@@ -5567,6 +5580,12 @@ MT_CipherFragment::MT_CipherFragment(
 {
 } // end ctor MT_CipherFragment
 
+/*
+** basically just assimilates the whole byte blob. it's important that the
+** containing/calling structure pass in exactly the right size here, because at
+** this point we have no way of determining what the size should be. this
+** RawContent is still ciphered, not plaintext
+*/
 HRESULT
 MT_CipherFragment::ParseFromPriv(
     const BYTE* pv,
@@ -5589,6 +5608,10 @@ error:
     goto done;
 } // end function ParseFromPriv
 
+/*
+** the RawContent here is ciphered content. this ciphering needs to have been
+** done separately and prior to calling this
+*/
 HRESULT
 MT_CipherFragment::SerializePriv(
     BYTE* pv,
@@ -5620,9 +5643,7 @@ error:
 size_t
 MT_CipherFragment::Length() const
 {
-    size_t cbLength = RawContent()->size();
-
-    return cbLength;
+    return RawContent()->size();
 } // end function Length
 
 /*********** MT_GenericStreamCipher *****************/
@@ -5658,7 +5679,7 @@ MT_GenericStreamCipher::ParseFromPriv(
     */
     hr = (*EndParams()->SymCipherer())->DecryptBuffer(
              RawContent(),
-             nullptr,
+             nullptr, // no IV for stream ciphers
              &vbDecryptedStruct);
 
     if (hr != S_OK)
@@ -5666,11 +5687,16 @@ MT_GenericStreamCipher::ParseFromPriv(
         goto error;
     }
 
+    // once we have the plaintext, start over the parsing
     pv = &vbDecryptedStruct.front();
     cb = vbDecryptedStruct.size();
 
-    // allows for 0-length content
-    assert(cb >= pHashInfo->cbHashSize);
+    // allows for 0-length content (i.e. content that is only the hash)
+    if (cb < pHashInfo->cbHashSize)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
 
     cbField = cb - pHashInfo->cbHashSize;
     Content()->assign(pv, pv + cbField);
@@ -5682,6 +5708,8 @@ MT_GenericStreamCipher::ParseFromPriv(
     MAC()->assign(pv, pv + cbField);
 
     ADVANCE_PARSE();
+
+    assert(cb == 0);
 
 done:
     return hr;
@@ -5697,8 +5725,9 @@ MT_GenericStreamCipher::UpdateWriteSecurity()
     BYTE* pv = nullptr;
     size_t cb = 0;
     size_t cbField = 0;
-    ByteVector vbDecryptedStruct;
+    ByteVector vbPlaintextStruct;
 
+    // get the MAC to attach to this message
     hr = ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
@@ -5715,8 +5744,9 @@ MT_GenericStreamCipher::UpdateWriteSecurity()
 
     cb = Content()->size() +
          MAC()->size();
-    ResizeVector(&vbDecryptedStruct, cb);
-    pv = &vbDecryptedStruct.front();
+
+    ResizeVector(&vbPlaintextStruct, cb);
+    pv = &vbPlaintextStruct.front();
 
     cbField = Content()->size();
     assert(cbField <= cb);
@@ -5733,8 +5763,8 @@ MT_GenericStreamCipher::UpdateWriteSecurity()
     assert(cb == 0);
 
     hr = (*EndParams()->SymCipherer())->EncryptBuffer(
-             &vbDecryptedStruct,
-             EndParams()->IV(),
+             &vbPlaintextStruct,
+             nullptr, // no IV for stream cipher
              RawContent());
 
     if (hr != S_OK)
@@ -5751,6 +5781,19 @@ error:
     goto done;
 } // end function UpdateWriteSecurity
 
+/*
+** compute the MAC for this message. this is used both for attaching a MAC to
+** an outgoing message and for comparing against the MAC found in an incoming
+** message.
+**
+** TLS 1.0
+** HMAC_hash(MAC_write_secret, seq_num + TLSCompressed.type +
+**               TLSCompressed.version + TLSCompressed.length +
+**               TLSCompressed.fragment));
+**
+** basically just put a bunch of fields together and hash it with the MAC key,
+** which was generated back with the master secret
+*/
 HRESULT
 MT_GenericStreamCipher::ComputeSecurityInfo(
     MT_UINT64 sequenceNumber,
@@ -5769,9 +5812,12 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
 
     const HashInfo* pHashInfo = EndParams()->Hash();
 
+    assert(pProtocolVersion->Length() == c_cbProtocolVersion_Length);
+    assert(pContentType->Length() == c_cbContentType_Length);
+
     cb = c_cbSequenceNumber_Length +
-         c_cbContentType_Length +
-         c_cbProtocolVersion_Length +
+         pContentType->Length() +
+         pProtocolVersion->Length() +
          c_cbRecordLayerMessage_Fragment_LFL +
          Content()->size();
 
@@ -5796,32 +5842,22 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = c_cbContentType_Length;
-    hr = WriteNetworkLong(
-             static_cast<ULONG>(*pContentType->Type()),
-             cbField,
-             pv,
-             cb);
-
+    hr = pContentType->Serialize(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
+    cbField = pContentType->Length();
     ADVANCE_PARSE();
 
-    cbField = c_cbProtocolVersion_Length;
-    hr = WriteNetworkLong(
-             static_cast<ULONG>(*pProtocolVersion->Version()),
-             cbField,
-             pv,
-             cb);
-
+    hr = pProtocolVersion->Serialize(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
+    cbField = pProtocolVersion->Length();
     ADVANCE_PARSE();
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
@@ -6140,9 +6176,12 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
     const HashInfo* pHashInfo = EndParams()->Hash();
     const CipherInfo* pCipherInfo = EndParams()->Cipher();
 
+    assert(pProtocolVersion->Length() == c_cbProtocolVersion_Length);
+    assert(pContentType->Length() == c_cbContentType_Length);
+
     cb = c_cbSequenceNumber_Length +
-         c_cbContentType_Length +
-         c_cbProtocolVersion_Length +
+         pContentType->Length() +
+         pProtocolVersion->Length() +
          c_cbRecordLayerMessage_Fragment_LFL +
          Content()->size();
 
@@ -6167,32 +6206,22 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = c_cbContentType_Length;
-    hr = WriteNetworkLong(
-             static_cast<ULONG>(*pContentType->Type()),
-             cbField,
-             pv,
-             cb);
-
+    hr = pContentType->Serialize(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
+    cbField = pContentType->Length();
     ADVANCE_PARSE();
 
-    cbField = c_cbProtocolVersion_Length;
-    hr = WriteNetworkLong(
-             static_cast<ULONG>(*pProtocolVersion->Version()),
-             cbField,
-             pv,
-             cb);
-
+    hr = pProtocolVersion->Serialize(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
+    cbField = pProtocolVersion->Length();
     ADVANCE_PARSE();
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
@@ -6600,9 +6629,12 @@ MT_GenericBlockCipher_TLS11::ComputeSecurityInfo(
     const HashInfo* pHashInfo = EndParams()->Hash();
     const CipherInfo* pCipherInfo = EndParams()->Cipher();
 
+    assert(pProtocolVersion->Length() == c_cbProtocolVersion_Length);
+    assert(pContentType->Length() == c_cbContentType_Length);
+
     cb = c_cbSequenceNumber_Length +
-         c_cbContentType_Length +
-         c_cbProtocolVersion_Length +
+         pContentType->Length() +
+         pProtocolVersion->Length() +
          c_cbRecordLayerMessage_Fragment_LFL +
          Content()->size();
 
@@ -6627,32 +6659,22 @@ MT_GenericBlockCipher_TLS11::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
-    cbField = c_cbContentType_Length;
-    hr = WriteNetworkLong(
-             static_cast<ULONG>(*pContentType->Type()),
-             cbField,
-             pv,
-             cb);
-
+    hr = pContentType->Serialize(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
+    cbField = pContentType->Length();
     ADVANCE_PARSE();
 
-    cbField = c_cbProtocolVersion_Length;
-    hr = WriteNetworkLong(
-             static_cast<ULONG>(*pProtocolVersion->Version()),
-             cbField,
-             pv,
-             cb);
-
+    hr = pProtocolVersion->Serialize(pv, cb);
     if (hr != S_OK)
     {
         goto error;
     }
 
+    cbField = pProtocolVersion->Length();
     ADVANCE_PARSE();
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;

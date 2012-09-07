@@ -197,6 +197,7 @@ EncryptBuffer(
         */
         case CipherType_Stream:
         {
+            assert(pvbIV == nullptr);
             fFinal = FALSE;
         }
         break;

@@ -1185,13 +1185,11 @@ class MT_Handshake : public MT_Structure
     ACCESSORS(ByteVector*, Body, &m_vbBody);
 
     static bool IsKnownType(MTH_HandshakeType eType);
-    static bool IsSupportedType(MTH_HandshakeType eType);
 
     std::wstring HandshakeTypeString() const;
 
     private:
     static const MTH_HandshakeType c_rgeKnownTypes[];
-    static const MTH_HandshakeType c_rgeSupportedTypes[];
 
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
