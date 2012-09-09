@@ -38,7 +38,11 @@
 ** - cbField: the count of bytes needed for the field currently being parsed
 **
 ** pv and cb obviously always need to be kept in lock-step, which is why they
-** are only ever manipulated using the ADVANCE_PARSE macro.
+** are only ever manipulated using the ADVANCE_PARSE macro. in fact, the
+** parsing is so formulaic that I've added additional macros that assume the
+** presence of pv, cb, hr, cbField, and the goto: and done: labels to very
+** succinctly do parsing and serializing tasks with minimal clutter. but yeah,
+** they are macros, eww.
 **
 ** ---------- long functions:
 ** a lot of functions in here are pretty long, and not segmented into many
@@ -64,6 +68,13 @@
 {                                                                  \
     cbField = (len);                                               \
     CHKOK(ParseByteVector(cbField, pv, cb, (vect)));               \
+    ADVANCE_PARSE();                                               \
+}                                                                  \
+
+#define SERIALIZEVB(vect)                                          \
+{                                                                  \
+    cbField = (vect)->size();                                      \
+    CHKOK(SerializeByteVector((vect), pv, cb));                    \
     ADVANCE_PARSE();                                               \
 }                                                                  \
 
@@ -113,7 +124,8 @@ PRF_A(
     const ByteVector* pvbSeed,
     ByteVector* pvbResult);
 
-HRESULT ParseByteVector(const BYTE* pv, size_t cb, ByteVector* pvb);
+HRESULT ParseByteVector(size_t cbField, const BYTE* pv, size_t cb, ByteVector* pvb);
+HRESULT SerializeByteVector(const ByteVector* pvb, BYTE* pv, size_t cb, size_t cbField);
 
 /*********** TLSConnection *****************/
 
@@ -1727,6 +1739,31 @@ error:
     goto done;
 } // end function ParseByteVector
 
+HRESULT
+SerializeByteVector(
+    const ByteVector* pvb,
+    BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+
+    size_t cbField = pvb->size();
+    if (cbField > cb)
+    {
+        hr = E_INSUFFICIENT_BUFFER;
+        goto error;
+    }
+
+    std::copy(pvb->begin(), pvb->end(), pv);
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializeByteVector
+
 HRESULT PrintByteVector(const ByteVector* pvb)
 {
      for_each(pvb->begin(), pvb->end(),
@@ -2961,16 +2998,7 @@ MT_VariableLengthByteField
 
     ADVANCE_PARSE();
 
-    cbField = DataLength();
-    if (cbField > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
-    std::copy(Data()->begin(), Data()->end(), pv);
-
-    ADVANCE_PARSE();
+    SERIALIZEVB(Data());
 
 done:
     return hr;
@@ -3119,19 +3147,11 @@ MT_FixedLengthByteStructure<Size>::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-    size_t cbField = Data()->size();
-
-    if (cbField > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
+    size_t cbField = 0;
 
     assert(Length() <= cb);
 
-    std::copy(Data()->begin(), Data()->end(), pv);
-
-    ADVANCE_PARSE();
+    SERIALIZEVB(Data());
 
 done:
     return hr;
@@ -3301,16 +3321,8 @@ MT_RecordLayerMessage::SerializePriv(
 
     ADVANCE_PARSE();
 
-    cbField = PayloadLength();
-    if (cbField > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
-    std::copy(Fragment()->begin(), Fragment()->end(), pv);
-
-    ADVANCE_PARSE();
+    assert(PayloadLength() == Fragment()->size());
+    SERIALIZEVB(Fragment());
 
 done:
     return hr;
@@ -3831,16 +3843,8 @@ MT_Handshake::SerializePriv(
 
     ADVANCE_PARSE();
 
-    cbField = PayloadLength();
-    if (cbField > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
-    std::copy(Body()->begin(), Body()->end(), pv);
-
-    ADVANCE_PARSE();
+    assert(PayloadLength() == Body()->size());
+    SERIALIZEVB(Body());
 
 done:
     return hr;
@@ -4891,17 +4895,9 @@ MT_CipherFragment::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-    size_t cbField = EncryptedContent()->size();
+    size_t cbField = 0;
 
-    if (cbField > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
-    std::copy(EncryptedContent()->begin(), EncryptedContent()->end(), pv);
-
-    ADVANCE_PARSE();
+    SERIALIZEVB(EncryptedContent());
 
     assert(cb == 0);
 
@@ -4993,10 +4989,8 @@ MT_CipherFragment::ComputeMAC(
 
     ADVANCE_PARSE();
 
-    cbField = Content()->size();
-    std::copy(Content()->begin(), Content()->end(), pv);
+    SERIALIZEVB(Content());
 
-    ADVANCE_PARSE();
     assert(cb == 0);
 
     wprintf(L"MAC hash text:\n");
@@ -5099,17 +5093,9 @@ MT_GenericStreamCipher::UpdateWriteSecurity()
     ResizeVector(&vbPlaintextStruct, cb);
     pv = &vbPlaintextStruct.front();
 
-    cbField = Content()->size();
-    assert(cbField <= cb);
-    std::copy(Content()->begin(), Content()->end(), pv);
+    SERIALIZEVB(Content());
 
-    ADVANCE_PARSE();
-
-    cbField = MAC()->size();
-    assert(cbField <= cb);
-    std::copy(MAC()->begin(), MAC()->end(), pv);
-
-    ADVANCE_PARSE();
+    SERIALIZEVB(MAC());
 
     assert(cb == 0);
 
@@ -5350,23 +5336,11 @@ MT_GenericBlockCipher::UpdateWriteSecurity()
     ResizeVector(&vbPlaintextContent, cb);
     pv = &vbPlaintextContent.front();
 
-    cbField = Content()->size();
-    assert(cbField <= cb);
-    std::copy(Content()->begin(), Content()->end(), pv);
+    SERIALIZEVB(Content());
 
-    ADVANCE_PARSE();
+    SERIALIZEVB(MAC());
 
-    cbField = MAC()->size();
-    assert(cbField <= cb);
-    std::copy(MAC()->begin(), MAC()->end(), pv);
-
-    ADVANCE_PARSE();
-
-    cbField = Padding()->size();
-    assert(cbField <= cb);
-    std::copy(Padding()->begin(), Padding()->end(), pv);
-
-    ADVANCE_PARSE();
+    SERIALIZEVB(Padding());
 
     cbField = c_cbGenericBlockCipher_Padding_LFL;
     CHKOK(WriteNetworkLong(PaddingLength(), cbField, pv, cb));
@@ -5590,17 +5564,9 @@ MT_GenericBlockCipher_TLS11::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
+    size_t cbField = 0;
 
-    size_t cbField = IV()->size();
-    if (cbField > cb)
-    {
-        hr = E_INSUFFICIENT_BUFFER;
-        goto error;
-    }
-
-    std::copy(IV()->begin(), IV()->end(), pv);
-
-    ADVANCE_PARSE();
+    SERIALIZEVB(IV());
 
     CHKOK(MT_GenericBlockCipher::SerializePriv(pv, cb));
 
