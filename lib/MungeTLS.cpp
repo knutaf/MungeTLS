@@ -48,17 +48,24 @@
 */
 
 // catches underflow errors in a HRESULT
-#define SAFE_SUB(h, l, r)              \
-{                                      \
-    (h) = SizeTSub((l), (r), &(l));    \
-    if ((h) != S_OK) { goto error; }   \
-}                                      \
+#define SAFE_SUB(h, l, r)                                          \
+{                                                                  \
+    (h) = SizeTSub((l), (r), &(l));                                \
+    if ((h) != S_OK) { goto error; }                               \
+}                                                                  \
 
-#define ADVANCE_PARSE()                \
-{                                      \
-    pv += cbField;                     \
-    SAFE_SUB(hr, cb, cbField);         \
-}                                      \
+#define ADVANCE_PARSE()                                            \
+{                                                                  \
+    pv += cbField;                                                 \
+    SAFE_SUB(hr, cb, cbField);                                     \
+}                                                                  \
+
+#define PARSEVB(len, vect)                                         \
+{                                                                  \
+    cbField = (len);                                               \
+    CHKOK(ParseByteVector(cbField, pv, cb, (vect)));               \
+    ADVANCE_PARSE();                                               \
+}                                                                  \
 
 namespace MungeTLS
 {
@@ -105,6 +112,8 @@ PRF_A(
     const ByteVector* pvbSecret,
     const ByteVector* pvbSeed,
     ByteVector* pvbResult);
+
+HRESULT ParseByteVector(const BYTE* pv, size_t cb, ByteVector* pvb);
 
 /*********** TLSConnection *****************/
 
@@ -1693,6 +1702,31 @@ ResizeVector<BYTE>(
     pv->resize(siz, 0x23);
 } // end function ResizeVector<BYTE>
 
+HRESULT
+ParseByteVector(
+    size_t cbField,
+    const BYTE* pv,
+    size_t cb,
+    ByteVector* pvb
+)
+{
+    HRESULT hr = S_OK;
+
+    if (cbField > cb)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
+    pvb->assign(pv, pv + cbField);
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseByteVector
+
 HRESULT PrintByteVector(const ByteVector* pvb)
 {
      for_each(pvb->begin(), pvb->end(),
@@ -2885,16 +2919,7 @@ MT_VariableLengthByteField
         goto error;
     }
 
-    cbField = cbDataLength;
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    Data()->assign(pv, pv + cbField);
-
-    ADVANCE_PARSE();
+    PARSEVB(cbDataLength, Data());
 
 done:
     return hr;
@@ -3075,17 +3100,9 @@ MT_FixedLengthByteStructure<Size>::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    size_t cbField = Size;
+    size_t cbField = 0;
 
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    Data()->assign(pv, pv + cbField);
-
-    ADVANCE_PARSE();
+    PARSEVB(Size, Data());
 
 done:
     return hr;
@@ -3157,16 +3174,7 @@ MT_PublicKeyEncryptedStructure<T>::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    cbField = cbStructureLength;
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    EncryptedStructure()->assign(pv, pv + cbField);
-
-    ADVANCE_PARSE();
+    PARSEVB(cbStructureLength, EncryptedStructure());
 
 done:
     return hr;
@@ -3242,16 +3250,7 @@ MT_RecordLayerMessage::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    cbField = cbFragmentLength;
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    Fragment()->assign(pv, pv + cbField);
-
-    ADVANCE_PARSE();
+    PARSEVB(cbFragmentLength, Fragment());
 
 done:
     return hr;
@@ -3774,16 +3773,7 @@ MT_Handshake::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    cbField = cbPayloadLength;
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    Body()->assign(pv, pv + cbField);
-
-    ADVANCE_PARSE();
+    PARSEVB(cbPayloadLength, Body());
 
 done:
     return hr;
@@ -4877,11 +4867,9 @@ MT_CipherFragment::ParseFromPriv(
 )
 {
     HRESULT hr = S_OK;
-    size_t cbField = cb;
+    size_t cbField = 0;
 
-    EncryptedContent()->assign(pv, pv + cbField);
-
-    ADVANCE_PARSE();
+    PARSEVB(cb, EncryptedContent());
 
     assert(cb == 0);
 
@@ -5065,23 +5053,17 @@ MT_GenericStreamCipher::ParseFromPriv(
     pv = &vbDecryptedStruct.front();
     cb = vbDecryptedStruct.size();
 
-    // allows for 0-length content (i.e. content that is only the hash)
-    if (cb < pHashInfo->cbHashSize)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    cbField = cb - pHashInfo->cbHashSize;
-    Content()->assign(pv, pv + cbField);
-
-    ADVANCE_PARSE();
+    /*
+    ** allows for 0-length content (i.e. content that is only the hash). if the
+    ** subtraction here underflows, the resultant size we try to parse will be
+    ** huge, and therefore fail, so it should be safe. Or we could have used
+    ** SizeTSub().
+    */
+    PARSEVB(cb - pHashInfo->cbHashSize, Content());
 
     assert(cb == pHashInfo->cbHashSize);
-    cbField = pHashInfo->cbHashSize;
-    MAC()->assign(pv, pv + cbField);
 
-    ADVANCE_PARSE();
+    PARSEVB(pHashInfo->cbHashSize, MAC());
 
     assert(cb == 0);
 
@@ -5296,7 +5278,10 @@ MT_GenericBlockCipher::ParseFromPriv(
         }
     }
 
-    // not advancing pv, only changing cb (how much is left to parse)
+    /*
+    ** not advancing pv, only subtracting from cb, since we've pulled the
+    ** padding off the end
+    */
     SAFE_SUB(hr, cb, cbField);
     pvEnd -= cbField;
 
@@ -5305,28 +5290,12 @@ MT_GenericBlockCipher::ParseFromPriv(
     ** the payload, and cb is the number of bytes in the payload plus MAC.
     ** parse out these two things now
     */
-    if (cb < pHashInfo->cbHashSize)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
 
-    cbField = cb - pHashInfo->cbHashSize;
-    Content()->assign(pv, pv + cbField);
+    PARSEVB(cb - pHashInfo->cbHashSize, Content());
 
-    ADVANCE_PARSE();
+    assert(cb == pHashInfo->cbHashSize);
 
-    // only the MAC left
-    if (cb != pHashInfo->cbHashSize)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    cbField = pHashInfo->cbHashSize;
-    MAC()->assign(pv, pv + cbField);
-
-    ADVANCE_PARSE();
+    PARSEVB(pHashInfo->cbHashSize, MAC());
 
     assert(cb == 0);
 
@@ -5586,16 +5555,7 @@ MT_GenericBlockCipher_TLS11::ParseFromPriv(
     ** http://stackoverflow.com/q/3436864
     */
 
-    cbField = EndParams()->Cipher()->cbIVSize;
-    if (cbField > cb)
-    {
-        hr = MT_E_INCOMPLETE_MESSAGE;
-        goto error;
-    }
-
-    IV()->assign(pv, pv + cbField);
-
-    ADVANCE_PARSE();
+    PARSEVB(EndParams()->Cipher()->cbIVSize, IV());
 
     wprintf(L"received IV field:\n");
     PrintByteVector(IV());

@@ -8,7 +8,6 @@ WORK:
 - go through all the code and rearrange order of functions to be more logical for read-through
 - change up goto style of main loop
 - support cached sessions with SessionIDs
-- function for assigning a vector with length checking
 - function for copying a vector over to a byte blob, with length checking
 - macro for parsing and going
 - macro for serializing and going
