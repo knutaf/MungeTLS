@@ -800,7 +800,7 @@ error:
 ** and choose the version that's used for "security" operations like MAC
 ** computation.
 **
-** In particular, there's a Chrome bug that we need to account for.
+** In particular, there's a openssl bug that we need to account for.
 */
 HRESULT
 SimpleHTTPServer::OnReconcileSecurityVersion(
@@ -811,8 +811,9 @@ SimpleHTTPServer::OnReconcileSecurityVersion(
 {
     UNREFERENCED_PARAMETER(pCiphertext);
 
-    // detecting chrome bug and working around. could also have sniffed UA str
-    if (connVersion == MT_ProtocolVersion::MTPV_TLS11 &&
+    // detecting openssl bug and working around. could also have sniffed UA str
+    if ((connVersion == MT_ProtocolVersion::MTPV_TLS11 ||
+         connVersion == MT_ProtocolVersion::MTPV_TLS12) &&
         recordVersion == MT_ProtocolVersion::MTPV_TLS10)
     {
         *pOverrideVersion = connVersion;
