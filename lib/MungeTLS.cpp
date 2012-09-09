@@ -78,6 +78,15 @@
     ADVANCE_PARSE();                                               \
 }                                                                  \
 
+#define PARSEPSTRUCT(s)                                            \
+{                                                                  \
+    CHKOK((s)->ParseFrom(pv, cb));                                 \
+    cbField = (s)->Length();                                       \
+    ADVANCE_PARSE();                                               \
+}                                                                  \
+
+#define PARSESTRUCT(s) PARSEPSTRUCT(&(s))
+
 namespace MungeTLS
 {
 
@@ -3254,16 +3263,9 @@ MT_RecordLayerMessage::ParseFromPriv(
     size_t cbField = 0;
     size_t cbFragmentLength = 0;
 
-    CHKOK(ContentType()->ParseFrom(pv, cb));
+    PARSEPSTRUCT(ContentType());
 
-    cbField = ContentType()->Length();
-    ADVANCE_PARSE();
-
-    CHKOK(ProtocolVersion()->ParseFrom(pv, cb));
-
-    cbField = ProtocolVersion()->Length();
-    ADVANCE_PARSE();
-
+    PARSEPSTRUCT(ProtocolVersion());
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
     CHKOK(ReadNetworkLong(pv, cb, cbField, &cbFragmentLength));
@@ -3929,10 +3931,7 @@ MT_Random::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    CHKOK(RandomBytes()->ParseFrom(pv, cb));
-
-    cbField = RandomBytes()->Length();
-    ADVANCE_PARSE();
+    PARSEPSTRUCT(RandomBytes());
 
 done:
     return hr;
@@ -4019,35 +4018,17 @@ MT_ClientHello::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    CHKOK(ClientVersion()->ParseFrom(pv, cb));
+    PARSEPSTRUCT(ClientVersion());
 
-    cbField = ClientVersion()->Length();
-    ADVANCE_PARSE();
+    PARSEPSTRUCT(Random());
 
-    CHKOK(Random()->ParseFrom(pv, cb));
+    PARSEPSTRUCT(SessionID());
 
-    cbField = Random()->Length();
-    ADVANCE_PARSE();
+    PARSEPSTRUCT(CipherSuites());
 
-    CHKOK(SessionID()->ParseFrom(pv, cb));
+    PARSEPSTRUCT(CompressionMethods());
 
-    cbField = SessionID()->Length();
-    ADVANCE_PARSE();
-
-    CHKOK(CipherSuites()->ParseFrom(pv, cb));
-
-    cbField = CipherSuites()->Length();
-    ADVANCE_PARSE();
-
-    CHKOK(CompressionMethods()->ParseFrom(pv, cb));
-
-    cbField = CompressionMethods()->Length();
-    ADVANCE_PARSE();
-
-    CHKOK(Extensions()->ParseFrom(pv, cb));
-
-    cbField = Extensions()->Length();
-    ADVANCE_PARSE();
+    PARSEPSTRUCT(Extensions());
 
 done:
     return hr;
@@ -4276,15 +4257,9 @@ MT_PreMasterSecret::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    CHKOK(ClientVersion()->ParseFrom(pv, cb));
+    PARSEPSTRUCT(ClientVersion());
 
-    cbField = ClientVersion()->Length();
-    ADVANCE_PARSE();
-
-    CHKOK(Random()->ParseFrom(pv, cb));
-
-    cbField = Random()->Length();
-    ADVANCE_PARSE();
+    PARSEPSTRUCT(Random());
 
 done:
     return hr;
@@ -4541,10 +4516,7 @@ MT_ClientKeyExchange<KeyType>::ParseFromPriv(
 
     m_spExchangeKeys = shared_ptr<KeyType>(new KeyType());
 
-    CHKOK(ExchangeKeys()->ParseFrom(pv, cb));
-
-    cbField = ExchangeKeys()->Length();
-    ADVANCE_PARSE();
+    PARSEPSTRUCT(ExchangeKeys());
 
 done:
     return hr;
@@ -4631,10 +4603,7 @@ MT_Extension::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    CHKOK(ExtensionData()->ParseFrom(pv, cb));
-
-    cbField = ExtensionData()->Length();
-    ADVANCE_PARSE();
+    PARSEPSTRUCT(ExtensionData());
 
 done:
     return hr;
@@ -5946,12 +5915,9 @@ MT_RenegotiationInfoExtension::ParseFromPriv(
     size_t cbField = 0;
     MT_RenegotiatedConnection rc;
 
-    CHKOK(rc.ParseFrom(pv, cb));
+    PARSESTRUCT(rc);
 
     CHKOK(SetRenegotiatedConnection(&rc));
-
-    cbField = rc.Length();
-    ADVANCE_PARSE();
 
 done:
     return hr;
@@ -6055,10 +6021,7 @@ MT_Thingy::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    CHKOK(Thingy()->ParseFrom(pv, cb));
-
-    cbField = Thingy()->Length();
-    ADVANCE_PARSE();
+    PARSEPSTRUCT(Thingy());
 
 done:
     return hr;
