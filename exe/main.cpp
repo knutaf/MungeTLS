@@ -800,7 +800,9 @@ error:
 ** and choose the version that's used for "security" operations like MAC
 ** computation.
 **
-** In particular, there's a openssl bug that we need to account for.
+** In particular, many browsers handle version negotiation differently. we
+** always set to whatever higher version was previously negotiated if the
+** versions differ
 */
 HRESULT
 SimpleHTTPServer::OnReconcileSecurityVersion(

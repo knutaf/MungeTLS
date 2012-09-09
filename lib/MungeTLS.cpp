@@ -3502,10 +3502,9 @@ MT_TLSCiphertext::GetProtocolVersionForSecurity(
     MT_ProtocolVersion hashVersion(*ProtocolVersion());
 
     /*
-    ** there is a bug in chrome in which the clienthello sometimes has a
-    ** different version specified in its record layer than in its handshake
-    ** layer. normally we could handle this, but it also incorrectly passes the
-    ** handshake layer's version to the MAC function.
+    ** some browsers like chrome and openssl do weird things with version
+    ** negotiation, where they specify the wrong version in a ClientHello
+    ** message for compatibility reasons.
     **
     ** if we detect such a mismatch here, we ask the app if it wants to
     ** reconcile it. the default behavior is to strictly follow the RFC and use
