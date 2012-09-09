@@ -5903,6 +5903,7 @@ error:
     goto done;
 } // end function ComputeSecurityInfo
 
+// compare the MAC that we compute to the one received in the message
 HRESULT
 MT_GenericStreamCipher::CheckSecurityPriv()
 {
@@ -5991,12 +5992,13 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
         goto error;
     }
 
+    // now restart the parsing with the decrypted content
     pv = &vbDecryptedStruct.front();
     cb = vbDecryptedStruct.size();
 
-    pvEnd = &pv[cb - c_cbGenericBlockCipher_Padding_LFL];
-
+    // parse from the end backwards, starting with the padding
     cbField = c_cbGenericBlockCipher_Padding_LFL;
+    pvEnd = &pv[cb - cbField];
     if (cb < cbField)
     {
         hr = MT_E_INCOMPLETE_MESSAGE;
@@ -6009,7 +6011,8 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
         goto error;
     }
 
-    cb -= cbField;
+    // not advancing pv, only changing cb (how much is left to parse)
+    SAFE_SUB(hr, cb, cbField);
     pvEnd -= cbField;
 
     cbField = cbPaddingLength;
@@ -6020,6 +6023,7 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
     }
 
     /*
+    ** example:
     ** cbPaddingLength = cbField = 5
     **
     ** yy yy yy 05 05 05 05 05 05
@@ -6033,25 +6037,47 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
     Padding()->assign(pvEnd - cbField + 1, pvEnd + 1);
 
     {
-        ByteVector vbFakePadding(cbPaddingLength, static_cast<BYTE>(cbPaddingLength));
-        assert(*Padding() == vbFakePadding);
+        ByteVector vbExpectedPadding(cbPaddingLength, static_cast<BYTE>(cbPaddingLength));
+        if (*Padding() != vbExpectedPadding)
+        {
+            hr = MT_E_BAD_RECORD_PADDING;
+            goto error;
+        }
     }
 
+    // not advancing pv, only changing cb (how much is left to parse)
+    SAFE_SUB(hr, cb, cbField);
     pvEnd -= cbField;
-    cb -= cbField;
 
-    assert(cb >= pHashInfo->cbHashSize);
+    /*
+    ** at this point we've stripped out the padding. pv points to the start of
+    ** the payload, and cb is the number of bytes in the payload plus MAC.
+    ** parse out these two things now
+    */
+    if (cb < pHashInfo->cbHashSize)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
 
     cbField = cb - pHashInfo->cbHashSize;
     Content()->assign(pv, pv + cbField);
 
     ADVANCE_PARSE();
 
-    assert(cb == pHashInfo->cbHashSize);
+    // only the MAC left
+    if (cb != pHashInfo->cbHashSize)
+    {
+        hr = MT_E_INCOMPLETE_MESSAGE;
+        goto error;
+    }
+
     cbField = pHashInfo->cbHashSize;
     MAC()->assign(pv, pv + cbField);
 
     ADVANCE_PARSE();
+
+    assert(cb == 0);
 
 done:
     return hr;
@@ -6067,7 +6093,7 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity()
     BYTE* pv = nullptr;
     size_t cb = 0;
     size_t cbField = 0;
-    ByteVector vbDecryptedStruct;
+    ByteVector vbPlaintextContent;
 
     hr = ComputeSecurityInfo(
              *EndParams()->SequenceNumber(),
@@ -6092,11 +6118,18 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity()
     {
         const CipherInfo* pCipherInfo = EndParams()->Cipher();
         assert(pCipherInfo->type == CipherType_Block);
+
+        /*
+        ** this check makes sure that Padding() was the right size to make the
+        ** total size of the payload a multiple of the block size, which is a
+        ** requirement for block ciphers
+        */
         assert((cb % pCipherInfo->cbBlockSize) == 0);
     }
 
-    ResizeVector(&vbDecryptedStruct, cb);
-    pv = &vbDecryptedStruct.front();
+    // serializing into vbPlaintextContent
+    ResizeVector(&vbPlaintextContent, cb);
+    pv = &vbPlaintextContent.front();
 
     cbField = Content()->size();
     assert(cbField <= cb);
@@ -6128,7 +6161,7 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity()
     assert(cb == 0);
 
     hr = (*EndParams()->SymCipherer())->EncryptBuffer(
-             &vbDecryptedStruct,
+             &vbPlaintextContent,
              EndParams()->IV(),
              RawContent());
 
@@ -6238,6 +6271,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
 
     ADVANCE_PARSE();
 
+    // asserting 0 length remaining afterwards is a length check for this copy
     cbField = Content()->size();
     std::copy(Content()->begin(), Content()->end(), pv);
 
@@ -6260,9 +6294,12 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
 
     assert(pvbMAC->size() == pHashInfo->cbHashSize);
 
+    // generate padding bytes and assign to pvbPadding
     {
         assert(pCipherInfo->cbBlockSize != 0);
         size_t cbUnpaddedBlockLength = Content()->size() + MAC()->size();
+
+        // keep accumulating blocks until it just clears the content length
         size_t cbPaddedBlockLength = 0;
         while (cbPaddedBlockLength <= cbUnpaddedBlockLength)
         {
@@ -6273,12 +6310,11 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
         assert((cbPaddedBlockLength % pCipherInfo->cbBlockSize) == 0);
         assert(cbPaddedBlockLength > 0);
 
+        // cbPaddingLength is length of just padding (excluding length byte)
         size_t cbPaddingLength = cbPaddedBlockLength -
-                                 Content()->size() -
-                                 MAC()->size() -
+                                 cbUnpaddedBlockLength -
                                  c_cbGenericBlockCipher_Padding_LFL;
         BYTE b = 0;
-
         hr = SizeTToByte(cbPaddingLength, &b);
         if (hr != S_OK)
         {
@@ -6290,6 +6326,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
         pvbPadding->assign(cbPaddingLength, b);
     }
 
+    // check that the entire content + padding is a multiple of block size
     assert(
     (
       (Content()->size() +
@@ -7052,6 +7089,11 @@ SymmetricCipherer::SetCipherInfo(
     return S_OK;
 } // end function SetCipherInfo
 
+/*
+** handle null cipher here. S_OK indicates to the caller that some "encryption"
+** was done here. E_NOTIMPL means that the caller needs to handle the
+** encryption itself
+*/
 HRESULT
 SymmetricCipherer::EncryptBuffer(
     const ByteVector* pvbCleartext,
@@ -7070,6 +7112,7 @@ SymmetricCipherer::EncryptBuffer(
     return E_NOTIMPL;
 } // end function EncryptBuffer
 
+// handle null encryption here. S_OK means we handled it. E_NOTIMPL otherwise
 HRESULT
 SymmetricCipherer::DecryptBuffer(
     const ByteVector* pvbEncrypted,
@@ -7090,6 +7133,7 @@ SymmetricCipherer::DecryptBuffer(
 
 /*********** Hasher *****************/
 
+// handle null (0 byte) hash. S_OK means we handled it. E_NOTIMPL otherwise
 HRESULT
 Hasher::Hash(
     const HashInfo* pHashInfo,
@@ -7108,6 +7152,7 @@ Hasher::Hash(
     return E_NOTIMPL;
 } // end function Hash
 
+// handle null (0 byte) HMAC. S_OK means we handled it. E_NOTIMPL otherwise
 HRESULT
 Hasher::HMAC(
     const HashInfo* pHashInfo,
@@ -7176,6 +7221,7 @@ MT_RenegotiationInfoExtension::MT_RenegotiationInfoExtension()
 {
 } // end ctor MT_RenegotiationInfoExtension
 
+// see notes for SetRenegotiatedConnection
 HRESULT
 MT_RenegotiationInfoExtension::ParseFromPriv(
     const BYTE* pv,
@@ -7208,6 +7254,42 @@ error:
     goto done;
 } // end function ParseFromPriv
 
+/*
+** MT_RenegotiationInfoExtension is a subclass of MT_Extension, which means it
+** has to expose ExtensionData() to get the raw bytes of the extension. but it
+** also keeps track of a higher-level MT_RenegotiatedConnection object for easy
+** examination in code. unfortunately, this means that m_renegotiatedConnection
+** and ExtensionData() need to be kept in sync.
+**
+** this function is called to set both members together. Elsewhere, there are
+** calls to CheckExtensionDataIntegrity to make sure that the integrity hasn't
+** been tampered with by direct modifications to ExtensionData().
+*/
+HRESULT
+MT_RenegotiationInfoExtension::SetRenegotiatedConnection(
+    const MT_RenegotiatedConnection* pRenegotiatedConnection
+)
+{
+    HRESULT hr = S_OK;
+    m_renegotiatedConnection = *pRenegotiatedConnection;
+
+    hr = RenegotiatedConnection()->SerializeToVect(MT_Extension::ExtensionData()->Data());
+    if (hr != S_OK)
+    {
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SetRenegotiatedConnection
+
+/*
+** serialize the renegotiated connection member and check that it matches
+** ExtensionData. they should always be in sync
+*/
 HRESULT
 MT_RenegotiationInfoExtension::CheckExtensionDataIntegrity() const
 {
@@ -7256,27 +7338,7 @@ MT_RenegotiationInfoExtension::RenegotiatedConnection() const
     return &m_renegotiatedConnection;
 } // end function RenegotiatedConnection
 
-HRESULT
-MT_RenegotiationInfoExtension::SetRenegotiatedConnection(
-    const MT_RenegotiatedConnection* pRenegotiatedConnection
-)
-{
-    HRESULT hr = S_OK;
-    m_renegotiatedConnection = *pRenegotiatedConnection;
-
-    hr = RenegotiatedConnection()->SerializeToVect(MT_Extension::ExtensionData()->Data());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SetRenegotiatedConnection
-
+// boilerplate code for quickly creating new structures
 /*********** MT_Thingy *****************/
 
 /*

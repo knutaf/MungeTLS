@@ -11,6 +11,7 @@ WORK:
 - function for copying a vector over to a byte blob, with length checking
 - macro for parsing and going
 - macro for serializing and going
+- refactor updatewritesecurity, checksecuritypriv, and other cipher fragment members if possible
 
 MAYBE:
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon
