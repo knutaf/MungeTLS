@@ -1,5 +1,6 @@
 BUGS:
 - sometimes we get a random decryption failure. why???
+- tls 1.2 openssl doesn't renegotiate properly
 
 WORK:
 - TLS CLIENT

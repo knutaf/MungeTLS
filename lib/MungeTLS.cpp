@@ -4931,6 +4931,105 @@ MT_CipherFragment::Length() const
     return EncryptedContent()->size();
 } // end function Length
 
+/*
+** compute the MAC for this message. this is used both for attaching a MAC to
+** an outgoing message and for comparing against the MAC found in an incoming
+** message.
+**
+** TLS 1.0
+** HMAC_hash(MAC_write_secret, seq_num + TLSCompressed.type +
+**               TLSCompressed.version + TLSCompressed.length +
+**               TLSCompressed.fragment));
+**
+** basically just put a bunch of fields together and hash it with the MAC key,
+** which was generated back with the master secret
+*/
+HRESULT
+MT_CipherFragment::ComputeMAC(
+    MT_UINT64 sequenceNumber,
+    const ByteVector* pvbMACKey,
+    const MT_ContentType* pContentType,
+    const MT_ProtocolVersion* pProtocolVersion,
+    ByteVector* pvbMAC
+)
+{
+    HRESULT hr = S_OK;
+
+    ByteVector vbHashText;
+    BYTE* pv = nullptr;
+    size_t cb = 0;
+    size_t cbField = 0;
+
+    const HashInfo* pHashInfo = EndParams()->Hash();
+
+    assert(pProtocolVersion->Length() == c_cbProtocolVersion_Length);
+    assert(pContentType->Length() == c_cbContentType_Length);
+
+    cb = c_cbSequenceNumber_Length +
+         pContentType->Length() +
+         pProtocolVersion->Length() +
+         c_cbRecordLayerMessage_Fragment_LFL +
+         Content()->size();
+
+    wprintf(L"MAC text is %d bytes\n", cb);
+
+    ResizeVector(&vbHashText, cb);
+    pv = &vbHashText.front();
+
+    wprintf(L"sequence number: %d\n", sequenceNumber);
+
+    cbField = c_cbSequenceNumber_Length;
+    CHKOK(WriteNetworkLong(
+             sequenceNumber,
+             cbField,
+             pv,
+             cb));
+
+    ADVANCE_PARSE();
+
+    CHKOK(pContentType->Serialize(pv, cb));
+
+    cbField = pContentType->Length();
+    ADVANCE_PARSE();
+
+    CHKOK(pProtocolVersion->Serialize(pv, cb));
+
+    cbField = pProtocolVersion->Length();
+    ADVANCE_PARSE();
+
+    cbField = c_cbRecordLayerMessage_Fragment_LFL;
+    CHKOK(WriteNetworkLong(
+             Content()->size(),
+             cbField,
+             pv,
+             cb));
+
+    ADVANCE_PARSE();
+
+    cbField = Content()->size();
+    std::copy(Content()->begin(), Content()->end(), pv);
+
+    ADVANCE_PARSE();
+    assert(cb == 0);
+
+    wprintf(L"MAC hash text:\n");
+    PrintByteVector(&vbHashText);
+
+    CHKOK((*EndParams()->HashInst())->HMAC(
+             pHashInfo,
+             pvbMACKey,
+             &vbHashText,
+             pvbMAC));
+
+    assert(pvbMAC->size() == pHashInfo->cbHashSize);
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ComputeMAC
+
 /*********** MT_GenericStreamCipher *****************/
 
 MT_GenericStreamCipher::MT_GenericStreamCipher(
@@ -5069,81 +5168,12 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
     ByteVector* pvbMAC
 )
 {
-    HRESULT hr = S_OK;
-
-    ByteVector vbHashText;
-    BYTE* pv = nullptr;
-    size_t cb = 0;
-    size_t cbField = 0;
-
-    const HashInfo* pHashInfo = EndParams()->Hash();
-
-    assert(pProtocolVersion->Length() == c_cbProtocolVersion_Length);
-    assert(pContentType->Length() == c_cbContentType_Length);
-
-    cb = c_cbSequenceNumber_Length +
-         pContentType->Length() +
-         pProtocolVersion->Length() +
-         c_cbRecordLayerMessage_Fragment_LFL +
-         Content()->size();
-
-    wprintf(L"MAC text is %d bytes\n", cb);
-
-    ResizeVector(&vbHashText, cb);
-    pv = &vbHashText.front();
-
-    wprintf(L"sequence number: %d\n", sequenceNumber);
-
-    cbField = c_cbSequenceNumber_Length;
-    CHKOK(WriteNetworkLong(
-             sequenceNumber,
-             cbField,
-             pv,
-             cb));
-
-    ADVANCE_PARSE();
-
-    CHKOK(pContentType->Serialize(pv, cb));
-
-    cbField = pContentType->Length();
-    ADVANCE_PARSE();
-
-    CHKOK(pProtocolVersion->Serialize(pv, cb));
-
-    cbField = pProtocolVersion->Length();
-    ADVANCE_PARSE();
-
-    cbField = c_cbRecordLayerMessage_Fragment_LFL;
-    CHKOK(WriteNetworkLong(
-             Content()->size(),
-             cbField,
-             pv,
-             cb));
-
-    ADVANCE_PARSE();
-
-    cbField = Content()->size();
-    std::copy(Content()->begin(), Content()->end(), pv);
-
-    ADVANCE_PARSE();
-    assert(cb == 0);
-
-    wprintf(L"MAC hash text:\n");
-    PrintByteVector(&vbHashText);
-
-    CHKOK((*EndParams()->HashInst())->HMAC(
-             pHashInfo,
-             pvbMACKey,
-             &vbHashText,
-             pvbMAC));
-
-    assert(pvbMAC->size() == pHashInfo->cbHashSize);
-
-done:
-    return hr;
-
-error:
-    goto done;
+    return ComputeMAC(
+               sequenceNumber,
+               pvbMACKey,
+               pContentType,
+               pProtocolVersion,
+               pvbMAC);
 } // end function ComputeSecurityInfo
 
 // compare the MAC that we compute to the one received in the message
@@ -5193,6 +5223,7 @@ MT_GenericBlockCipher::MT_GenericBlockCipher(
 {
 } // end ctor MT_GenericBlockCipher
 
+// parses and also decrypts... then parses the decrypted part, too
 HRESULT
 MT_GenericBlockCipher::ParseFromPriv(
     const BYTE* pv,
@@ -5307,6 +5338,10 @@ error:
     goto done;
 } // end function ParseFromPriv
 
+/*
+** this is called to prepare the contents for being serialized. it takes the
+** plaintext payload, attaches the MAC to it, and encrypts it
+*/
 HRESULT
 MT_GenericBlockCipher::UpdateWriteSecurity()
 {
@@ -5386,6 +5421,7 @@ error:
     goto done;
 } // end function UpdateWriteSecurity
 
+// primarily this makes sure the padding is less then 256 bytes long
 MT_UINT8
 MT_GenericBlockCipher::PaddingLength() const
 {
@@ -5396,6 +5432,11 @@ MT_GenericBlockCipher::PaddingLength() const
     return b;
 } // end function PaddingLength
 
+/*
+** computes the "security info", aka MAC. see
+** MT_GenericStreamCipher::ComputeSecurityInfo for more info. this differs from
+** the stream cipher only in that it also computes the padding for the block
+*/
 HRESULT
 MT_GenericBlockCipher::ComputeSecurityInfo(
     MT_UINT64 sequenceNumber,
@@ -5407,76 +5448,14 @@ MT_GenericBlockCipher::ComputeSecurityInfo(
 )
 {
     HRESULT hr = S_OK;
-
-    ByteVector vbHashText;
-    BYTE* pv = nullptr;
-    size_t cb = 0;
-    size_t cbField = 0;
-
-    const HashInfo* pHashInfo = EndParams()->Hash();
     const CipherInfo* pCipherInfo = EndParams()->Cipher();
 
-    assert(pProtocolVersion->Length() == c_cbProtocolVersion_Length);
-    assert(pContentType->Length() == c_cbContentType_Length);
-
-    cb = c_cbSequenceNumber_Length +
-         pContentType->Length() +
-         pProtocolVersion->Length() +
-         c_cbRecordLayerMessage_Fragment_LFL +
-         Content()->size();
-
-    wprintf(L"MAC text is %d bytes\n", cb);
-
-    ResizeVector(&vbHashText, cb);
-    pv = &vbHashText.front();
-
-    wprintf(L"sequence number: %d\n", sequenceNumber);
-
-    cbField = c_cbSequenceNumber_Length;
-    CHKOK(WriteNetworkLong(
-             sequenceNumber,
-             cbField,
-             pv,
-             cb));
-
-    ADVANCE_PARSE();
-
-    CHKOK(pContentType->Serialize(pv, cb));
-
-    cbField = pContentType->Length();
-    ADVANCE_PARSE();
-
-    CHKOK(pProtocolVersion->Serialize(pv, cb));
-
-    cbField = pProtocolVersion->Length();
-    ADVANCE_PARSE();
-
-    cbField = c_cbRecordLayerMessage_Fragment_LFL;
-    CHKOK(WriteNetworkLong(
-             Content()->size(),
-             cbField,
-             pv,
-             cb));
-
-    ADVANCE_PARSE();
-
-    // asserting 0 length remaining afterwards is a length check for this copy
-    cbField = Content()->size();
-    std::copy(Content()->begin(), Content()->end(), pv);
-
-    ADVANCE_PARSE();
-    assert(cb == 0);
-
-    wprintf(L"MAC hash text:\n");
-    PrintByteVector(&vbHashText);
-
-    CHKOK((*EndParams()->HashInst())->HMAC(
-             pHashInfo,
-             pvbMACKey,
-             &vbHashText,
-             pvbMAC));
-
-    assert(pvbMAC->size() == pHashInfo->cbHashSize);
+    CHKOK(ComputeMAC(
+               sequenceNumber,
+               pvbMACKey,
+               pContentType,
+               pProtocolVersion,
+               pvbMAC));
 
     // generate padding bytes and assign to pvbPadding
     {
@@ -5510,7 +5489,7 @@ MT_GenericBlockCipher::ComputeSecurityInfo(
     assert(
     (
       (Content()->size() +
-       MAC()->size() +
+       pvbMAC->size() +
        pvbPadding->size() +
        c_cbGenericBlockCipher_Padding_LFL)
        %

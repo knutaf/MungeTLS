@@ -1444,6 +1444,14 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
 
     virtual HRESULT UpdateWriteSecurity() = 0;
 
+    HRESULT
+    ComputeMAC(
+        MT_UINT64 sequenceNumber,
+        const ByteVector* pvbMACKey,
+        const MT_ContentType* pContentType,
+        const MT_ProtocolVersion* pProtocolVersion,
+        ByteVector* pvbMAC);
+
     ACCESSORS(ByteVector*, Content, &m_vbContent);
     ACCESSORS(ByteVector*, EncryptedContent, &m_vbEncryptedContent);
 
