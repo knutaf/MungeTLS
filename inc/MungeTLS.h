@@ -120,7 +120,6 @@ class MT_ChangeCipherSpec;
 class MT_Finished;
 class MT_CipherFragment;
 class MT_GenericStreamCipher;
-class MT_GenericBlockCipher_TLS10;
 class MT_GenericBlockCipher_TLS11;
 class MT_Alert;
 class MT_ServerHelloDone;
@@ -1446,7 +1445,7 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
     virtual HRESULT UpdateWriteSecurity() = 0;
 
     ACCESSORS(ByteVector*, Content, &m_vbContent);
-    ACCESSORS(ByteVector*, RawContent, &m_vbRawContent);
+    ACCESSORS(ByteVector*, EncryptedContent, &m_vbEncryptedContent);
 
     protected:
     MT_TLSCiphertext* Ciphertext() { return m_pCiphertext; }
@@ -1455,7 +1454,7 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
 
     private:
     ByteVector m_vbContent;
-    ByteVector m_vbRawContent;
+    ByteVector m_vbEncryptedContent;
     MT_TLSCiphertext* m_pCiphertext;
 };
 
@@ -1491,30 +1490,25 @@ class MT_GenericStreamCipher : public MT_CipherFragment
     ByteVector m_vbMAC;
 };
 
-/*
-** TLS 1.0
-** block-ciphered struct {
-**     opaque content[TLSCompressed.length];
-**     opaque MAC[CipherSpec.hash_size];
-**     uint8 padding[GenericBlockCipher.padding_length];
-**     uint8 padding_length;
-** } GenericBlockCipher;
-*/
-class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
+class MT_GenericBlockCipher : public MT_CipherFragment
 {
     public:
-    MT_GenericBlockCipher_TLS10(MT_TLSCiphertext* pCiphertext);
-    ~MT_GenericBlockCipher_TLS10() { }
+    MT_GenericBlockCipher(MT_TLSCiphertext* pCiphertext);
+    virtual ~MT_GenericBlockCipher() { }
 
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
     ACCESSORS(ByteVector*, Padding, &m_vbPadding);
     MT_UINT8 PaddingLength() const;
 
-    HRESULT UpdateWriteSecurity();
+    virtual const ByteVector* IV() const = 0;
+
+    virtual HRESULT UpdateWriteSecurity();
+
+    protected:
+    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT CheckSecurityPriv();
+    virtual HRESULT CheckSecurityPriv();
 
     HRESULT
     ComputeSecurityInfo(
@@ -1530,6 +1524,27 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
 };
 
 /*
+** TLS 1.0
+** block-ciphered struct {
+**     opaque content[TLSCompressed.length];
+**     opaque MAC[CipherSpec.hash_size];
+**     uint8 padding[GenericBlockCipher.padding_length];
+**     uint8 padding_length;
+** } GenericBlockCipher;
+*/
+class MT_GenericBlockCipher_TLS10 : public MT_GenericBlockCipher
+{
+    public:
+    MT_GenericBlockCipher_TLS10(MT_TLSCiphertext* pCiphertext)
+        : MT_GenericBlockCipher(pCiphertext)
+    { }
+
+    ~MT_GenericBlockCipher_TLS10() { }
+
+    const ByteVector* IV() const;
+};
+
+/*
 ** TLS 1.1
 ** block-ciphered struct {
 **     opaque IV[CipherSpec.block_length];
@@ -1539,39 +1554,38 @@ class MT_GenericBlockCipher_TLS10 : public MT_CipherFragment
 **     uint8 padding_length;
 ** } GenericBlockCipher;
 **
+** TLS 1.2
+** struct {
+**     opaque IV[SecurityParameters.record_iv_length];
+**     block-ciphered struct {
+**         opaque content[TLSCompressed.length];
+**         opaque MAC[SecurityParameters.mac_length];
+**         uint8 padding[GenericBlockCipher.padding_length];
+**         uint8 padding_length;
+**     };
+** } GenericBlockCipher;
+**
+**
 ** Note the significant deviation from TLS 1.0 block cipher structure: the
-** inclusion of the IV field tells the initialization vector that will be used
-** for encrypting or decrypting the next cipher fragment sent or received.
+** inclusion of the IV field. The TLS 1.1 structure has a bug--it should
+** actually look like the TLS 1.2 structure.
 */
-class MT_GenericBlockCipher_TLS11 : public MT_CipherFragment
+class MT_GenericBlockCipher_TLS11 : public MT_GenericBlockCipher
 {
     public:
     MT_GenericBlockCipher_TLS11(MT_TLSCiphertext* pCiphertext);
     ~MT_GenericBlockCipher_TLS11() { }
+    size_t Length() const;
 
-    ACCESSORS(ByteVector*, IV, &m_vbIVNext);
-    ACCESSORS(ByteVector*, MAC, &m_vbMAC);
-    ACCESSORS(ByteVector*, Padding, &m_vbPadding);
-    MT_UINT8 PaddingLength() const;
+    ACCESSORS(ByteVector*, IV, &m_vbIV);
 
     HRESULT UpdateWriteSecurity();
 
     private:
     HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT CheckSecurityPriv();
+    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
 
-    HRESULT
-    ComputeSecurityInfo(
-        MT_UINT64 sequenceNumber,
-        const ByteVector* pvbMACKey,
-        const MT_ContentType* pContentType,
-        const MT_ProtocolVersion* pProtocolVersion,
-        ByteVector* pvbMAC,
-        ByteVector* pvbPadding);
-
-    ByteVector m_vbIVNext;
-    ByteVector m_vbMAC;
-    ByteVector m_vbPadding;
+    ByteVector m_vbIV;
 };
 
 /*
