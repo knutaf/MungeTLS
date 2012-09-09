@@ -163,15 +163,11 @@ EncryptBuffer(
                 wprintf(L"setting IV to:\n");
                 PrintByteVector(pvbIV);
 
-                if (!CryptSetKeyParam(
+                CHKWIN(CryptSetKeyParam(
                          hKey,
                          KP_IV,
                          &pvbIV->front(),
-                         0))
-                {
-                    hr = HRESULT_FROM_WIN32(GetLastError());
-                    goto error;
-                }
+                         0));
             }
             else
             {
@@ -179,15 +175,11 @@ EncryptBuffer(
             }
 
             wprintf(L"duplicating key\n");
-            if (!CryptDuplicateKey(
+            CHKWIN(CryptDuplicateKey(
                      hKey,
                      NULL,
                      0,
-                     &hKeyNew))
-            {
-                hr = HRESULT_FROM_WIN32(GetLastError());
-                goto error;
-            }
+                     &hKeyNew));
         }
         break;
 
@@ -212,11 +204,7 @@ EncryptBuffer(
         break;
     }
 
-    hr = SizeTToDWord(pvbCleartext->size(), &cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SizeTToDWord(pvbCleartext->size(), &cb));
 
     CryptEncrypt(
              hKeyNew,
@@ -242,31 +230,19 @@ EncryptBuffer(
     *pvbEncrypted = *pvbCleartext;
     ResizeVector(pvbEncrypted, cb);
 
-    hr = SizeTToDWord(pvbCleartext->size(), &cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SizeTToDWord(pvbCleartext->size(), &cb));
 
-    hr = SizeTToDWord(pvbEncrypted->size(), &dwBufLen);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SizeTToDWord(pvbEncrypted->size(), &dwBufLen));
 
     // the actual encryption, finally
-    if (!CryptEncrypt(
+    CHKWIN(CryptEncrypt(
              hKeyNew,
              NULL,
              fFinal,
              0,
              &pvbEncrypted->front(),
              &cb,
-             dwBufLen))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             dwBufLen));
 
     wprintf(L"done encrypt:\n");
     PrintByteVector(pvbEncrypted);
@@ -345,15 +321,11 @@ DecryptBuffer(
                 wprintf(L"setting IV to:\n");
                 PrintByteVector(pvbIV);
 
-                if (!CryptSetKeyParam(
+                CHKWIN(CryptSetKeyParam(
                          hKey,
                          KP_IV,
                          &pvbIV->front(),
-                         0))
-                {
-                    hr = HRESULT_FROM_WIN32(GetLastError());
-                    goto error;
-                }
+                         0));
             }
             else
             {
@@ -361,15 +333,11 @@ DecryptBuffer(
             }
 
             wprintf(L"duplicating key\n");
-            if (!CryptDuplicateKey(
+            CHKWIN(CryptDuplicateKey(
                      hKey,
                      NULL,
                      0,
-                     &hKeyNew))
-            {
-                hr = HRESULT_FROM_WIN32(GetLastError());
-                goto error;
-            }
+                     &hKeyNew));
         }
         break;
 
@@ -390,25 +358,17 @@ DecryptBuffer(
         break;
     }
 
-    hr = SizeTToDWord(pvbDecrypted->size(), &cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SizeTToDWord(pvbDecrypted->size(), &cb));
 
     wprintf(L"actual decrypt\n");
 
-    if (!CryptDecrypt(
+    CHKWIN(CryptDecrypt(
              hKeyNew,
              0,
              fFinal,
              0,
              &pvbDecrypted->front(),
-             &cb))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             &cb));
 
     wprintf(L"done initial decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
     PrintByteVector(pvbDecrypted);
@@ -516,41 +476,30 @@ LookupCertificate(
     PCCERT_CONTEXT pCertContext = NULL;
     PCCERT_CHAIN_CONTEXT pCertChain = NULL;
     CERT_CHAIN_PARA chainPara = {0};
+    HCERTSTORE hCertStore = NULL;
 
-    HCERTSTORE hCertStore = CertOpenStore(
-                                CERT_STORE_PROV_SYSTEM_W,
-                                0,
-                                NULL,
-                                dwCertStoreFlags,
-                                wszStoreName);
-
-    if (hCertStore == NULL)
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+    CHKNUL(hCertStore = CertOpenStore(
+                          CERT_STORE_PROV_SYSTEM_W,
+                          0,
+                          NULL,
+                          dwCertStoreFlags,
+                          wszStoreName));
 
     wprintf(L"done openstore\n");
 
-    pCertContext = CertFindCertificateInStore(
-                       hCertStore,
-                       X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
-                       0,
-                       CERT_FIND_SUBJECT_STR_W,
-                       wszSubjectName,
-                       NULL);
-
-    if (pCertContext == NULL)
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+    CHKNUL(pCertContext = CertFindCertificateInStore(
+                            hCertStore,
+                            X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+                            0,
+                            CERT_FIND_SUBJECT_STR_W,
+                            wszSubjectName,
+                            NULL));
 
     chainPara.cbSize = sizeof(chainPara);
     // indicates not to use this member
     chainPara.RequestedUsage.dwType = USAGE_MATCH_TYPE_AND;
 
-    if (!CertGetCertificateChain(
+    CHKWIN(CertGetCertificateChain(
              NULL,
              pCertContext,
              NULL,
@@ -558,11 +507,7 @@ LookupCertificate(
              &chainPara,
              0,
              NULL,
-             &pCertChain))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             &pCertChain));
 
     *ppCertChain = pCertChain;
 
@@ -611,17 +556,13 @@ GetPrivateKeyFromCertificate(
     wprintf(L"get private\n");
 
     // this gets the crypto provider for the private key, not the key itself
-    if (!CryptAcquireCertificatePrivateKey(
+    CHKWIN(CryptAcquireCertificatePrivateKey(
              pCertContext,
              CRYPT_ACQUIRE_SILENT_FLAG,
              NULL,
              &hProv,
              &keySpec,
-             &fCallerFree))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             &fCallerFree));
 
     kp.Init(hProv, fCallerFree);
 
@@ -636,14 +577,10 @@ GetPrivateKeyFromCertificate(
     wprintf(L"done privkey\n");
 
     // gets the actual private key handle
-    if (!CryptGetUserKey(
+    CHKWIN(CryptGetUserKey(
              hProv,
              AT_KEYEXCHANGE,
-             &hKey))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             &hKey));
 
     kp.SetKey(hKey);
     *pPrivateKey = kp;
@@ -686,17 +623,13 @@ GetPublicKeyFromCertificate(
     wprintf(L"get public\n");
 
     DWORD keySpec;
-    if (!CryptAcquireCertificatePrivateKey(
+    CHKWIN(CryptAcquireCertificatePrivateKey(
              pCertContext,
              CRYPT_ACQUIRE_SILENT_FLAG,
              NULL,
              &hProv,
              &keySpec,
-             &fCallerFree))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             &fCallerFree));
 
     kp.Init(hProv, fCallerFree);
 
@@ -711,7 +644,7 @@ GetPublicKeyFromCertificate(
 
     // fetch size needed for public key
     DWORD cbPublicKeyInfo = 0;
-    if (!CryptExportPublicKeyInfoEx(
+    CHKWIN(CryptExportPublicKeyInfoEx(
              hProv,
              AT_KEYEXCHANGE,
              X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
@@ -719,16 +652,12 @@ GetPublicKeyFromCertificate(
              0,
              NULL,
              NULL,
-             &cbPublicKeyInfo))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             &cbPublicKeyInfo));
 
     wprintf(L"found we need %d bytes for public key info\n", cbPublicKeyInfo);
 
     ResizeVector(&vbPublicKeyInfo, cbPublicKeyInfo);
-    if (!CryptExportPublicKeyInfoEx(
+    CHKWIN(CryptExportPublicKeyInfoEx(
              hProv,
              AT_KEYEXCHANGE,
              X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
@@ -736,11 +665,7 @@ GetPublicKeyFromCertificate(
              0,
              NULL,
              reinterpret_cast<PCERT_PUBLIC_KEY_INFO>(&vbPublicKeyInfo.front()),
-             &cbPublicKeyInfo))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             &cbPublicKeyInfo));
 
     wprintf(L"done export pub:\n");
 
@@ -751,30 +676,22 @@ GetPublicKeyFromCertificate(
     ** container, perfect for holding these temporary keys for the lifetime of
     ** just this process
     */
-    if (!CryptAcquireContextW(
+    CHKWIN(CryptAcquireContextW(
              &hPubProv,
              NULL,
              MS_ENHANCED_PROV,
              PROV_RSA_FULL,
-             CRYPT_VERIFYCONTEXT))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             CRYPT_VERIFYCONTEXT));
 
     wprintf(L"done acquire pub\n");
 
     kpPub.Init(hPubProv);
 
-    if (!CryptImportPublicKeyInfo(
+    CHKWIN(CryptImportPublicKeyInfo(
              hPubProv,
              X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
              reinterpret_cast<PCERT_PUBLIC_KEY_INFO>(&vbPublicKeyInfo.front()),
-             &hPubKey))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             &hPubKey));
 
     wprintf(L"done import pub\n");
 
@@ -840,16 +757,12 @@ ImportSymmetricKey(
     wprintf(L"import key\n");
 
     // store key in ephemeral container (per CRYPT_VERIFYCONTEXT)
-    if (!CryptAcquireContextW(
+    CHKWIN(CryptAcquireContextW(
              &hProv,
              NULL,
              MS_ENH_RSA_AES_PROV_W,
              PROV_RSA_AES,
-             CRYPT_VERIFYCONTEXT))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             CRYPT_VERIFYCONTEXT));
 
     kp.Init(hProv);
 
@@ -861,35 +774,22 @@ ImportSymmetricKey(
     pPlaintextKey->hdr.reserved = 0;
     pPlaintextKey->hdr.aiKeyAlg = algID;
 
-    hr = SizeTToDWord(pvbKey->size(), &(pPlaintextKey->cbKeySize));
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SizeTToDWord(pvbKey->size(), &(pPlaintextKey->cbKeySize)));
 
     copy(pvbKey->begin(), pvbKey->end(), pPlaintextKey->rgbKeyData);
 
-    hr = SizeTToDWord(vbPlaintextKey.size(), &cbKeySize);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SizeTToDWord(vbPlaintextKey.size(), &cbKeySize));
 
     wprintf(L"importing key of size %lu (keylength=%lu)\n", cbKeySize, pvbKey->size());
 
     // need to pass CRYPT_IPSEC_HMAC_KEY to allow long key lengths, per MSDN
-    if (!CryptImportKey(
+    CHKWIN(CryptImportKey(
              hProv,
              reinterpret_cast<const BYTE*>(pPlaintextKey),
              cbKeySize,
              NULL,
              CRYPT_IPSEC_HMAC_KEY,
-             &hKey))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        wprintf(L"failed CryptImportKey: %08LX\n", hr);
-        goto error;
-    }
+             &hKey));
 
     kp.SetKey(hKey);
     *pKey = kp;
@@ -933,27 +833,16 @@ WindowsPublicKeyCipherer::Initialize(
     assert(m_spPrivateKeyProv == nullptr);
     m_spPrivateKeyProv.reset(new KeyAndProv());
 
-    hr = GetPrivateKeyFromCertificate(
+    CHKOK(GetPrivateKeyFromCertificate(
              pCertContext,
-             PrivateKeyAndProv().get());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
+             PrivateKeyAndProv().get()));
 
     assert(m_spPublicKeyProv == nullptr);
     m_spPublicKeyProv.reset(new KeyAndProv());
 
-    hr = GetPublicKeyFromCertificate(
+    CHKOK(GetPublicKeyFromCertificate(
              pCertContext,
-             PublicKeyAndProv().get());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             PublicKeyAndProv().get()));
 
 done:
     return hr;
@@ -970,17 +859,12 @@ WindowsPublicKeyCipherer::EncryptBufferWithPublicKey(
 {
     HRESULT hr = S_OK;
 
-    hr = MungeTLS::EncryptBuffer(
+    CHKOK(MungeTLS::EncryptBuffer(
              pvbCleartext,
              PublicKey(),
              &c_CipherInfo_RSA,
              nullptr,
-             pvbEncrypted);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pvbEncrypted));
 
 done:
     return hr;
@@ -997,17 +881,12 @@ WindowsPublicKeyCipherer::DecryptBufferWithPrivateKey(
 {
     HRESULT hr = S_OK;
 
-    hr = MungeTLS::DecryptBuffer(
+    CHKOK(MungeTLS::DecryptBuffer(
              pvbEncrypted,
              PrivateKey(),
              &c_CipherInfo_RSA,
              nullptr,
-             pvbDecrypted);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pvbDecrypted));
 
 done:
     return hr;
@@ -1024,17 +903,12 @@ WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
 {
     HRESULT hr = S_OK;
 
-    hr = MungeTLS::EncryptBuffer(
+    CHKOK(MungeTLS::EncryptBuffer(
              pvbCleartext,
              PrivateKey(),
              &c_CipherInfo_RSA,
              nullptr,
-             pvbEncrypted);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pvbEncrypted));
 
 done:
     return hr;
@@ -1061,11 +935,7 @@ WindowsSymmetricCipherer::SetCipherInfo(
     HRESULT hr = S_OK;
     ALG_ID algID;
 
-    hr = SymmetricCipherer::SetCipherInfo(pvbKey, pCipherInfo);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SymmetricCipherer::SetCipherInfo(pvbKey, pCipherInfo));
 
     hr = WindowsCipherAlgFromMTCipherAlg(
              pCipherInfo->alg,
@@ -1083,15 +953,10 @@ WindowsSymmetricCipherer::SetCipherInfo(
 
     m_spKey = shared_ptr<KeyAndProv>(new KeyAndProv());
 
-    hr = ImportSymmetricKey(
+    CHKOK(ImportSymmetricKey(
              pvbKey,
              algID,
-             m_spKey.get());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             m_spKey.get()));
 
 done:
     return hr;
@@ -1124,17 +989,12 @@ WindowsSymmetricCipherer::EncryptBuffer(
         goto error;
     }
 
-    hr = MungeTLS::EncryptBuffer(
+    CHKOK(MungeTLS::EncryptBuffer(
              pvbCleartext,
              (*Key())->GetKey(),
              Cipher(),
              pvbIV,
-             pvbEncrypted);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pvbEncrypted));
 
 done:
     return hr;
@@ -1157,6 +1017,7 @@ WindowsSymmetricCipherer::DecryptBuffer(
              pvbEncrypted,
              pvbIV,
              pvbDecrypted);
+
     if (hr == S_OK)
     {
         goto done;
@@ -1166,17 +1027,12 @@ WindowsSymmetricCipherer::DecryptBuffer(
         goto error;
     }
 
-    hr = MungeTLS::DecryptBuffer(
+    CHKOK(MungeTLS::DecryptBuffer(
              pvbEncrypted,
              (*Key())->GetKey(),
              Cipher(),
              pvbIV,
-             pvbDecrypted);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pvbDecrypted));
 
 done:
     return hr;
@@ -1259,56 +1115,36 @@ WindowsHasher::Hash(
         goto done;
     }
 
-    hr = WindowsHashAlgFromMTHashInfo(pHashInfo, &algID);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WindowsHashAlgFromMTHashInfo(pHashInfo, &algID));
 
     /*
     ** use the RSA/AES provider, the most fully featured one, and an ephemeral
     ** key container (as specified by CRYPT_VERIFYCONTEXT).
     */
-    if (!CryptAcquireContextW(
+    CHKWIN(CryptAcquireContextW(
              &hProv,
              NULL,
              MS_ENH_RSA_AES_PROV_W,
              PROV_RSA_AES,
-             CRYPT_VERIFYCONTEXT))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             CRYPT_VERIFYCONTEXT));
 
     kp.Init(hProv);
 
-    if (!CryptCreateHash(
+    CHKWIN(CryptCreateHash(
              hProv,
              algID,
              0,
              0,
-             &hHash))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             &hHash));
 
-    hr = SizeTToDWord(pvbText->size(), &cbText);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SizeTToDWord(pvbText->size(), &cbText));
 
     // actually adds the data to the hash
-    if (!CryptHashData(
+    CHKWIN(CryptHashData(
              hHash,
              &pvbText->front(),
              cbText,
-             0))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             0));
 
     {
         // this is how to get the value of the hash. kinda roundabout. get size
@@ -1330,16 +1166,12 @@ WindowsHasher::Hash(
         ResizeVector(pvbHash, cbHashValue);
 
         // gets the actual hash value
-        if (!CryptGetHashParam(
+        CHKWIN(CryptGetHashParam(
                  hHash,
                  HP_HASHVAL,
                  &pvbHash->front(),
                  &cbHashValue,
-                 0))
-        {
-            hr = HRESULT_FROM_WIN32(GetLastError());
-            goto error;
-        }
+                 0));
 
         assert(cbHashValue == pvbHash->size());
     }
@@ -1381,58 +1213,31 @@ WindowsHasher::HMAC(
         goto done;
     }
 
-    hr = WindowsHashAlgFromMTHashInfo(pHashInfo, &hinfo.HashAlgid);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WindowsHashAlgFromMTHashInfo(pHashInfo, &hinfo.HashAlgid));
 
     // according to MSDN, keys imported for HMAC use RC2
-    hr = ImportSymmetricKey(pvbKey, CALG_RC2, &kp);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ImportSymmetricKey(pvbKey, CALG_RC2, &kp));
 
-    if (!CryptCreateHash(
+    CHKWIN(CryptCreateHash(
              kp.GetProv(),
              CALG_HMAC,
              kp.GetKey(),
              0,
-             &hHash))
-    {
-        wprintf(L"CryptCreateHash\n");
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             &hHash));
 
-    if (!CryptSetHashParam(
+    CHKWIN(CryptSetHashParam(
              hHash,
              HP_HMAC_INFO,
              reinterpret_cast<const BYTE*>(&hinfo),
-             NULL))
-    {
-        wprintf(L"CryptSetHashParam\n");
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             NULL));
 
-    hr = SizeTToDWord(pvbText->size(), &cbTextSize);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SizeTToDWord(pvbText->size(), &cbTextSize));
 
-    if (!CryptHashData(
+    CHKWIN(CryptHashData(
              hHash,
              &pvbText->front(),
              cbTextSize,
-             0))
-    {
-        wprintf(L"CryptHashData\n");
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             0));
 
     CryptGetHashParam(
         hHash,
@@ -1451,17 +1256,12 @@ WindowsHasher::HMAC(
 
     ResizeVector(pvbHMAC, cbHashValue);
 
-    if (!CryptGetHashParam(
+    CHKWIN(CryptGetHashParam(
              hHash,
              HP_HASHVAL,
              &pvbHMAC->front(),
              &cbHashValue,
-             0))
-    {
-        wprintf(L"CryptGetHashParam 2\n");
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+             0));
 
 done:
     return hr;

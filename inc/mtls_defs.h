@@ -39,4 +39,51 @@ typedef ULONGLONG MT_UINT64;
 // 2^(b*8) - 1
 #define MAXFORBYTES(b) ((1 << ((b) * 8)) - 1)
 
+#define WIDEN2(x) L##x
+#define WIDEN(x) WIDEN2(x)
+#define WSTRINGIFY2(x) L## #x
+#define WSTRINGIFY(x) WSTRINGIFY2(x)
+
+#define LOGFAIL(tag, stmt) wprintf(tag L" %s:%u - %s == %08LX\n", WIDEN(__FILE__), __LINE__, WSTRINGIFY(stmt), hr); \
+
+#define CHKSUC(stmt)                                        \
+{                                                           \
+    hr = (stmt);                                            \
+    if (FAILED(hr))                                         \
+    {                                                       \
+        LOGFAIL(L"FAILED", (stmt));                         \
+        goto error;                                         \
+    }                                                       \
+}                                                           \
+
+#define CHKOK(stmt)                                         \
+{                                                           \
+    hr = (stmt);                                            \
+    if (hr != S_OK)                                         \
+    {                                                       \
+        LOGFAIL(L"!= S_OK", (stmt));                        \
+        goto error;                                         \
+    }                                                       \
+}                                                           \
+
+#define CHKWIN(stmt)                                        \
+{                                                           \
+    if (!(stmt))                                            \
+    {                                                       \
+        hr = HRESULT_FROM_WIN32(GetLastError());            \
+        LOGFAIL(L"FALSE", (stmt));                          \
+        goto error;                                         \
+    }                                                       \
+}                                                           \
+
+#define CHKNUL(stmt)                                        \
+{                                                           \
+    if (NULL == (stmt))                                     \
+    {                                                       \
+        hr = HRESULT_FROM_WIN32(GetLastError());            \
+        LOGFAIL(L"NULL", (stmt));                           \
+        goto error;                                         \
+    }                                                       \
+}                                                           \
+
 }

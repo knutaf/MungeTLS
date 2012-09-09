@@ -81,16 +81,12 @@ HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const ByteVector* pvb)
     {
         DWORD cbWritten = 0;
 
-        if (!WriteFile(
+        CHKWIN(WriteFile(
                  hOutfile,
                  &pvb->front(),
                  static_cast<DWORD>(pvb->size()),
                  &cbWritten,
-                 NULL))
-        {
-            hr = HRESULT_FROM_WIN32(GetLastError());
-            goto error;
-        }
+                 NULL));
 
         if (cbWritten != pvb->size())
         {
@@ -215,20 +211,12 @@ HRESULT SimpleHTTPServer::ProcessConnections()
         HRESULT hr = S_OK;
 
 
-        hr = Connection()->Initialize();
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(Connection()->Initialize());
 
         vbData.reserve(c_cbReadBuffer);
         ResizeVector(&vbData, c_cbReadBuffer);
 
-        hr = SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable));
 
         // even if our buffer size is bigger, limit how much we receive
         if (cbAvailable > c_cbMaxRecvSize)
@@ -342,12 +330,7 @@ HRESULT SimpleHTTPServer::ProcessConnections()
             cbConsumedBuffer = vbData.size();
             ResizeVector(&vbData, c_cbReadBuffer);
 
-            hr = SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable);
-            if (hr != S_OK)
-            {
-                wprintf(L"failed second SizeTToInt32. %lu - %lu\n", vbData.size(), cbConsumedBuffer);
-                goto error;
-            }
+            CHKOK(SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable));
 
             // even if our buffer size is bigger, limit how much we receive
             if (cbAvailable > c_cbMaxRecvSize)
@@ -414,11 +397,7 @@ HRESULT SimpleHTTPServer::EnqueueSendApplicationData(const ByteVector* pvb)
         assert(vbChunk.size() <= cbRemaining);
         assert(vbChunk.size() > 0);
 
-        hr = Connection()->EnqueueSendApplicationData(&vbChunk);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(Connection()->EnqueueSendApplicationData(&vbChunk));
 
         // ensure we make progress
         assert(cbNextChunk > 0);
@@ -527,16 +506,11 @@ HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             ResizeVector(&vbApplicationData, ARRAYSIZE(szApplicationDataTemplate) * 2);
 
             // substituting in the real content length
-            hr = StringCchPrintfA(
+            CHKOK(StringCchPrintfA(
                      reinterpret_cast<PSTR>(&vbApplicationData.front()),
                      vbApplicationData.size(),
                      szApplicationDataTemplate,
-                     itEndRequest - PendingRequest()->begin());
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+                     itEndRequest - PendingRequest()->begin()));
 
             // trim to just the part we sprintf'd. excludes null terminator
             ResizeVector(&vbApplicationData, strlen(reinterpret_cast<PSTR>(&vbApplicationData.front())));
@@ -566,11 +540,7 @@ HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             */
             if (m_cRequestsReceived > 1)
             {
-                hr = Connection()->EnqueueStartRenegotiation();
-                if (hr != S_OK)
-                {
-                    goto error;
-                }
+                CHKOK(Connection()->EnqueueStartRenegotiation());
 
                 *PendingResponse() = vbApplicationData;
             }
@@ -578,19 +548,11 @@ HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             // on first response, just send it now. no fancy tricks
             else
             {
-                hr = EnqueueSendApplicationData(&vbApplicationData);
-                if (hr != S_OK)
-                {
-                    goto error;
-                }
+                CHKOK(EnqueueSendApplicationData(&vbApplicationData));
             }
 
             // this would send any appdata OR renegotiation request
-            hr = Connection()->SendQueuedMessages();
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            CHKOK(Connection()->SendQueuedMessages());
         }
         else
         {
@@ -685,16 +647,11 @@ SimpleHTTPServer::OnInitializeCrypto(
     shared_ptr<WindowsHasher> spClientHasher;
     shared_ptr<WindowsHasher> spServerHasher;
 
-    hr = LookupCertificate(
+    CHKOK(LookupCertificate(
              CERT_SYSTEM_STORE_CURRENT_USER,
              L"my",
              L"mtls-test",
-             &pCertChainCtx);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &pCertChainCtx));
 
     spPubKeyCipherer = shared_ptr<WindowsPublicKeyCipherer>(new WindowsPublicKeyCipherer());
 
@@ -702,11 +659,7 @@ SimpleHTTPServer::OnInitializeCrypto(
     ** the root cert context in the chain. it knows how to lookup the private
     ** key from this.
     */
-    hr = spPubKeyCipherer->Initialize(pCertChainCtx->rgpChain[0]->rgpElement[0]->pCertContext);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(spPubKeyCipherer->Initialize(pCertChainCtx->rgpChain[0]->rgpElement[0]->pCertContext));
 
     spClientSymCipherer = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
     spServerSymCipherer = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
@@ -715,11 +668,7 @@ SimpleHTTPServer::OnInitializeCrypto(
     spServerHasher = shared_ptr<WindowsHasher>(new WindowsHasher());
 
     // convert to internal MT_CertificateList
-    hr = MTCertChainFromWinChain(pCertChainCtx, pCertChain);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(MTCertChainFromWinChain(pCertChainCtx, pCertChain));
 
     *pspPubKeyCipherer = spPubKeyCipherer;
     *pspClientSymCipherer = spClientSymCipherer;
@@ -765,9 +714,9 @@ HRESULT SimpleHTTPServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, 
     ByteVector vb;
     wstring wsLogPrefix(L"w");
 
+    // debugger break when I've forgotten to implement serialization for struct
     hr = pPlaintext->SerializeToVect(&vb);
     assert(hr != E_NOTIMPL);
-
     if (hr != S_OK)
     {
         goto error;
@@ -796,9 +745,9 @@ HRESULT SimpleHTTPServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext
     ByteVector vb;
     wstring wsLogPrefix(L"r");
 
+    // debugger break when I've forgotten to implement serialization for struct
     hr = pPlaintext->SerializeToVect(&vb);
     assert(hr != E_NOTIMPL);
-
     if (hr != S_OK)
     {
         goto error;
@@ -831,11 +780,7 @@ HRESULT SimpleHTTPServer::OnHandshakeComplete()
 
     if (!PendingResponse()->empty())
     {
-        hr = EnqueueSendApplicationData(PendingResponse());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(EnqueueSendApplicationData(PendingResponse()));
 
         PendingResponse()->clear();
     }

@@ -131,11 +131,7 @@ TLSConnection::Initialize()
     }
 
     // the current connection is used for parsing incoming records
-    hr = InitializeConnection(CurrConn());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(InitializeConnection(CurrConn()));
 
 done:
     return hr;
@@ -163,11 +159,7 @@ TLSConnection::StartNextHandshake(MT_ClientHello* pClientHello)
     ** pending security negotation, but is not used for parsing any incoming
     ** records; the current connection does that.
     */
-    hr = InitializeConnection(NextConn());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(InitializeConnection(NextConn()));
 
 done:
     return hr;
@@ -190,26 +182,15 @@ TLSConnection::FinishNextHandshake()
     assert(NextConn()->IsHandshakeInProgress());
 
     // copy last bits of state
-    hr = NextConn()->CopyCommonParamsTo(CurrConn());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(NextConn()->CopyCommonParamsTo(CurrConn()));
 
     // reset it to blank, ready for the next handshake to start whenever
     *NextConn() = ConnectionParameters();
     assert(!NextConn()->IsHandshakeInProgress());
 
     // lets the app know it can start sending app data
-    hr = Listener()->OnHandshakeComplete();
-    if (FAILED(hr))
-    {
-        goto error;
-    }
-    else
-    {
-        hr = S_OK;
-    }
+    CHKSUC(Listener()->OnHandshakeComplete());
+    hr = S_OK;
 
 done:
     return hr;
@@ -241,31 +222,21 @@ TLSConnection::InitializeConnection(
     shared_ptr<Hasher> spClientHasher;
     shared_ptr<Hasher> spServerHasher;
 
-    hr = Listener()->OnInitializeCrypto(
+    CHKOK(Listener()->OnInitializeCrypto(
              &certChain,
              &spPubKeyCipherer,
              &spClientSymCipherer,
              &spServerSymCipherer,
              &spClientHasher,
-             &spServerHasher);
+             &spServerHasher));
 
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = pParams->Initialize(
+    CHKOK(pParams->Initialize(
              &certChain,
              spPubKeyCipherer,
              spClientSymCipherer,
              spServerSymCipherer,
              spClientHasher,
-             spServerHasher);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             spServerHasher));
 
 done:
     return hr;
@@ -315,28 +286,14 @@ TLSConnection::HandleMessage(
     ** be using null-encryption for now), so we don't yet have enough info to
     ** decrypt it.
     */
-    hr = ciphertext.ParseFromVect(pvb);
-    if (hr != S_OK)
-    {
-        wprintf(L"failed to parse ciphered message: %08LX\n", hr);
-        goto error;
-    }
+    CHKOK(ciphertext.ParseFromVect(pvb));
 
     wprintf(L"successfully parsed TLSCiphertext. CT=%d\n", *ciphertext.ContentType()->Type());
 
     // this supplies the necessary information to decrypt the message
-    hr = ciphertext.SetSecurityParameters(CurrConn()->ReadParams());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ciphertext.SetSecurityParameters(CurrConn()->ReadParams()));
 
-    hr = ciphertext.Decrypt();
-    if (hr != S_OK)
-    {
-        wprintf(L"failed to decrypt ciphertext: %08LX\n", hr);
-        goto error;
-    }
+    CHKOK(ciphertext.Decrypt());
 
     { // just logging
         ByteVector vbDecryptedFragment;
@@ -351,34 +308,21 @@ TLSConnection::HandleMessage(
     ** implementation, this means that something has gone horribly wrong on
     ** either the client (their) or server (our) side.
     */
-    hr = ciphertext.CheckSecurity();
-    if (hr != S_OK)
-    {
-        wprintf(L"tlsciphertext failed security check: %08LX\n", hr);
-        goto error;
-    }
+    CHKOK(ciphertext.CheckSecurity());
 
     // from here on, we operate on the plaintext version of the record
-    hr = ciphertext.ToTLSPlaintext(&plaintext);
-    if (hr != S_OK)
-    {
-        wprintf(L"failed to assign ciphertext to plaintext: %08LX\n", hr);
-        goto error;
-    }
+    CHKOK(ciphertext.ToTLSPlaintext(&plaintext));
 
     /*
     ** allow the app to know about the plaintext reciept, and whether it was
-    ** actually encrypted, as opposed to null-encrypted
+    ** actually encrypted, as opposed to null-encrypted.
     */
-    hr = Listener()->OnReceivingPlaintext(
+    CHKSUC(Listener()->OnReceivingPlaintext(
              &plaintext,
-             ciphertext.EndParams()->IsEncrypted());
+             ciphertext.EndParams()->IsEncrypted()));
 
-    // app could return "handled" or "ignored", or S_OK
-    if (FAILED(hr))
-    {
-        goto error;
-    }
+    // app could return "handled" or "ignored" or something non-fail
+    hr = S_OK;
 
     /*
     ** update the next IV, if we're using a block cipher. this can actually be
@@ -447,19 +391,11 @@ TLSConnection::HandleMessage(
             ** MT_Handshake
             */
             vector<MT_Handshake> vStructures;
-            hr = ParseStructures(plaintext.Fragment(), &vStructures);
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            CHKOK(ParseStructures(plaintext.Fragment(), &vStructures));
 
             for (auto it = vStructures.begin(); it != vStructures.end(); it++)
             {
-                hr = HandleHandshakeMessage(&(*it));
-                if (hr != S_OK)
-                {
-                   goto error;
-                }
+                CHKOK(HandleHandshakeMessage(&(*it)));
             }
 
             // sequence number is incremented AFTER processing a record
@@ -479,11 +415,7 @@ TLSConnection::HandleMessage(
         {
             // see note on first ParseStructures call about multiple structures
             vector<MT_ChangeCipherSpec> vStructures;
-            hr = ParseStructures(plaintext.Fragment(), &vStructures);
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            CHKOK(ParseStructures(plaintext.Fragment(), &vStructures));
 
             /*
             ** though we repeat this action for all the CCS messages, it's
@@ -518,11 +450,7 @@ TLSConnection::HandleMessage(
         {
             // see note on first ParseStructures call about multiple structures
             vector<MT_Alert> vStructures;
-            hr = ParseStructures(plaintext.Fragment(), &vStructures);
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            CHKOK(ParseStructures(plaintext.Fragment(), &vStructures));
 
             for (auto it = vStructures.begin(); it != vStructures.end(); it++)
             {
@@ -543,11 +471,8 @@ TLSConnection::HandleMessage(
             wprintf(L"application data:\n");
             PrintByteVector(plaintext.Fragment());
 
-            hr = Listener()->OnReceivedApplicationData(plaintext.Fragment());
-            if (FAILED(hr))
-            {
-                wprintf(L"warning: error in OnReceivedApplicationData with listener: %08LX\n", hr);
-            }
+            CHKSUC(Listener()->OnReceivedApplicationData(plaintext.Fragment()));
+            hr = S_OK;
 
             // sequence number is incremented AFTER processing a record
             (*CurrConn()->ReadParams()->SequenceNumber())++;
@@ -567,12 +492,7 @@ TLSConnection::HandleMessage(
     ** inform the app of any messages we've queued up in the course of handling
     ** this block of data
     */
-    hr = SendQueuedMessages();
-    if (hr != S_OK)
-    {
-        wprintf(L"failed sending pending messages: %08LX\n", hr);
-        goto error;
-    }
+    CHKOK(SendQueuedMessages());
 
     /*
     ** the ciphertext object represents the raw data in pvb that we consumed,
@@ -620,12 +540,7 @@ TLSConnection::HandleHandshakeMessage(
         {
             MT_ClientHello clientHello;
 
-            hr = clientHello.ParseFromVect(spHandshakeMessage->Body());
-            if (hr != S_OK)
-            {
-                wprintf(L"failed to parse client hello: %08LX\n", hr);
-                goto error;
-            }
+            CHKOK(clientHello.ParseFromVect(spHandshakeMessage->Body()));
 
             { // all logging stuff
                 wprintf(L"parsed client hello message:\n");
@@ -661,11 +576,7 @@ TLSConnection::HandleHandshakeMessage(
                 }
             } // end logging
 
-            hr = StartNextHandshake(&clientHello);
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            CHKOK(StartNextHandshake(&clientHello));
 
             // archive the message for the Finished hash later
             NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
@@ -678,12 +589,8 @@ TLSConnection::HandleHandshakeMessage(
             {
                 MT_ProtocolVersion protocolVersion = *clientHello.ClientVersion();
 
-                HRESULT hrL = Listener()->OnSelectProtocolVersion(&protocolVersion);
-                if (FAILED(hrL))
-                {
-                    hr = hrL;
-                    goto error;
-                }
+                CHKSUC(Listener()->OnSelectProtocolVersion(&protocolVersion));
+                hr = S_OK;
 
                 *NextConn()->ReadParams()->Version() = *protocolVersion.Version();
                 *NextConn()->WriteParams()->Version() = *protocolVersion.Version();
@@ -700,15 +607,10 @@ TLSConnection::HandleHandshakeMessage(
             {
                 MT_CipherSuite cipherSuite;
 
-                HRESULT hrL = Listener()->OnSelectCipherSuite(&clientHello, &cipherSuite);
-                if (FAILED(hrL))
-                {
-                    hr = hrL;
-                    goto error;
-                }
+                CHKSUC(Listener()->OnSelectCipherSuite(&clientHello, &cipherSuite));
 
                 // pick the library's preference out of the client list
-                if (hrL == MT_S_LISTENER_IGNORED)
+                if (hr == MT_S_LISTENER_IGNORED)
                 {
                     MT_CipherSuiteValue ePreferred;
                     vector<MT_CipherSuiteValue> vValues(NextConn()->ClientHello()->CipherSuites()->Count());
@@ -738,22 +640,19 @@ TLSConnection::HandleHandshakeMessage(
                         goto error;
                     }
 
-                    hr = ChooseBestCipherSuite(
+                    CHKOK(ChooseBestCipherSuite(
                              &vValues,
                              GetCipherSuitePreference(),
-                             &ePreferred);
+                             &ePreferred));
 
-                    if (hr != S_OK)
-                    {
-                        goto error;
-                    }
-
-                    hr = cipherSuite.SetValue(ePreferred);
-                    if (hr != S_OK)
-                    {
-                        goto error;
-                    }
+                    CHKOK(cipherSuite.SetValue(ePreferred));
                 }
+                else
+                {
+                    hr = S_OK;
+                }
+
+                assert(hr == S_OK);
 
                 /*
                 ** same cipher suite is always used for read and write.
@@ -779,13 +678,7 @@ TLSConnection::HandleHandshakeMessage(
             ** having recorded all that stuff and made some choices about
             ** protocol version and cipher suite, WELL ALLOW ME TO RETORT
             */
-            hr = RespondToClientHello();
-            if (hr != S_OK)
-            {
-                wprintf(L"failed RespondToClientHello: %08LX\n", hr);
-                goto error;
-
-            }
+            CHKOK(RespondToClientHello());
         }
         break;
 
@@ -817,12 +710,7 @@ TLSConnection::HandleHandshakeMessage(
             */
             assert(*NextConn()->ReadParams()->CipherSuite() == *NextConn()->WriteParams()->CipherSuite());
 
-            hr = NextConn()->ReadParams()->CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg);
-            if (hr != S_OK)
-            {
-                wprintf(L"failed to get key exchange algorithm: %08LX\n", hr);
-                goto error;
-            }
+            CHKOK(NextConn()->ReadParams()->CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg));
 
             if (keyExchangeAlg != MTKEA_rsa)
             {
@@ -831,12 +719,7 @@ TLSConnection::HandleHandshakeMessage(
                 goto error;
             }
 
-            hr = keyExchange.ParseFromVect(spHandshakeMessage->Body());
-            if (hr != S_OK)
-            {
-                wprintf(L"failed to parse key exchange message from handshake body: %08LX\n", hr);
-                goto error;
-            }
+            CHKOK(keyExchange.ParseFromVect(spHandshakeMessage->Body()));
 
             /*
             ** actually decrypt the structure using our public key
@@ -847,12 +730,7 @@ TLSConnection::HandleHandshakeMessage(
             ** pair)
             */
             pExchangeKeys = keyExchange.ExchangeKeys();
-            hr = pExchangeKeys->DecryptStructure(NextConn()->PubKeyCipherer()->get());
-            if (hr != S_OK)
-            {
-                wprintf(L"failed to decrypt structure: %08LX\n", hr);
-                goto error;
-            }
+            CHKOK(pExchangeKeys->DecryptStructure(NextConn()->PubKeyCipherer()->get()));
 
             // archive the message since it's good, for the Finished hash
             NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
@@ -862,12 +740,7 @@ TLSConnection::HandleHandshakeMessage(
             wprintf(L"version %04LX\n", *pSecret->ClientVersion()->Version());
 
             // generate a bunch of crypto material from this
-            hr = NextConn()->GenerateKeyMaterial(pSecret);
-            if (hr != S_OK)
-            {
-                wprintf(L"failed to compute master secret: %08LX\n", hr);
-                goto error;
-            }
+            CHKOK(NextConn()->GenerateKeyMaterial(pSecret));
 
             wprintf(L"computed master secret and key material:\n");
             PrintByteVector(NextConn()->MasterSecret());
@@ -889,34 +762,16 @@ TLSConnection::HandleHandshakeMessage(
         case MT_Handshake::MTH_Finished:
         {
             MT_Finished finishedMessage;
-            hr = finishedMessage.ParseFromVect(spHandshakeMessage->Body());
-            if (hr != S_OK)
-            {
-                wprintf(L"failed to parse finished message: %08LX\n", hr);
-                goto error;
-            }
+            CHKOK(finishedMessage.ParseFromVect(spHandshakeMessage->Body()));
 
             // used to access HandshakeMessages() for the hash calculation
-            hr = finishedMessage.SetConnectionParameters(NextConn());
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            CHKOK(finishedMessage.SetConnectionParameters(NextConn()));
 
             // used to decrypt the message
-            hr = finishedMessage.SetSecurityParameters(NextConn()->ReadParams());
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            CHKOK(finishedMessage.SetSecurityParameters(NextConn()->ReadParams()));
 
             // do the actual hash check
-            hr = finishedMessage.CheckSecurity();
-            if (hr != S_OK)
-            {
-                wprintf(L"security failed on finished message: %08LX\n", hr);
-                goto error;
-            }
+            CHKOK(finishedMessage.CheckSecurity());
 
             /*
             ** we have to store the verify data we received here to include
@@ -933,13 +788,7 @@ TLSConnection::HandleHandshakeMessage(
             NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
 
             // go ahead and do that response right now
-            hr = RespondToFinished();
-            if (hr != S_OK)
-            {
-                wprintf(L"failed RespondToFinished: %08LX\n", hr);
-                goto error;
-
-            }
+            CHKOK(RespondToFinished());
         }
         break;
 
@@ -977,15 +826,10 @@ TLSConnection::EnqueueMessage(
 
     shared_ptr<MT_TLSCiphertext> spCiphertext;
 
-    hr = MT_TLSCiphertext::FromTLSPlaintext(
+    CHKOK(MT_TLSCiphertext::FromTLSPlaintext(
              spPlaintext.get(),
              CurrConn()->WriteParams(),
-             &spCiphertext);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &spCiphertext));
 
     /*
     ** after the ciphetext is created, update the IV to be used on the next
@@ -1007,14 +851,9 @@ TLSConnection::EnqueueMessage(
     wprintf(L"write seq num is now %d\n", *CurrConn()->WriteParams()->SequenceNumber());
 
     // primarily used for logging by the app
-    hr = Listener()->OnEnqueuePlaintext(
+    CHKOK(Listener()->OnEnqueuePlaintext(
              spPlaintext.get(),
-             spCiphertext->EndParams()->IsEncrypted());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             spCiphertext->EndParams()->IsEncrypted()));
 
 done:
     return hr;
@@ -1110,11 +949,7 @@ TLSConnection::RespondToClientHello()
         // this was previously chosen by calling back to the app
         *protocolVersion.Version() = *NextConn()->ReadParams()->Version();
 
-        hr = random.PopulateNow();
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(random.PopulateNow());
 
         // no compression support for now
         *compressionMethod.Method() = MT_CompressionMethod::MTCM_Null;
@@ -1160,11 +995,7 @@ TLSConnection::RespondToClientHello()
             }
             // else, empty renegotiated info
 
-            hr = renegotiationExtension.SetRenegotiatedConnection(&rc);
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            CHKOK(renegotiationExtension.SetRenegotiatedConnection(&rc));
 
             extensions.Data()->push_back(renegotiationExtension);
         }
@@ -1198,22 +1029,13 @@ TLSConnection::RespondToClientHello()
         *NextConn()->ServerRandom() = *(serverHello.Random());
 
         *spHandshake->Type() = MT_Handshake::MTH_ServerHello;
-        hr = serverHello.SerializeToVect(spHandshake->Body());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(serverHello.SerializeToVect(spHandshake->Body()));
 
-        hr = CreatePlaintext(
+        CHKOK(CreatePlaintext(
                  MT_ContentType::MTCT_Type_Handshake,
                  *protocolVersion.Version(),
                  spHandshake.get(),
-                 spPlaintext.get());
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+                 spPlaintext.get()));
 
         NextConn()->HandshakeMessages()->push_back(spHandshake);
 
@@ -1235,11 +1057,7 @@ TLSConnection::RespondToClientHello()
         *certificate.CertificateList() = *NextConn()->CertChain();
         *spHandshake->Type() = MT_Handshake::MTH_Certificate;
 
-        hr = certificate.SerializeToVect(spHandshake->Body());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(certificate.SerializeToVect(spHandshake->Body()));
 
         hr = AddHandshakeMessage(
                  spHandshake.get(),
@@ -1255,11 +1073,7 @@ TLSConnection::RespondToClientHello()
         */
         if (hr == S_OK)
         {
-            hr = EnqueueMessage(spPlaintext);
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            CHKOK(EnqueueMessage(spPlaintext));
 
             // take ownership of memory allocated in AddHandshakeMessage
             spPlaintext.reset(pPlaintextPass);
@@ -1285,11 +1099,7 @@ TLSConnection::RespondToClientHello()
 
         *spHandshake->Type() = MT_Handshake::MTH_ServerHelloDone;
 
-        hr = serverHelloDone.SerializeToVect(spHandshake->Body());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(serverHelloDone.SerializeToVect(spHandshake->Body()));
 
         hr = AddHandshakeMessage(
                  spHandshake.get(),
@@ -1299,11 +1109,7 @@ TLSConnection::RespondToClientHello()
         // see above for comments at call to AddHandshakeMessage
         if (hr == S_OK)
         {
-            hr = EnqueueMessage(spPlaintext);
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+            CHKOK(EnqueueMessage(spPlaintext));
 
             spPlaintext.reset(pPlaintextPass);
         }
@@ -1312,11 +1118,7 @@ TLSConnection::RespondToClientHello()
             goto error;
         }
 
-        hr = EnqueueMessage(spPlaintext);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(EnqueueMessage(spPlaintext));
 
         NextConn()->HandshakeMessages()->push_back(spHandshake);
     }
@@ -1350,22 +1152,13 @@ TLSConnection::RespondToFinished()
 
         assert(*NextConn()->ReadParams()->Version() == *NextConn()->WriteParams()->Version());
 
-        hr = CreatePlaintext(
+        CHKOK(CreatePlaintext(
                  MT_ContentType::MTCT_Type_ChangeCipherSpec,
                  *NextConn()->ReadParams()->Version(),
                  &changeCipherSpec,
-                 spPlaintext.get());
+                 spPlaintext.get()));
 
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        hr = EnqueueMessage(spPlaintext);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(EnqueueMessage(spPlaintext));
 
         *CurrConn()->WriteParams() = *NextConn()->WriteParams();
 
@@ -1382,50 +1175,25 @@ TLSConnection::RespondToFinished()
         MT_Finished finished;
         shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
-        hr = finished.SetConnectionParameters(NextConn());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(finished.SetConnectionParameters(NextConn()));
 
-        hr = finished.SetSecurityParameters(CurrConn()->WriteParams());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(finished.SetSecurityParameters(CurrConn()->WriteParams()));
 
         // the payload is a hash of all of the handshake messages seen so far
-        hr = finished.ComputeVerifyData(c_szServerFinished_PRFLabel, finished.VerifyData()->Data());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(finished.ComputeVerifyData(c_szServerFinished_PRFLabel, finished.VerifyData()->Data()));
 
         *spHandshake->Type() = MT_Handshake::MTH_Finished;
-        hr = finished.SerializeToVect(spHandshake->Body());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(finished.SerializeToVect(spHandshake->Body()));
 
         assert(*CurrConn()->ReadParams()->Version() == *CurrConn()->WriteParams()->Version());
 
-        hr = CreatePlaintext(
+        CHKOK(CreatePlaintext(
                  MT_ContentType::MTCT_Type_Handshake,
                  *CurrConn()->WriteParams()->Version(),
                  spHandshake.get(),
-                 spPlaintext.get());
+                 spPlaintext.get()));
 
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        hr = EnqueueMessage(spPlaintext);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(EnqueueMessage(spPlaintext));
 
         // we archive the handshake message just cause, though it won't be used
         NextConn()->HandshakeMessages()->push_back(spHandshake);
@@ -1433,11 +1201,7 @@ TLSConnection::RespondToFinished()
         *NextConn()->ServerVerifyData() = *finished.VerifyData();
     }
 
-    hr = FinishNextHandshake();
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(FinishNextHandshake());
 
 done:
     return hr;
@@ -1477,11 +1241,7 @@ TLSConnection::AddHandshakeMessage(
 
     if (fCreateFlags & MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE)
     {
-        hr = pHandshake->SerializeAppendToVect((*ppPlaintext)->Fragment());
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(pHandshake->SerializeAppendToVect((*ppPlaintext)->Fragment()));
 
         // indicates that we reused the existing plaintext message
         hr = S_FALSE;
@@ -1490,16 +1250,11 @@ TLSConnection::AddHandshakeMessage(
     {
         *ppPlaintext = new MT_TLSPlaintext();
 
-        hr = CreatePlaintext(
+        CHKOK(CreatePlaintext(
                  MT_ContentType::MTCT_Type_Handshake,
                  version,
                  pHandshake,
-                 *ppPlaintext);
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+                 *ppPlaintext));
     }
 
 done:
@@ -1523,22 +1278,13 @@ TLSConnection::EnqueueSendApplicationData(
 
     assert(*CurrConn()->ReadParams()->Version() == *CurrConn()->WriteParams()->Version());
 
-    hr = CreatePlaintext(
+    CHKOK(CreatePlaintext(
              MT_ContentType::MTCT_Type_ApplicationData,
              *CurrConn()->WriteParams()->Version(),
              pvb,
-             spPlaintext.get());
+             spPlaintext.get()));
 
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = EnqueueMessage(spPlaintext);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(EnqueueMessage(spPlaintext));
 
 done:
     return hr;
@@ -1564,30 +1310,17 @@ TLSConnection::EnqueueStartRenegotiation()
     wprintf(L"starting renegotiation\n");
 
     *handshake.Type() = MT_Handshake::MTH_HelloRequest;
-    hr = helloRequest.SerializeToVect(handshake.Body());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(helloRequest.SerializeToVect(handshake.Body()));
 
     assert(*CurrConn()->ReadParams()->Version() == *CurrConn()->WriteParams()->Version());
 
-    hr = CreatePlaintext(
+    CHKOK(CreatePlaintext(
              MT_ContentType::MTCT_Type_Handshake,
              *CurrConn()->WriteParams()->Version(),
              &handshake,
-             spPlaintext.get());
+             spPlaintext.get()));
 
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = EnqueueMessage(spPlaintext);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(EnqueueMessage(spPlaintext));
 
 done:
     return hr;
@@ -1606,22 +1339,13 @@ TLSConnection::CreatePlaintext(
     HRESULT hr = S_OK;
 
     ByteVector vbFragment;
-    hr = pFragment->SerializeToVect(&vbFragment);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pFragment->SerializeToVect(&vbFragment));
 
-    hr = CreatePlaintext(
+    CHKOK(CreatePlaintext(
              eContentType,
              eProtocolVersion,
              &vbFragment,
-             pPlaintext);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pPlaintext));
 
 done:
     return hr;
@@ -1665,23 +1389,14 @@ TLSConnection::CreateCiphertext(
     HRESULT hr = S_OK;
     ByteVector vbFragment;
 
-    hr = pFragment->SerializeToVect(&vbFragment);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pFragment->SerializeToVect(&vbFragment));
 
-    hr = CreateCiphertext(
+    CHKOK(CreateCiphertext(
              eContentType,
              eProtocolVersion,
              &vbFragment,
              pEndParams,
-             pCiphertext);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pCiphertext));
 
 done:
     return hr;
@@ -1706,11 +1421,7 @@ TLSConnection::CreateCiphertext(
     assert(*pCiphertext->Conn() == nullptr);
     *pCiphertext->Conn() = this;
 
-    hr = pCiphertext->SetSecurityParameters(pEndParams);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pCiphertext->SetSecurityParameters(pEndParams));
 
     *contentType.Type() = eContentType;
     *pCiphertext->ContentType() = contentType;
@@ -1719,11 +1430,7 @@ TLSConnection::CreateCiphertext(
     *pCiphertext->ProtocolVersion() = protocolVersion;
     *pCiphertext->CipherFragment()->Content() = *pvbFragment;
 
-    hr = pCiphertext->Protect();
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pCiphertext->Protect());
 
 done:
     return hr;
@@ -1877,31 +1584,19 @@ EpochTimeFromSystemTime(
     ULARGE_INTEGER li1Jan1970 = {0};
 
     // convert system time object into a large integer
-    if (!SystemTimeToFileTime(pST, &ft))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+    CHKWIN(SystemTimeToFileTime(pST, &ft));
 
     pLI->LowPart = ft.dwLowDateTime;
     pLI->HighPart = ft.dwHighDateTime;
 
     // convert Jan 1 1970 into a large integer
-    if (!SystemTimeToFileTime(&st1Jan1970, &ft1Jan1970))
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-        goto error;
-    }
+    CHKWIN(SystemTimeToFileTime(&st1Jan1970, &ft1Jan1970));
 
     li1Jan1970.LowPart = ft1Jan1970.dwLowDateTime;
     li1Jan1970.HighPart = ft1Jan1970.dwHighDateTime;
 
     // subtract specified time object from Jan 1 1970 to get elapsed time
-    hr = ULongLongSub(pLI->QuadPart, li1Jan1970.QuadPart, &pLI->QuadPart);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ULongLongSub(pLI->QuadPart, li1Jan1970.QuadPart, &pLI->QuadPart));
 
     // convert from 100 ns to ms
     pLI->QuadPart /= 10000000ULL;
@@ -2193,39 +1888,21 @@ ConnectionParameters::Initialize(
 
     assert(ReadParams()->Cipher()->alg == CipherAlg_NULL);
 
-    hr = spClientSymCipherer->SetCipherInfo(
+    CHKOK(spClientSymCipherer->SetCipherInfo(
              ReadParams()->Key(),
-             ReadParams()->Cipher());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             ReadParams()->Cipher()));
 
 
     assert(WriteParams()->Cipher()->alg == CipherAlg_NULL);
 
-    hr = spServerSymCipherer->SetCipherInfo(
+    CHKOK(spServerSymCipherer->SetCipherInfo(
              WriteParams()->Key(),
-             WriteParams()->Cipher());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             WriteParams()->Cipher()));
 
 
-    hr = ReadParams()->Initialize(spClientSymCipherer, spClientHasher);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadParams()->Initialize(spClientSymCipherer, spClientHasher));
 
-    hr = WriteParams()->Initialize(spServerSymCipherer, spServerHasher);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteParams()->Initialize(spServerSymCipherer, spServerHasher));
 
 done:
     return hr;
@@ -2335,42 +2012,25 @@ ConnectionParameters::ComputeMasterSecret(
     ByteVector vbPreMasterSecret;
     ByteVector vbRandoms;
 
-    hr = pPreMasterSecret->SerializeToVect(&vbPreMasterSecret);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pPreMasterSecret->SerializeToVect(&vbPreMasterSecret));
 
     wprintf(L"premaster secret:\n");
     PrintByteVector(&vbPreMasterSecret);
 
-    hr = ClientRandom()->SerializeToVect(&vbRandoms);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ClientRandom()->SerializeToVect(&vbRandoms));
 
     assert(vbRandoms.size() == ClientRandom()->Length());
 
-    hr = ServerRandom()->SerializeAppendToVect(&vbRandoms);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ServerRandom()->SerializeAppendToVect(&vbRandoms));
 
     assert(vbRandoms.size() == ClientRandom()->Length() + ServerRandom()->Length());
 
-    hr = ComputePRF(
+    CHKOK(ComputePRF(
              &vbPreMasterSecret,
              c_szMasterSecret_PRFLabel,
              &vbRandoms,
              c_cbMasterSecret_Length,
-             MasterSecret());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             MasterSecret()));
 
     assert(MasterSecret()->size() == c_cbMasterSecret_Length);
 
@@ -2416,11 +2076,7 @@ ConnectionParameters::GenerateKeyMaterial(
 
     wprintf(L"gen key material\n");
 
-    hr = ComputeMasterSecret(pPreMasterSecret);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ComputeMasterSecret(pPreMasterSecret));
 
     // should only be called when cipher and hash are finalized
     assert(*ReadParams()->Cipher() == *WriteParams()->Cipher());
@@ -2441,32 +2097,19 @@ ConnectionParameters::GenerateKeyMaterial(
         ReadParams()->Cipher()->cbKeyMaterialSize,
         ReadParams()->Cipher()->cbIVSize);
 
-    hr = ServerRandom()->SerializeToVect(&vbRandoms);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ServerRandom()->SerializeToVect(&vbRandoms));
 
-    hr = ClientRandom()->SerializeAppendToVect(&vbRandoms);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ClientRandom()->SerializeAppendToVect(&vbRandoms));
 
     wprintf(L"randoms: (%d bytes)\n", vbRandoms.size());
     PrintByteVector(&vbRandoms);
 
-    hr = ComputePRF(
+    CHKOK(ComputePRF(
              MasterSecret(),
              c_szKeyExpansion_PRFLabel,
              &vbRandoms,
              cbKeyBlock,
-             &vbKeyBlock);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &vbKeyBlock));
 
     wprintf(L"key block:\n");
     PrintByteVector(&vbKeyBlock);
@@ -2524,23 +2167,13 @@ ConnectionParameters::GenerateKeyMaterial(
         assert(itKeyBlock == vbKeyBlock.end());
 
 
-        hr = (*ReadParams()->SymCipherer())->SetCipherInfo(
+        CHKOK((*ReadParams()->SymCipherer())->SetCipherInfo(
                  ReadParams()->Key(),
-                 ReadParams()->Cipher());
+                 ReadParams()->Cipher()));
 
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        hr = (*WriteParams()->SymCipherer())->SetCipherInfo(
+        CHKOK((*WriteParams()->SymCipherer())->SetCipherInfo(
                  WriteParams()->Key(),
-                 WriteParams()->Cipher());
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+                 WriteParams()->Cipher()));
     }
 
 done:
@@ -2606,18 +2239,13 @@ ComputePRF_TLS12(
     vbLabelAndSeed.assign(szLabel, szLabel + strlen(szLabel));
     vbLabelAndSeed.insert(vbLabelAndSeed.end(), pvbSeed->begin(), pvbSeed->end());
 
-    hr = PRF_P_hash(
+    CHKOK(PRF_P_hash(
              pHasher,
              &c_HashInfo_SHA256,
              pvbSecret,
              &vbLabelAndSeed,
              cbLengthDesired,
-             pvbPRF);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pvbPRF));
 
     assert(pvbPRF->size() >= cbLengthDesired);
     ResizeVector(pvbPRF, cbLengthDesired);
@@ -2714,32 +2342,22 @@ ComputePRF_TLS10(
     assert(vbS1.size() == vbS2.size());
 
     // get the MD5 hash
-    hr = PRF_P_hash(
+    CHKOK(PRF_P_hash(
              pHasher,
              &c_HashInfo_MD5,
              &vbS1,
              &vbLabelAndSeed,
              cbLengthDesired,
-             &vbS1_Expanded);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &vbS1_Expanded));
 
     // get the SHA1 hash
-    hr = PRF_P_hash(
+    CHKOK(PRF_P_hash(
              pHasher,
              &c_HashInfo_SHA1,
              &vbS2,
              &vbLabelAndSeed,
              cbLengthDesired,
-             &vbS2_Expanded);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &vbS2_Expanded));
 
     // PRF_P_hash can return more than we asked for. trim it down
     assert(vbS1_Expanded.size() >= cbLengthDesired);
@@ -2789,16 +2407,11 @@ PRF_A(
     {
         vbTemp = *pvbResult;
 
-        hr = pHasher->HMAC(
+        CHKOK(pHasher->HMAC(
                           pHashInfo,
                           pvbSecret,
                           &vbTemp,
-                          pvbResult);
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+                          pvbResult));
 
         i--;
     }
@@ -2848,32 +2461,22 @@ PRF_P_hash(
         ByteVector vbIteration;
         ByteVector vbInnerSeed;
 
-        hr = PRF_A(
+        CHKOK(PRF_A(
                  pHasher,
                  pHashInfo,
                  i,
                  pvbSecret,
                  pvbSeed,
-                 &vbInnerSeed);
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+                 &vbInnerSeed));
 
         // A(i) + seed
         vbInnerSeed.insert(vbInnerSeed.end(), pvbSeed->begin(), pvbSeed->end());
 
-        hr = pHasher->HMAC(
+        CHKOK(pHasher->HMAC(
                           pHashInfo,
                           pvbSecret,
                           &vbInnerSeed,
-                          &vbIteration);
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+                          &vbIteration));
 
         // append each iteration's new data
         pvbResult->insert(pvbResult->end(), vbIteration.begin(), vbIteration.end());
@@ -2909,11 +2512,7 @@ CryptoInfoFromCipherSuite(
         goto error;
     }
 
-    hr = pCipherSuite->Value(&eCSV);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pCipherSuite->Value(&eCSV));
 
     if (pHashInfo != nullptr)
     {
@@ -3144,11 +2743,7 @@ MT_VariableLengthField
     size_t cbField = LengthFieldSize;
     size_t cbTotalElementsSize = 0;
 
-    hr = ReadNetworkLong(pv, cb, cbField, &cbTotalElementsSize);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, &cbTotalElementsSize));
 
     ADVANCE_PARSE();
 
@@ -3178,11 +2773,7 @@ MT_VariableLengthField
         ** the overall vector declares that it's only taking up
         ** cbTotalElementsSize bytes, so don't consume anything beyond that.
         */
-        hr = elem.ParseFrom(pv, cbTotalElementsSize);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(elem.ParseFrom(pv, cbTotalElementsSize));
 
         Data()->push_back(elem);
 
@@ -3190,10 +2781,6 @@ MT_VariableLengthField
         cbField = elem.Length();
         ADVANCE_PARSE();
         SAFE_SUB(hr, cbTotalElementsSize, cbField);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
     }
 
 done:
@@ -3244,21 +2831,13 @@ MT_VariableLengthField
     HRESULT hr = S_OK;
     size_t cbField = LengthFieldSize;
 
-    hr = WriteNetworkLong(DataLength(), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(DataLength(), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
     for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
     {
-        hr = iter->Serialize(pv, cb);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(iter->Serialize(pv, cb));
 
         cbField = iter->Length();
         ADVANCE_PARSE();
@@ -3290,11 +2869,7 @@ MT_VariableLengthByteField
     size_t cbField = LengthFieldSize;
     size_t cbDataLength = 0;
 
-    hr = ReadNetworkLong(pv, cb, cbField, &cbDataLength);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, &cbDataLength));
 
     ADVANCE_PARSE();
 
@@ -3357,11 +2932,7 @@ MT_VariableLengthByteField
     HRESULT hr = S_OK;
     size_t cbField = LengthFieldSize;
 
-    hr = WriteNetworkLong(DataLength(), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(DataLength(), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -3431,11 +3002,7 @@ MT_FixedLengthStructure<F, Size>::ParseFromPriv(
     while (cbTotalElementsSize > 0)
     {
         F elem;
-        hr = elem.ParseFrom(pv, cbTotalElementsSize);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(elem.ParseFrom(pv, cbTotalElementsSize));
 
         Data()->push_back(elem);
 
@@ -3444,10 +3011,6 @@ MT_FixedLengthStructure<F, Size>::ParseFromPriv(
         ADVANCE_PARSE();
 
         SAFE_SUB(hr, cbTotalElementsSize, cbField);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
     }
 
     assert(Length() == Size);
@@ -3470,11 +3033,7 @@ MT_FixedLengthStructure<F, Size>::SerializePriv(
 
     for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
     {
-        hr = iter->Serialize(pv, cb);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(iter->Serialize(pv, cb));
 
         size_t cbField = iter->Length();
         ADVANCE_PARSE();
@@ -3594,11 +3153,7 @@ MT_PublicKeyEncryptedStructure<T>::ParseFromPriv(
     size_t cbField = c_cbPublicKeyEncrypted_LFL;
     size_t cbStructureLength = 0;
 
-    hr = ReadNetworkLong(pv, cb, cbField, &cbStructureLength);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, &cbStructureLength));
 
     ADVANCE_PARSE();
 
@@ -3636,20 +3191,11 @@ MT_PublicKeyEncryptedStructure<T>::DecryptStructure(
     HRESULT hr = S_OK;
     PlaintextStructure()->clear();
 
-    hr = pCipherer->DecryptBufferWithPrivateKey(
+    CHKOK(pCipherer->DecryptBufferWithPrivateKey(
              EncryptedStructure(),
-             PlaintextStructure());
+             PlaintextStructure()));
 
-    if (hr != S_OK)
-    {
-        goto error;
-    }
-
-    hr = Structure()->ParseFromVect(PlaintextStructure());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Structure()->ParseFromVect(PlaintextStructure()));
 
 done:
     return hr;
@@ -3680,31 +3226,19 @@ MT_RecordLayerMessage::ParseFromPriv(
     size_t cbField = 0;
     size_t cbFragmentLength = 0;
 
-    hr = ContentType()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ContentType()->ParseFrom(pv, cb));
 
     cbField = ContentType()->Length();
     ADVANCE_PARSE();
 
-    hr = ProtocolVersion()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ProtocolVersion()->ParseFrom(pv, cb));
 
     cbField = ProtocolVersion()->Length();
     ADVANCE_PARSE();
 
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
-    hr = ReadNetworkLong(pv, cb, cbField, &cbFragmentLength);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, &cbFragmentLength));
 
     ADVANCE_PARSE();
 
@@ -3754,29 +3288,17 @@ MT_RecordLayerMessage::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = ContentType()->Length();
 
-    hr = ContentType()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ContentType()->Serialize(pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = ProtocolVersion()->Length();
-    hr = ProtocolVersion()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ProtocolVersion()->Serialize(pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
-    hr = WriteNetworkLong(PayloadLength(), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(PayloadLength(), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -3822,11 +3344,7 @@ MT_TLSCiphertext::SetSecurityParameters(
 {
     HRESULT hr = S_OK;
 
-    hr = MT_Securable::SetSecurityParameters(pEndParams);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(MT_Securable::SetSecurityParameters(pEndParams));
 
     switch (EndParams()->Cipher()->type)
     {
@@ -3877,11 +3395,7 @@ MT_TLSCiphertext::SetSecurityParameters(
     }
 
     // propagate down the endpoint parameters to the fragment
-    hr = CipherFragment()->SetSecurityParameters(EndParams());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(CipherFragment()->SetSecurityParameters(EndParams()));
 
 done:
     return hr;
@@ -3901,11 +3415,7 @@ MT_TLSCiphertext::Decrypt()
     ** TLSCiphertext--no more, no less--because CipherFragment itself has no
     ** way to validate the length. it just accepts everything it's given
     */
-    hr = CipherFragment()->ParseFromVect(Fragment());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(CipherFragment()->ParseFromVect(Fragment()));
 
 done:
     return hr;
@@ -3945,17 +3455,12 @@ MT_TLSCiphertext::FromTLSPlaintext(
 
     pspCiphertext->reset(new MT_TLSCiphertext());
 
-    hr = (*pPlaintext->Conn())->CreateCiphertext(
+    CHKOK((*pPlaintext->Conn())->CreateCiphertext(
              *pPlaintext->ContentType()->Type(),
              *pPlaintext->ProtocolVersion()->Version(),
              pPlaintext->Fragment(),
              pEndParams,
-             pspCiphertext->get());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pspCiphertext->get()));
 
 done:
     return hr;
@@ -3976,17 +3481,9 @@ MT_TLSCiphertext::Protect()
              *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11 ||
              *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)));
 
-    hr = CipherFragment()->UpdateWriteSecurity();
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(CipherFragment()->UpdateWriteSecurity());
 
-    hr = CipherFragment()->SerializeToVect(Fragment());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(CipherFragment()->SerializeToVect(Fragment()));
 
 done:
     return hr;
@@ -4060,11 +3557,7 @@ MT_TLSCiphertext::CheckSecurityPriv()
              *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11 ||
              *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)));
 
-    hr = CipherFragment()->CheckSecurity();
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(CipherFragment()->CheckSecurity());
 
 done:
     return hr;
@@ -4120,11 +3613,7 @@ MT_ContentType::ParseFromPriv(
 
     assert(Length() == c_cbContentType_Length);
 
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<BYTE*>(Type()));
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<BYTE*>(Type())));
 
     ADVANCE_PARSE();
 
@@ -4146,11 +3635,7 @@ MT_ContentType::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbContentType_Length);
 
-    hr = WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -4208,11 +3693,7 @@ MT_ProtocolVersion::ParseFromPriv(
 
     assert(Length() == c_cbProtocolVersion_Length);
 
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Version()));
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Version())));
 
     ADVANCE_PARSE();
 
@@ -4239,11 +3720,7 @@ MT_ProtocolVersion::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbProtocolVersion_Length);
 
-    hr = WriteNetworkLong(static_cast<ULONG>(*Version()), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Version()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -4284,11 +3761,7 @@ MT_Handshake::ParseFromPriv(
     size_t cbField = c_cbHandshakeType_Length;
     size_t cbPayloadLength = 0;
 
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type()));
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type())));
 
     if (!IsKnownType(*Type()))
     {
@@ -4298,11 +3771,7 @@ MT_Handshake::ParseFromPriv(
     ADVANCE_PARSE();
 
     cbField = c_cbHandshake_LFL;
-    hr = ReadNetworkLong(pv, cb, cbField, &cbPayloadLength);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, &cbPayloadLength));
 
     ADVANCE_PARSE();
 
@@ -4364,20 +3833,12 @@ MT_Handshake::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = c_cbHandshakeType_Length;
 
-    hr = WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = c_cbHandshake_LFL;
-    hr = WriteNetworkLong(PayloadLength(), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(PayloadLength(), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -4471,19 +3932,11 @@ MT_Random::ParseFromPriv(
     HRESULT hr = S_OK;
 
     size_t cbField = c_cbRandomTime_Length;
-    hr = ReadNetworkLong(pv, cb, cbField, &m_timestamp);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, &m_timestamp));
 
     ADVANCE_PARSE();
 
-    hr = RandomBytes()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(RandomBytes()->ParseFrom(pv, cb));
 
     cbField = RandomBytes()->Length();
     ADVANCE_PARSE();
@@ -4504,20 +3957,12 @@ MT_Random::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = c_cbRandomTime_Length;
 
-    hr = WriteNetworkLong(*GMTUnixTime(), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(*GMTUnixTime(), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = RandomBytes()->Length();
-    hr = RandomBytes()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(RandomBytes()->Serialize(pv, cb));
 
     ADVANCE_PARSE();
 
@@ -4537,19 +3982,10 @@ MT_Random::PopulateNow()
     GetSystemTime(&st);
 
     ULARGE_INTEGER li = {0};
-    hr = EpochTimeFromSystemTime(&st, &li);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(EpochTimeFromSystemTime(&st, &li));
 
     MT_UINT32 t = 0;
-    hr = ULongLongToULong(li.QuadPart, &t);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ULongLongToULong(li.QuadPart, &t));
 
     *GMTUnixTime() = t;
 
@@ -4557,12 +3993,7 @@ MT_Random::PopulateNow()
     ResizeVector(RandomBytes()->Data(), c_cbRandomBytes_Length);
 
     /* or else could fill with actual random bytes
-    hr = WriteRandomBytes(&RandomBytes()->front(), RandomBytes()->size());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteRandomBytes(&RandomBytes()->front(), RandomBytes()->size()));
     */
 
 done:
@@ -4595,56 +4026,32 @@ MT_ClientHello::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    hr = ClientVersion()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ClientVersion()->ParseFrom(pv, cb));
 
     cbField = ClientVersion()->Length();
     ADVANCE_PARSE();
 
-    hr = Random()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Random()->ParseFrom(pv, cb));
 
     cbField = Random()->Length();
     ADVANCE_PARSE();
 
-    hr = SessionID()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SessionID()->ParseFrom(pv, cb));
 
     cbField = SessionID()->Length();
     ADVANCE_PARSE();
 
-    hr = CipherSuites()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(CipherSuites()->ParseFrom(pv, cb));
 
     cbField = CipherSuites()->Length();
     ADVANCE_PARSE();
 
-    hr = CompressionMethods()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(CompressionMethods()->ParseFrom(pv, cb));
 
     cbField = CompressionMethods()->Length();
     ADVANCE_PARSE();
 
-    hr = Extensions()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Extensions()->ParseFrom(pv, cb));
 
     cbField = Extensions()->Length();
     ADVANCE_PARSE();
@@ -4688,11 +4095,7 @@ MT_CompressionMethod::ParseFromPriv(
 
     assert(Length() == c_cbCompressionMethod_Length);
 
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Method()));
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Method())));
 
     if (*Method() != MTCM_Null)
     {
@@ -4718,12 +4121,7 @@ MT_CompressionMethod::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbCompressionMethod_Length);
 
-    hr = WriteNetworkLong(static_cast<ULONG>(*Method()), cbField, pv, cb);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Method()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -4773,58 +4171,34 @@ MT_ServerHello::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = ServerVersion()->Length();
 
-    hr = ServerVersion()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ServerVersion()->Serialize(pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = Random()->Length();
-    hr = Random()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Random()->Serialize(pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = SessionID()->Length();
-    hr = SessionID()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SessionID()->Serialize(pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = CipherSuite()->Length();
-    hr = CipherSuite()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(CipherSuite()->Serialize(pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = CompressionMethod()->Length();
-    hr = CompressionMethod()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(CompressionMethod()->Serialize(pv, cb));
 
     ADVANCE_PARSE();
 
     if (Extensions()->Count() > 0)
     {
         cbField = Extensions()->Length();
-        hr = Extensions()->Serialize(pv, cb);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(Extensions()->Serialize(pv, cb));
 
         ADVANCE_PARSE();
     }
@@ -4852,11 +4226,7 @@ MT_Certificate::SerializePriv(
 {
     HRESULT hr = S_OK;
 
-    hr = CertificateList()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(CertificateList()->Serialize(pv, cb));
 
 done:
     return hr;
@@ -4886,11 +4256,7 @@ MT_SessionID::PopulateWithRandom()
 
     ResizeVector(Data(), MaxLength());
 
-    hr = WriteRandomBytes(&Data()->front(), Data()->size());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteRandomBytes(&Data()->front(), Data()->size()));
 
 done:
     return hr;
@@ -4917,20 +4283,12 @@ MT_PreMasterSecret::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    hr = ClientVersion()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ClientVersion()->ParseFrom(pv, cb));
 
     cbField = ClientVersion()->Length();
     ADVANCE_PARSE();
 
-    hr = Random()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Random()->ParseFrom(pv, cb));
 
     cbField = Random()->Length();
     ADVANCE_PARSE();
@@ -4951,20 +4309,12 @@ MT_PreMasterSecret::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    hr = ClientVersion()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ClientVersion()->Serialize(pv, cb));
 
     cbField = ClientVersion()->Length();
     ADVANCE_PARSE();
 
-    hr = Random()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Random()->Serialize(pv, cb));
 
     cbField = Random()->Length();
     ADVANCE_PARSE();
@@ -5010,11 +4360,7 @@ MT_CipherSuite::KeyExchangeAlgorithm(
     HRESULT hr = S_OK;
     MT_CipherSuiteValue eCSV;
 
-    hr = Value(&eCSV);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Value(&eCSV));
 
     switch (eCSV)
     {
@@ -5049,23 +4395,25 @@ MT_CipherSuite::Value(
     MT_CipherSuiteValue* peValue
 ) const
 {
+    HRESULT hr = S_OK;
     MT_CipherSuiteValue cs;
 
     assert(Data()->size() <= sizeof(cs));
     assert(Data()->size() == c_cbCipherSuite_Length);
 
-    HRESULT hr = ReadNetworkLong(
+    CHKOK(ReadNetworkLong(
                      &Data()->front(),
                      Data()->size(),
                      Data()->size(),
-                     reinterpret_cast<ULONG*>(&cs));
+                     reinterpret_cast<ULONG*>(&cs)));
 
-    if (hr == S_OK)
-    {
-        *peValue = cs;
-    }
+    *peValue = cs;
 
+done:
     return hr;
+
+error:
+    goto done;
 } // end function Value
 
 HRESULT
@@ -5077,16 +4425,11 @@ MT_CipherSuite::SetValue(
 
     ResizeVector(Data(), c_cbCipherSuite_Length);
 
-    hr = WriteNetworkLong(
+    CHKOK(WriteNetworkLong(
              static_cast<ULONG>(eValue),
              Data()->size(),
              &Data()->front(),
-             Data()->size());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             Data()->size()));
 
 done:
     return hr;
@@ -5205,11 +4548,7 @@ MT_ClientKeyExchange<KeyType>::ParseFromPriv(
 
     m_spExchangeKeys = shared_ptr<KeyType>(new KeyType());
 
-    hr = ExchangeKeys()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ExchangeKeys()->ParseFrom(pv, cb));
 
     cbField = ExchangeKeys()->Length();
     ADVANCE_PARSE();
@@ -5240,11 +4579,7 @@ MT_ChangeCipherSpec::ParseFromPriv(
 
     assert(Length() == c_cbChangeCipherSpec_Length);
 
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type()));
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type())));
 
     if (*Type() != MTCCS_ChangeCipherSpec)
     {
@@ -5270,11 +4605,7 @@ MT_ChangeCipherSpec::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbChangeCipherSpec_Length);
 
-    hr = WriteNetworkLong(static_cast<BYTE>(*Type()), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(static_cast<BYTE>(*Type()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -5303,19 +4634,11 @@ MT_Extension::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = c_cbExtensionType_Length;
 
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(ExtensionType()));
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(ExtensionType())));
 
     ADVANCE_PARSE();
 
-    hr = ExtensionData()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ExtensionData()->ParseFrom(pv, cb));
 
     cbField = ExtensionData()->Length();
     ADVANCE_PARSE();
@@ -5345,19 +4668,11 @@ MT_Extension::SerializePriv(
     size_t cbField = 0;
 
     cbField = c_cbExtensionType_Length;
-    hr = WriteNetworkLong(static_cast<ULONG>(*ExtensionType()), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(static_cast<ULONG>(*ExtensionType()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
-    hr = ExtensionData()->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ExtensionData()->Serialize(pv, cb));
 
     cbField = ExtensionData()->Length();
     ADVANCE_PARSE();
@@ -5409,14 +4724,9 @@ MT_Finished::CheckSecurityPriv()
 
     ByteVector vbComputedVerifyData;
 
-    hr = ComputeVerifyData(
+    CHKOK(ComputeVerifyData(
              c_szClientFinished_PRFLabel,
-             &vbComputedVerifyData);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &vbComputedVerifyData));
 
     wprintf(L"Received Finished hash:\n");
     PrintByteVector(VerifyData()->Data());
@@ -5471,15 +4781,10 @@ MT_Finished::ComputeVerifyData(
         );
     }
 
-    hr = SerializeMessagesToVector<MT_Structure>(
+    CHKOK(SerializeMessagesToVector<MT_Structure>(
              ConnParams()->HandshakeMessages()->begin(),
              ConnParams()->HandshakeMessages()->end(),
-             &vbHandshakeMessages);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &vbHandshakeMessages));
 
     switch (*EndParams()->Version())
     {
@@ -5491,26 +4796,16 @@ MT_Finished::ComputeVerifyData(
             ByteVector vbHandshakeHash;
 
             // MD5 hash
-            hr = (*EndParams()->HashInst())->Hash(
+            CHKOK((*EndParams()->HashInst())->Hash(
                      &c_HashInfo_MD5,
                      &vbHandshakeMessages,
-                     &vbMD5HandshakeHash);
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+                     &vbMD5HandshakeHash));
 
             // SHA1 hash
-            hr = (*EndParams()->HashInst())->Hash(
+            CHKOK((*EndParams()->HashInst())->Hash(
                      &c_HashInfo_SHA1,
                      &vbHandshakeMessages,
-                     &vbSHA1HandshakeHash);
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+                     &vbSHA1HandshakeHash));
 
             // concatenate
             vbHashedHandshakeMessages = vbMD5HandshakeHash;
@@ -5524,15 +4819,10 @@ MT_Finished::ComputeVerifyData(
         // TLS 1.2 just uses a SHA-256 hash
         case MT_ProtocolVersion::MTPV_TLS12:
         {
-            hr = (*EndParams()->HashInst())->Hash(
+            CHKOK((*EndParams()->HashInst())->Hash(
                      &c_HashInfo_SHA256,
                      &vbHandshakeMessages,
-                     &vbHashedHandshakeMessages);
-
-            if (hr != S_OK)
-            {
-                goto error;
-            }
+                     &vbHashedHandshakeMessages));
         }
         break;
 
@@ -5545,17 +4835,12 @@ MT_Finished::ComputeVerifyData(
         break;
     }
 
-    hr = ConnParams()->ComputePRF(
+    CHKOK(ConnParams()->ComputePRF(
              ConnParams()->MasterSecret(),
              szLabel,
              &vbHashedHandshakeMessages,
              c_cbFinishedVerifyData_Length,
-             pvbVerifyData);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pvbVerifyData));
 
     printf("Computed Finished hash with label \"%s\":\n", szLabel);
     PrintByteVector(pvbVerifyData);
@@ -5667,25 +4952,16 @@ MT_GenericStreamCipher::ParseFromPriv(
     size_t cbField = 0;
     ByteVector vbDecryptedStruct;
 
-    hr = MT_CipherFragment::ParseFromPriv(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(MT_CipherFragment::ParseFromPriv(pv, cb));
 
     /*
     ** we have to be careful only to call this when we mean it, or else it
     ** changes the internal state of the cipherer down in cryptapi
     */
-    hr = (*EndParams()->SymCipherer())->DecryptBuffer(
+    CHKOK((*EndParams()->SymCipherer())->DecryptBuffer(
              RawContent(),
              nullptr, // no IV for stream ciphers
-             &vbDecryptedStruct);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &vbDecryptedStruct));
 
     // once we have the plaintext, start over the parsing
     pv = &vbDecryptedStruct.front();
@@ -5728,17 +5004,12 @@ MT_GenericStreamCipher::UpdateWriteSecurity()
     ByteVector vbPlaintextStruct;
 
     // get the MAC to attach to this message
-    hr = ComputeSecurityInfo(
+    CHKOK(ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
               Ciphertext()->ContentType(),
               Ciphertext()->ProtocolVersion(),
-              MAC());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+              MAC()));
 
     assert(MAC()->size() == EndParams()->Hash()->cbHashSize);
 
@@ -5762,15 +5033,10 @@ MT_GenericStreamCipher::UpdateWriteSecurity()
 
     assert(cb == 0);
 
-    hr = (*EndParams()->SymCipherer())->EncryptBuffer(
+    CHKOK((*EndParams()->SymCipherer())->EncryptBuffer(
              &vbPlaintextStruct,
              nullptr, // no IV for stream cipher
-             RawContent());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             RawContent()));
 
     assert(!RawContent()->empty());
 
@@ -5829,48 +5095,30 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
     wprintf(L"sequence number: %d\n", sequenceNumber);
 
     cbField = c_cbSequenceNumber_Length;
-    hr = WriteNetworkLong(
+    CHKOK(WriteNetworkLong(
              sequenceNumber,
              cbField,
              pv,
-             cb);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             cb));
 
     ADVANCE_PARSE();
 
-    hr = pContentType->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pContentType->Serialize(pv, cb));
 
     cbField = pContentType->Length();
     ADVANCE_PARSE();
 
-    hr = pProtocolVersion->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pProtocolVersion->Serialize(pv, cb));
 
     cbField = pProtocolVersion->Length();
     ADVANCE_PARSE();
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
-    hr = WriteNetworkLong(
+    CHKOK(WriteNetworkLong(
              Content()->size(),
              cbField,
              pv,
-             cb);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             cb));
 
     ADVANCE_PARSE();
 
@@ -5883,16 +5131,11 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
     wprintf(L"MAC hash text:\n");
     PrintByteVector(&vbHashText);
 
-    hr = (*EndParams()->HashInst())->HMAC(
+    CHKOK((*EndParams()->HashInst())->HMAC(
              pHashInfo,
              pvbMACKey,
              &vbHashText,
-             pvbMAC);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pvbMAC));
 
     assert(pvbMAC->size() == pHashInfo->cbHashSize);
 
@@ -5911,23 +5154,14 @@ MT_GenericStreamCipher::CheckSecurityPriv()
     ByteVector vbMAC;
     MT_ProtocolVersion hashVersion;
 
-    hr = Ciphertext()->GetProtocolVersionForSecurity(&hashVersion);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Ciphertext()->GetProtocolVersionForSecurity(&hashVersion));
 
-    hr = ComputeSecurityInfo(
+    CHKOK(ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
               Ciphertext()->ContentType(),
               &hashVersion,
-              &vbMAC);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+              &vbMAC));
 
     wprintf(L"received MAC:\n");
     PrintByteVector(MAC());
@@ -5972,25 +5206,16 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
     size_t cbField = 0;
     ByteVector vbDecryptedStruct;
 
-    hr = MT_CipherFragment::ParseFromPriv(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(MT_CipherFragment::ParseFromPriv(pv, cb));
 
     /*
     ** we have to be careful only to call this when we mean it, or else it
     ** changes the internal state of the cipherer
     */
-    hr = (*EndParams()->SymCipherer())->DecryptBuffer(
+    CHKOK((*EndParams()->SymCipherer())->DecryptBuffer(
              RawContent(),
              EndParams()->IV(),
-             &vbDecryptedStruct);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &vbDecryptedStruct));
 
     // now restart the parsing with the decrypted content
     pv = &vbDecryptedStruct.front();
@@ -6005,11 +5230,7 @@ MT_GenericBlockCipher_TLS10::ParseFromPriv(
         goto error;
     }
 
-    hr = ReadNetworkLong(pvEnd, cbField, cbField, &cbPaddingLength);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pvEnd, cbField, cbField, &cbPaddingLength));
 
     // not advancing pv, only changing cb (how much is left to parse)
     SAFE_SUB(hr, cb, cbField);
@@ -6095,18 +5316,13 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity()
     size_t cbField = 0;
     ByteVector vbPlaintextContent;
 
-    hr = ComputeSecurityInfo(
+    CHKOK(ComputeSecurityInfo(
              *EndParams()->SequenceNumber(),
              EndParams()->MACKey(),
              Ciphertext()->ContentType(),
              Ciphertext()->ProtocolVersion(),
              MAC(),
-             Padding());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             Padding()));
 
     assert(MAC()->size() == EndParams()->Hash()->cbHashSize);
 
@@ -6150,25 +5366,16 @@ MT_GenericBlockCipher_TLS10::UpdateWriteSecurity()
     ADVANCE_PARSE();
 
     cbField = c_cbGenericBlockCipher_Padding_LFL;
-    hr = WriteNetworkLong(PaddingLength(), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(PaddingLength(), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
     assert(cb == 0);
 
-    hr = (*EndParams()->SymCipherer())->EncryptBuffer(
+    CHKOK((*EndParams()->SymCipherer())->EncryptBuffer(
              &vbPlaintextContent,
              EndParams()->IV(),
-             RawContent());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             RawContent()));
 
     assert(!RawContent()->empty());
 
@@ -6226,48 +5433,30 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
     wprintf(L"sequence number: %d\n", sequenceNumber);
 
     cbField = c_cbSequenceNumber_Length;
-    hr = WriteNetworkLong(
+    CHKOK(WriteNetworkLong(
              sequenceNumber,
              cbField,
              pv,
-             cb);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             cb));
 
     ADVANCE_PARSE();
 
-    hr = pContentType->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pContentType->Serialize(pv, cb));
 
     cbField = pContentType->Length();
     ADVANCE_PARSE();
 
-    hr = pProtocolVersion->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pProtocolVersion->Serialize(pv, cb));
 
     cbField = pProtocolVersion->Length();
     ADVANCE_PARSE();
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
-    hr = WriteNetworkLong(
+    CHKOK(WriteNetworkLong(
              Content()->size(),
              cbField,
              pv,
-             cb);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             cb));
 
     ADVANCE_PARSE();
 
@@ -6281,16 +5470,11 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
     wprintf(L"MAC hash text:\n");
     PrintByteVector(&vbHashText);
 
-    hr = (*EndParams()->HashInst())->HMAC(
+    CHKOK((*EndParams()->HashInst())->HMAC(
              pHashInfo,
              pvbMACKey,
              &vbHashText,
-             pvbMAC);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pvbMAC));
 
     assert(pvbMAC->size() == pHashInfo->cbHashSize);
 
@@ -6315,11 +5499,7 @@ MT_GenericBlockCipher_TLS10::ComputeSecurityInfo(
                                  cbUnpaddedBlockLength -
                                  c_cbGenericBlockCipher_Padding_LFL;
         BYTE b = 0;
-        hr = SizeTToByte(cbPaddingLength, &b);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(SizeTToByte(cbPaddingLength, &b));
 
         assert(b == cbPaddingLength);
 
@@ -6352,24 +5532,15 @@ MT_GenericBlockCipher_TLS10::CheckSecurityPriv()
     ByteVector vbPadding;
     MT_ProtocolVersion hashVersion;
 
-    hr = Ciphertext()->GetProtocolVersionForSecurity(&hashVersion);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Ciphertext()->GetProtocolVersionForSecurity(&hashVersion));
 
-    hr = ComputeSecurityInfo(
+    CHKOK(ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
               Ciphertext()->ContentType(),
               &hashVersion,
               &vbMAC,
-              &vbPadding);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+              &vbPadding));
 
     wprintf(L"received MAC:\n");
     PrintByteVector(MAC());
@@ -6428,11 +5599,7 @@ MT_GenericBlockCipher_TLS11::ParseFromPriv(
     ByteVector vbEncryptedStruct;
     ByteVector vbDecryptedStruct;
 
-    hr = MT_CipherFragment::ParseFromPriv(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(MT_CipherFragment::ParseFromPriv(pv, cb));
 
     /*
     ** the IV is sent in the clear just in front of the ciphertext, which is
@@ -6460,15 +5627,10 @@ MT_GenericBlockCipher_TLS11::ParseFromPriv(
 
     vbEncryptedStruct.assign(pv, pv + cb);
 
-    hr = (*EndParams()->SymCipherer())->DecryptBuffer(
+    CHKOK((*EndParams()->SymCipherer())->DecryptBuffer(
              &vbEncryptedStruct,
              IV(),
-             &vbDecryptedStruct);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &vbDecryptedStruct));
 
     // re-set pv and cb for parsing out the rest from the plaintext
     pv = &vbDecryptedStruct.front();
@@ -6483,11 +5645,7 @@ MT_GenericBlockCipher_TLS11::ParseFromPriv(
         goto error;
     }
 
-    hr = ReadNetworkLong(pvEnd, cbField, cbField, &cbPaddingLength);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pvEnd, cbField, cbField, &cbPaddingLength));
 
     cb -= cbField;
     pvEnd -= cbField;
@@ -6545,18 +5703,13 @@ MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
 
     *IV() = *EndParams()->IV();
 
-    hr = ComputeSecurityInfo(
+    CHKOK(ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
               Ciphertext()->ContentType(),
               Ciphertext()->ProtocolVersion(),
               MAC(),
-              Padding());
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+              Padding()));
 
     assert(MAC()->size() == EndParams()->Hash()->cbHashSize);
 
@@ -6601,25 +5754,16 @@ MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
     ADVANCE_PARSE();
 
     cbField = c_cbGenericBlockCipher_Padding_LFL;
-    hr = WriteNetworkLong(PaddingLength(), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(PaddingLength(), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
     assert(cb == 0);
 
-    hr = (*EndParams()->SymCipherer())->EncryptBuffer(
+    CHKOK((*EndParams()->SymCipherer())->EncryptBuffer(
              &vbPlaintextStruct,
              IV(),
-             &vbEncryptedStruct);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             &vbEncryptedStruct));
 
     // append encrypted portion
     RawContent()->insert(
@@ -6683,48 +5827,30 @@ MT_GenericBlockCipher_TLS11::ComputeSecurityInfo(
     wprintf(L"sequence number: %d\n", sequenceNumber);
 
     cbField = c_cbSequenceNumber_Length;
-    hr = WriteNetworkLong(
+    CHKOK(WriteNetworkLong(
              sequenceNumber,
              cbField,
              pv,
-             cb);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             cb));
 
     ADVANCE_PARSE();
 
-    hr = pContentType->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pContentType->Serialize(pv, cb));
 
     cbField = pContentType->Length();
     ADVANCE_PARSE();
 
-    hr = pProtocolVersion->Serialize(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pProtocolVersion->Serialize(pv, cb));
 
     cbField = pProtocolVersion->Length();
     ADVANCE_PARSE();
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
-    hr = WriteNetworkLong(
+    CHKOK(WriteNetworkLong(
              Content()->size(),
              cbField,
              pv,
-             cb);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             cb));
 
     ADVANCE_PARSE();
 
@@ -6737,16 +5863,11 @@ MT_GenericBlockCipher_TLS11::ComputeSecurityInfo(
     wprintf(L"MAC hash text:\n");
     PrintByteVector(&vbHashText);
 
-    hr = (*EndParams()->HashInst())->HMAC(
+    CHKOK((*EndParams()->HashInst())->HMAC(
              pHashInfo,
              pvbMACKey,
              &vbHashText,
-             pvbMAC);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+             pvbMAC));
 
     assert(pvbMAC->size() == pHashInfo->cbHashSize);
 
@@ -6770,11 +5891,7 @@ MT_GenericBlockCipher_TLS11::ComputeSecurityInfo(
                                  c_cbGenericBlockCipher_Padding_LFL;
         BYTE b = 0;
 
-        hr = SizeTToByte(cbPaddingLength, &b);
-        if (hr != S_OK)
-        {
-            goto error;
-        }
+        CHKOK(SizeTToByte(cbPaddingLength, &b));
 
         assert(b == cbPaddingLength);
 
@@ -6806,24 +5923,15 @@ MT_GenericBlockCipher_TLS11::CheckSecurityPriv()
     ByteVector vbPadding;
     MT_ProtocolVersion hashVersion;
 
-    hr = Ciphertext()->GetProtocolVersionForSecurity(&hashVersion);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Ciphertext()->GetProtocolVersionForSecurity(&hashVersion));
 
-    hr = ComputeSecurityInfo(
+    CHKOK(ComputeSecurityInfo(
               *EndParams()->SequenceNumber(),
               EndParams()->MACKey(),
               Ciphertext()->ContentType(),
               &hashVersion,
               &vbMAC,
-              &vbPadding);
-
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+              &vbPadding));
 
     wprintf(L"received MAC:\n");
     PrintByteVector(MAC());
@@ -6874,20 +5982,12 @@ MT_Alert::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = c_cbAlertLevel_Length;
 
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Level()));
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Level())));
 
     ADVANCE_PARSE();
 
     cbField = c_cbAlertDescription_Length;
-    hr = ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Description()));
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Description())));
 
     ADVANCE_PARSE();
 
@@ -6907,20 +6007,12 @@ MT_Alert::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = c_cbAlertLevel_Length;
 
-    hr = WriteNetworkLong(static_cast<BYTE>(*Level()), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(static_cast<BYTE>(*Level()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = c_cbAlertDescription_Length;
-    hr = WriteNetworkLong(static_cast<BYTE>(*Description()), cbField, pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(WriteNetworkLong(static_cast<BYTE>(*Description()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -7232,17 +6324,9 @@ MT_RenegotiationInfoExtension::ParseFromPriv(
     size_t cbField = 0;
     MT_RenegotiatedConnection rc;
 
-    hr = rc.ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(rc.ParseFrom(pv, cb));
 
-    hr = SetRenegotiatedConnection(&rc);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(SetRenegotiatedConnection(&rc));
 
     cbField = rc.Length();
     ADVANCE_PARSE();
@@ -7273,11 +6357,7 @@ MT_RenegotiationInfoExtension::SetRenegotiatedConnection(
     HRESULT hr = S_OK;
     m_renegotiatedConnection = *pRenegotiatedConnection;
 
-    hr = RenegotiatedConnection()->SerializeToVect(MT_Extension::ExtensionData()->Data());
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(RenegotiatedConnection()->SerializeToVect(MT_Extension::ExtensionData()->Data()));
 
 done:
     return hr;
@@ -7296,11 +6376,7 @@ MT_RenegotiationInfoExtension::CheckExtensionDataIntegrity() const
     HRESULT hr = S_OK;
     ByteVector vbConnection;
 
-    hr = m_renegotiatedConnection.SerializeToVect(&vbConnection);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(m_renegotiatedConnection.SerializeToVect(&vbConnection));
 
     if (vbConnection == *MT_Extension::ExtensionData()->Data())
     {
@@ -7357,11 +6433,7 @@ MT_Thingy::ParseFromPriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    hr = Thingy()->ParseFrom(pv, cb);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(Thingy()->ParseFrom(pv, cb));
 
     cbField = Thingy()->Length();
     ADVANCE_PARSE();

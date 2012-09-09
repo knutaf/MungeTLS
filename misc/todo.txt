@@ -1,4 +1,5 @@
 BUGS:
+- sometimes we get a random decryption failure. why???
 
 WORK:
 - TLS CLIENT
@@ -12,6 +13,7 @@ WORK:
 - macro for parsing and going
 - macro for serializing and going
 - refactor updatewritesecurity, checksecuritypriv, and other cipher fragment members if possible
+- tls 1.1 parsefrompriv has cb -= . needs to be safe_sub
 
 MAYBE:
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon
