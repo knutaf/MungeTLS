@@ -33,14 +33,4 @@ clean:
 	cd ..
 
 cleanup:
-	set H_FILES=$(H_FILES)
-	set INCLUDES=$(INCLUDES)
-	cd exe
-	$(MAKE) cleanup
-	cd ..
-	cd wincrypt_lib
-	$(MAKE) cleanup
-	cd ..
-	cd lib
-	$(MAKE) cleanup
-	cd ..
+	del /s *.ilk vc11* *.obj *.pch

@@ -30,6 +30,3 @@ $(TARGET).exe: $(SOURCES) $(MY_LIBS)
 
 clean:
 	del *.exe *.obj *.pdb *.ilk *.pch
-
-cleanup:
-	del *.obj *.pdb *.ilk *.pch

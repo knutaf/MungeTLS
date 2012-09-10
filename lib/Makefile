@@ -24,6 +24,3 @@ $(O_FILES): $(H_FILES) $(C_FILES)
 
 clean:
 	del *.exe *.obj *.pdb *.ilk *.pch *.lib
-
-cleanup:
-	del *.obj *.pdb *.ilk *.pch
