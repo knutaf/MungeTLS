@@ -318,6 +318,7 @@ class MT_ProtocolVersion : public MT_Structure
 
     size_t Length() const { return c_cbProtocolVersion_Length; }
     bool operator==(const MT_ProtocolVersion& rOther) const { return *Version() == *rOther.Version(); }
+    bool operator!=(const MT_ProtocolVersion& rOther) const { return !(*this == rOther); }
 
     static bool IsKnownVersion(MTPV_Version eVersion);
 
@@ -421,7 +422,9 @@ class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length
     HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
     HRESULT Value(MT_CipherSuiteValue* peValue) const;
     HRESULT SetValue(MT_CipherSuiteValue eValue);
+
     bool operator==(const MT_CipherSuite& rOther) const;
+    bool operator!=(const MT_CipherSuite& rOther) const { return !(*this == rOther); }
 };
 
 // TLS 1.0: CipherSuite cipher_suites<2..2^16-1>;

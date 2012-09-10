@@ -828,7 +828,7 @@ TLSConnection::RespondToClientHello()
         *serverHello.SessionID() = sessionID;
 
         // just logging/warning
-        if (*NextConn()->ReadParams()->CipherSuite() == *NextConn()->WriteParams()->CipherSuite())
+        if (*NextConn()->ReadParams()->CipherSuite() != *NextConn()->WriteParams()->CipherSuite())
         {
             MT_CipherSuiteValue csvRead;
             hr = NextConn()->ReadParams()->CipherSuite()->Value(&csvRead);

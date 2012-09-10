@@ -754,8 +754,6 @@ ImportSymmetricKey(
     PlaintextKey* pPlaintextKey;
     DWORD cbKeySize = 0;
 
-    wprintf(L"import key\n");
-
     // store key in ephemeral container (per CRYPT_VERIFYCONTEXT)
     CHKWIN(CryptAcquireContextW(
              &hProv,
@@ -780,7 +778,11 @@ ImportSymmetricKey(
 
     CHKOK(SizeTToDWord(vbPlaintextKey.size(), &cbKeySize));
 
-    wprintf(L"importing key of size %lu (keylength=%lu)\n", cbKeySize, pvbKey->size());
+    // RC2 is used for HMAC keys. very spammy, so limit it
+    if (algID != CALG_RC2)
+    {
+        wprintf(L"importing key of size %lu (keylength=%lu)\n", cbKeySize, pvbKey->size());
+    }
 
     // need to pass CRYPT_IPSEC_HMAC_KEY to allow long key lengths, per MSDN
     CHKWIN(CryptImportKey(
