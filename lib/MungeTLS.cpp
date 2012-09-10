@@ -87,6 +87,13 @@
 
 #define PARSESTRUCT(s) PARSEPSTRUCT(&(s))
 
+#define SERIALIZEPSTRUCT(s)                                        \
+{                                                                  \
+    cbField = (s)->Length();                                       \
+    CHKOK((s)->Serialize(pv, cb));                                 \
+    ADVANCE_PARSE();                                               \
+}                                                                  \
+
 namespace MungeTLS
 {
 
@@ -2917,10 +2924,7 @@ MT_VariableLengthField
 
     for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
     {
-        CHKOK(iter->Serialize(pv, cb));
-
-        cbField = iter->Length();
-        ADVANCE_PARSE();
+        SERIALIZEPSTRUCT(iter);
     }
 
 done:
@@ -3095,10 +3099,8 @@ MT_FixedLengthStructure<F, Size>::SerializePriv(
 
     for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
     {
-        CHKOK(iter->Serialize(pv, cb));
-
-        size_t cbField = iter->Length();
-        ADVANCE_PARSE();
+        size_t cbField = 0;
+        SERIALIZEPSTRUCT(iter);
     }
 
 done:
@@ -3307,16 +3309,11 @@ MT_RecordLayerMessage::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-    size_t cbField = ContentType()->Length();
+    size_t cbField = 0;
 
-    CHKOK(ContentType()->Serialize(pv, cb));
+    SERIALIZEPSTRUCT(ContentType());
 
-    ADVANCE_PARSE();
-
-    cbField = ProtocolVersion()->Length();
-    CHKOK(ProtocolVersion()->Serialize(pv, cb));
-
-    ADVANCE_PARSE();
+    SERIALIZEPSTRUCT(ProtocolVersion());
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
     CHKOK(WriteNetworkLong(PayloadLength(), cbField, pv, cb));
@@ -3953,10 +3950,7 @@ MT_Random::SerializePriv(
 
     ADVANCE_PARSE();
 
-    cbField = RandomBytes()->Length();
-    CHKOK(RandomBytes()->Serialize(pv, cb));
-
-    ADVANCE_PARSE();
+    SERIALIZEPSTRUCT(RandomBytes());
 
 done:
     return hr;
@@ -4143,38 +4137,21 @@ MT_ServerHello::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
-    size_t cbField = ServerVersion()->Length();
+    size_t cbField = 0;
 
-    CHKOK(ServerVersion()->Serialize(pv, cb));
+    SERIALIZEPSTRUCT(ServerVersion());
 
-    ADVANCE_PARSE();
+    SERIALIZEPSTRUCT(Random());
 
-    cbField = Random()->Length();
-    CHKOK(Random()->Serialize(pv, cb));
+    SERIALIZEPSTRUCT(SessionID());
 
-    ADVANCE_PARSE();
+    SERIALIZEPSTRUCT(CipherSuite());
 
-    cbField = SessionID()->Length();
-    CHKOK(SessionID()->Serialize(pv, cb));
-
-    ADVANCE_PARSE();
-
-    cbField = CipherSuite()->Length();
-    CHKOK(CipherSuite()->Serialize(pv, cb));
-
-    ADVANCE_PARSE();
-
-    cbField = CompressionMethod()->Length();
-    CHKOK(CompressionMethod()->Serialize(pv, cb));
-
-    ADVANCE_PARSE();
+    SERIALIZEPSTRUCT(CompressionMethod());
 
     if (Extensions()->Count() > 0)
     {
-        cbField = Extensions()->Length();
-        CHKOK(Extensions()->Serialize(pv, cb));
-
-        ADVANCE_PARSE();
+        SERIALIZEPSTRUCT(Extensions());
     }
 
 done:
@@ -4199,8 +4176,9 @@ MT_Certificate::SerializePriv(
 ) const
 {
     HRESULT hr = S_OK;
+    size_t cbField = 0;
 
-    CHKOK(CertificateList()->Serialize(pv, cb));
+    SERIALIZEPSTRUCT(CertificateList());
 
 done:
     return hr;
@@ -4277,15 +4255,9 @@ MT_PreMasterSecret::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    CHKOK(ClientVersion()->Serialize(pv, cb));
+    SERIALIZEPSTRUCT(ClientVersion());
 
-    cbField = ClientVersion()->Length();
-    ADVANCE_PARSE();
-
-    CHKOK(Random()->Serialize(pv, cb));
-
-    cbField = Random()->Length();
-    ADVANCE_PARSE();
+    SERIALIZEPSTRUCT(Random());
 
 done:
     return hr;
@@ -4634,10 +4606,7 @@ MT_Extension::SerializePriv(
 
     ADVANCE_PARSE();
 
-    CHKOK(ExtensionData()->Serialize(pv, cb));
-
-    cbField = ExtensionData()->Length();
-    ADVANCE_PARSE();
+    SERIALIZEPSTRUCT(ExtensionData());
 
 done:
     return hr;
@@ -4939,15 +4908,9 @@ MT_CipherFragment::ComputeMAC(
 
     ADVANCE_PARSE();
 
-    CHKOK(pContentType->Serialize(pv, cb));
+    SERIALIZEPSTRUCT(pContentType);
 
-    cbField = pContentType->Length();
-    ADVANCE_PARSE();
-
-    CHKOK(pProtocolVersion->Serialize(pv, cb));
-
-    cbField = pProtocolVersion->Length();
-    ADVANCE_PARSE();
+    SERIALIZEPSTRUCT(pProtocolVersion);
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
     CHKOK(WriteNetworkLong(
