@@ -1413,7 +1413,7 @@ class MT_Finished : public MT_Structure, public MT_Securable
     ACCESSORS(MT_FinishedVerifyData*, VerifyData, &m_verifyData);
 
     HRESULT ComputeVerifyData(PCSTR szLabel, ByteVector* pvbVerifyData);
-    HRESULT SetConnectionParameters(const ConnectionParameters* pConnectionParams) { m_pConnectionParams = pConnectionParams; return S_OK; }
+    HRESULT SetConnectionParameters(ConnectionParameters* pConnectionParams) { m_pConnectionParams = pConnectionParams; return S_OK; }
 
     private:
     ACCESSORS(ConnectionParameters*, ConnParams, m_pConnectionParams);
@@ -1422,7 +1422,7 @@ class MT_Finished : public MT_Structure, public MT_Securable
     HRESULT SerializePriv(BYTE* pv, size_t cb) const;
     HRESULT CheckSecurityPriv();
 
-    const ConnectionParameters* m_pConnectionParams;
+    ConnectionParameters* m_pConnectionParams;
     MT_FinishedVerifyData m_verifyData;
 };
 

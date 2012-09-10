@@ -6,22 +6,15 @@ namespace MungeTLS
 {
 
 /*
-** this idiom is taken from Effective C++, I believe. I should look up which
-** number it is and put it in here, because it's really excellent. since this
-** is only used for a member where we own the variable ourselves, the RW
-** version knows that it is okay to relax/remove the const restriction when
-** handing it out
-**
-** there is some wacky c++ magic going on with the decltype that I am not
-** really expert enough to explain. it's important to cast the "this" pointer
-** to its const version in order to avoid 
-** TODO: why not just "return member"?
+** if we did extra validation and stuff in these accessors, we'd want to avoid
+** code duplication by using Effective C++ Item 3's technique. look it up if
+** you want to see some cool trickery
 */
-#define ACCESSOR_RO(returnType, name, member) \
-    virtual const returnType name() const { return member; } \
+#define ACCESSOR_RO(returnType, name, member)                    \
+    virtual const returnType name() const { return member; }     \
 
-#define ACCESSOR_RW(returnType, name, member) \
-    virtual returnType name() { return const_cast<returnType>(static_cast<std::remove_pointer<decltype(this)>::type const*>(this)->name()); } \
+#define ACCESSOR_RW(returnType, name, member)                    \
+    virtual returnType name() { return member; }                 \
 
 #define ACCESSORS(returnType, name, member) \
     ACCESSOR_RO(returnType, name, member) \
