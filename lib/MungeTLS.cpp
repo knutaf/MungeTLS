@@ -143,6 +143,7 @@ PRF_A(
 HRESULT ParseByteVector(size_t cbField, const BYTE* pv, size_t cb, ByteVector* pvb);
 HRESULT SerializeByteVector(const ByteVector* pvb, BYTE* pv, size_t cb, size_t cbField);
 
+
 /*********** TLSConnection *****************/
 
 TLSConnection::TLSConnection(ITLSListener* pListener)
@@ -176,111 +177,6 @@ done:
 error:
     goto done;
 } // end function Initialize
-
-// called when we receive a ClientHello message, to start off a new negotiation
-HRESULT
-TLSConnection::StartNextHandshake(MT_ClientHello* pClientHello)
-{
-    HRESULT hr = S_OK;
-
-    if (NextConn()->IsHandshakeInProgress())
-    {
-        // may lift this restriction if it's okay...
-        assert(false);
-    }
-
-    *NextConn()->ClientHello() = *pClientHello;
-
-    /*
-    ** the next connection will be used for collecting information about the
-    ** pending security negotation, but is not used for parsing any incoming
-    ** records; the current connection does that.
-    */
-    CHKOK(InitializeConnection(NextConn()));
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function StartNextHandshake
-
-/*
-** called when we have sent the Finished message, signaling the end of the
-** handshake/negotiation. at this point our current connection already has the
-** endpoint-specific parameters needed to parse or send messages, but we still
-** need to copy few miscellaneous pieces of data we've accumulated in NextConn.
-*/
-HRESULT
-TLSConnection::FinishNextHandshake()
-{
-    HRESULT hr = S_OK;
-
-    assert(NextConn()->IsHandshakeInProgress());
-
-    // copy last bits of state
-    CHKOK(NextConn()->CopyCommonParamsTo(CurrConn()));
-
-    // reset it to blank, ready for the next handshake to start whenever
-    *NextConn() = ConnectionParameters();
-    assert(!NextConn()->IsHandshakeInProgress());
-
-    // lets the app know it can start sending app data
-    CHKSUC(Listener()->OnHandshakeComplete());
-    hr = S_OK;
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function FinishNextHandshake
-
-/*
-** basically consists of calling the app to provide platform-specific crypto
-** objects that will be attached only to this connection. in practice, a few
-** of these objects probably don't need to be connection-specific (e.g. hasher)
-** but I don't want to make platform assumptions.
-**
-** it's painfully obvious how much of an intermediary we are between the conn
-** and the listener here. but that's okay
-*/
-HRESULT
-TLSConnection::InitializeConnection(
-    ConnectionParameters* pParams
-)
-{
-    HRESULT hr = S_OK;
-
-    MT_CertificateList certChain;
-    shared_ptr<PublicKeyCipherer> spPubKeyCipherer;
-    shared_ptr<SymmetricCipherer> spClientSymCipherer;
-    shared_ptr<SymmetricCipherer> spServerSymCipherer;
-    shared_ptr<Hasher> spClientHasher;
-    shared_ptr<Hasher> spServerHasher;
-
-    CHKOK(Listener()->OnInitializeCrypto(
-             &certChain,
-             &spPubKeyCipherer,
-             &spClientSymCipherer,
-             &spServerSymCipherer,
-             &spClientHasher,
-             &spServerHasher));
-
-    CHKOK(pParams->Initialize(
-             &certChain,
-             spPubKeyCipherer,
-             spClientSymCipherer,
-             spServerSymCipherer,
-             spClientHasher,
-             spServerHasher));
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function InitializeConnection
 
 /*
 ** this is the top-level parsing functionality, one of the most important parts
@@ -846,116 +742,6 @@ error:
 } // end function HandleHandshakeMessage
 
 /*
-** this function is called whenever we have a structure to send to the client.
-** it converts a plaintext object into a properly encrypted ciphertext object
-** according to the current connection's negotiated cipher suite.
-**
-** the ciphertext message isn't exactly sent yet, but it's in the queue to be
-** sent, so effectively committed in terms of updates to the IV and sequence
-** number.
-*/
-HRESULT
-TLSConnection::EnqueueMessage(
-    shared_ptr<MT_TLSPlaintext> spPlaintext
-)
-{
-    HRESULT hr = S_OK;
-
-    shared_ptr<MT_TLSCiphertext> spCiphertext;
-
-    CHKOK(MT_TLSCiphertext::FromTLSPlaintext(
-             spPlaintext.get(),
-             CurrConn()->WriteParams(),
-             &spCiphertext));
-
-    /*
-    ** after the ciphetext is created, update the IV to be used on the next
-    ** ciphertext. in practice, this is either the last block of the ciphertext
-    ** or a new, "random" value.
-    */
-    if (CurrConn()->WriteParams()->Cipher()->type == CipherType_Block)
-    {
-        spCiphertext->GenerateNextIV(CurrConn()->WriteParams()->IV());
-        wprintf(L"next IV for writing:\n");
-        PrintByteVector(CurrConn()->WriteParams()->IV());
-    }
-
-    assert(CurrConn()->WriteParams()->IV()->size() == CurrConn()->WriteParams()->Cipher()->cbIVSize);
-
-    PendingSends()->push_back(spCiphertext);
-    (*CurrConn()->WriteParams()->SequenceNumber())++;
-
-    wprintf(L"write seq num is now %d\n", *CurrConn()->WriteParams()->SequenceNumber());
-
-    // primarily used for logging by the app
-    CHKOK(Listener()->OnEnqueuePlaintext(
-             spPlaintext.get(),
-             spCiphertext->EndParams()->IsEncrypted()));
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function EnqueueMessage
-
-// alert the app about each message's raw bytes that need to be sent
-HRESULT
-TLSConnection::SendQueuedMessages()
-{
-    HRESULT hr = S_OK;
-
-    if (!PendingSends()->empty())
-    {
-        { // only logging
-            wprintf(L"sending %u messages\n", PendingSends()->size());
-
-            for_each(PendingSends()->begin(), PendingSends()->end(),
-            [](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
-            {
-                wprintf(L"    %s\n", rspStructure->ContentType()->ToString().c_str());
-            });
-        }
-
-        for_each(PendingSends()->begin(), PendingSends()->end(),
-        [&hr, this](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
-        {
-            if (hr == S_OK)
-            {
-                ByteVector vbRecord;
-
-                hr = rspStructure->SerializeToVect(&vbRecord);
-                if (hr == S_OK)
-                {
-                    hr = Listener()->OnSend(&vbRecord);
-                    if (FAILED(hr))
-                    {
-                        wprintf(L"warning: error in OnSend with listener: %08LX\n", hr);
-                    }
-                }
-                else
-                {
-                    wprintf(L"failed to serialize message: %08LX\n", hr);
-                }
-            }
-        });
-
-        if (hr != S_OK)
-        {
-            goto error;
-        }
-
-        PendingSends()->clear();
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SendQueuedMessages
-
-/*
 ** having received a client hello, prepare and queue up the messages we should
 ** respond with to drive the TLS handshake
 **
@@ -1170,6 +956,60 @@ error:
 } // end function RespondToClientHello
 
 /*
+** when sending handshake messages, there are often multiple in a row to send.
+** this calls back to the app for the choice of whether to combine these
+** messages with the same content type into a single TLSPlaintext message or to
+** break them up into separate ones
+**
+** S_OK means we are returning a new plaintext message
+** S_FALSE means we are returning the same plaintext message
+*/
+HRESULT
+TLSConnection::AddHandshakeMessage(
+    MT_Handshake* pHandshake,
+    MT_ProtocolVersion::MTPV_Version version,
+    MT_TLSPlaintext** ppPlaintext
+)
+{
+    HRESULT hr = S_OK;
+    DWORD fCreateFlags = 0;
+
+    hr = Listener()->OnCreatingHandshakeMessage(pHandshake, &fCreateFlags);
+    if (hr == MT_S_LISTENER_IGNORED)
+    {
+        fCreateFlags = MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE;
+    }
+    else if (hr != MT_S_LISTENER_HANDLED)
+    {
+        goto error;
+    }
+
+    if (fCreateFlags & MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE)
+    {
+        CHKOK(pHandshake->SerializeAppendToVect((*ppPlaintext)->Fragment()));
+
+        // indicates that we reused the existing plaintext message
+        hr = S_FALSE;
+    }
+    else
+    {
+        *ppPlaintext = new MT_TLSPlaintext();
+
+        CHKOK(CreatePlaintext(
+                 MT_ContentType::MTCT_Type_Handshake,
+                 version,
+                 pHandshake,
+                 *ppPlaintext));
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function AddHandshakeMessage
+
+/*
 ** once we receive a Finished message from the client, we have to construct our
 ** own Finished message and send it back, which completes the handshake. first
 ** we send a ChangeCipherSpec, which enables the pending cipher suite, so that
@@ -1247,51 +1087,322 @@ error:
     goto done;
 } // end function RespondToFinished
 
+HRESULT
+TLSConnection::CreatePlaintext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const ByteVector* pvbFragment,
+    MT_TLSPlaintext* pPlaintext)
+{
+    MT_ContentType contentType;
+    MT_ProtocolVersion protocolVersion;
+
+    *contentType.Type() = eContentType;
+    *pPlaintext->ContentType() = contentType;
+
+    *protocolVersion.Version() = eProtocolVersion;
+    *pPlaintext->ProtocolVersion() = protocolVersion;
+
+    *pPlaintext->Fragment() = *pvbFragment;
+
+    assert(*pPlaintext->Conn() == nullptr);
+    *pPlaintext->Conn() = this;
+
+    return S_OK;
+} // end function CreatePlaintext
+
+HRESULT
+TLSConnection::CreatePlaintext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const MT_Structure* pFragment,
+    MT_TLSPlaintext* pPlaintext)
+{
+    HRESULT hr = S_OK;
+
+    ByteVector vbFragment;
+    CHKOK(pFragment->SerializeToVect(&vbFragment));
+
+    CHKOK(CreatePlaintext(
+             eContentType,
+             eProtocolVersion,
+             &vbFragment,
+             pPlaintext));
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CreatePlaintext
+
+HRESULT
+TLSConnection::CreateCiphertext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const ByteVector* pvbFragment,
+    EndpointParameters* pEndParams,
+    MT_TLSCiphertext* pCiphertext)
+{
+    HRESULT hr = S_OK;
+
+    MT_ContentType contentType;
+    MT_ProtocolVersion protocolVersion;
+
+    assert(*pCiphertext->Conn() == nullptr);
+    *pCiphertext->Conn() = this;
+
+    CHKOK(pCiphertext->SetSecurityParameters(pEndParams));
+
+    *contentType.Type() = eContentType;
+    *pCiphertext->ContentType() = contentType;
+
+    *protocolVersion.Version() = eProtocolVersion;
+    *pCiphertext->ProtocolVersion() = protocolVersion;
+    *pCiphertext->CipherFragment()->Content() = *pvbFragment;
+
+    CHKOK(pCiphertext->Protect());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CreateCiphertext
+
+HRESULT
+TLSConnection::CreateCiphertext(
+    MT_ContentType::MTCT_Type eContentType,
+    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
+    const MT_Structure* pFragment,
+    EndpointParameters* pEndParams,
+    MT_TLSCiphertext* pCiphertext)
+{
+    HRESULT hr = S_OK;
+    ByteVector vbFragment;
+
+    CHKOK(pFragment->SerializeToVect(&vbFragment));
+
+    CHKOK(CreateCiphertext(
+             eContentType,
+             eProtocolVersion,
+             &vbFragment,
+             pEndParams,
+             pCiphertext));
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CreateCiphertext
+
+// called when we receive a ClientHello message, to start off a new negotiation
+HRESULT
+TLSConnection::StartNextHandshake(MT_ClientHello* pClientHello)
+{
+    HRESULT hr = S_OK;
+
+    if (NextConn()->IsHandshakeInProgress())
+    {
+        // may lift this restriction if it's okay...
+        assert(false);
+    }
+
+    *NextConn()->ClientHello() = *pClientHello;
+
+    /*
+    ** the next connection will be used for collecting information about the
+    ** pending security negotation, but is not used for parsing any incoming
+    ** records; the current connection does that.
+    */
+    CHKOK(InitializeConnection(NextConn()));
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function StartNextHandshake
+
 /*
-** when sending handshake messages, there are often multiple in a row to send.
-** this calls back to the app for the choice of whether to combine these
-** messages with the same content type into a single TLSPlaintext message or to
-** break them up into separate ones
+** basically consists of calling the app to provide platform-specific crypto
+** objects that will be attached only to this connection. in practice, a few
+** of these objects probably don't need to be connection-specific (e.g. hasher)
+** but I don't want to make platform assumptions.
 **
-** S_OK means we are returning a new plaintext message
-** S_FALSE means we are returning the same plaintext message
+** it's painfully obvious how much of an intermediary we are between the conn
+** and the listener here. but that's okay
 */
 HRESULT
-TLSConnection::AddHandshakeMessage(
-    MT_Handshake* pHandshake,
-    MT_ProtocolVersion::MTPV_Version version,
-    MT_TLSPlaintext** ppPlaintext
+TLSConnection::InitializeConnection(
+    ConnectionParameters* pParams
 )
 {
     HRESULT hr = S_OK;
-    DWORD fCreateFlags = 0;
 
-    hr = Listener()->OnCreatingHandshakeMessage(pHandshake, &fCreateFlags);
-    if (hr == MT_S_LISTENER_IGNORED)
+    MT_CertificateList certChain;
+    shared_ptr<PublicKeyCipherer> spPubKeyCipherer;
+    shared_ptr<SymmetricCipherer> spClientSymCipherer;
+    shared_ptr<SymmetricCipherer> spServerSymCipherer;
+    shared_ptr<Hasher> spClientHasher;
+    shared_ptr<Hasher> spServerHasher;
+
+    CHKOK(Listener()->OnInitializeCrypto(
+             &certChain,
+             &spPubKeyCipherer,
+             &spClientSymCipherer,
+             &spServerSymCipherer,
+             &spClientHasher,
+             &spServerHasher));
+
+    CHKOK(pParams->Initialize(
+             &certChain,
+             spPubKeyCipherer,
+             spClientSymCipherer,
+             spServerSymCipherer,
+             spClientHasher,
+             spServerHasher));
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function InitializeConnection
+
+/*
+** called when we have sent the Finished message, signaling the end of the
+** handshake/negotiation. at this point our current connection already has the
+** endpoint-specific parameters needed to parse or send messages, but we still
+** need to copy few miscellaneous pieces of data we've accumulated in NextConn.
+*/
+HRESULT
+TLSConnection::FinishNextHandshake()
+{
+    HRESULT hr = S_OK;
+
+    assert(NextConn()->IsHandshakeInProgress());
+
+    // copy last bits of state
+    CHKOK(NextConn()->CopyCommonParamsTo(CurrConn()));
+
+    // reset it to blank, ready for the next handshake to start whenever
+    *NextConn() = ConnectionParameters();
+    assert(!NextConn()->IsHandshakeInProgress());
+
+    // lets the app know it can start sending app data
+    CHKSUC(Listener()->OnHandshakeComplete());
+    hr = S_OK;
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function FinishNextHandshake
+
+/*
+** this function is called whenever we have a structure to send to the client.
+** it converts a plaintext object into a properly encrypted ciphertext object
+** according to the current connection's negotiated cipher suite.
+**
+** the ciphertext message isn't exactly sent yet, but it's in the queue to be
+** sent, so effectively committed in terms of updates to the IV and sequence
+** number.
+*/
+HRESULT
+TLSConnection::EnqueueMessage(
+    shared_ptr<MT_TLSPlaintext> spPlaintext
+)
+{
+    HRESULT hr = S_OK;
+
+    shared_ptr<MT_TLSCiphertext> spCiphertext;
+
+    CHKOK(MT_TLSCiphertext::FromTLSPlaintext(
+             spPlaintext.get(),
+             CurrConn()->WriteParams(),
+             &spCiphertext));
+
+    /*
+    ** after the ciphetext is created, update the IV to be used on the next
+    ** ciphertext. in practice, this is either the last block of the ciphertext
+    ** or a new, "random" value.
+    */
+    if (CurrConn()->WriteParams()->Cipher()->type == CipherType_Block)
     {
-        fCreateFlags = MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE;
+        spCiphertext->GenerateNextIV(CurrConn()->WriteParams()->IV());
+        wprintf(L"next IV for writing:\n");
+        PrintByteVector(CurrConn()->WriteParams()->IV());
     }
-    else if (hr != MT_S_LISTENER_HANDLED)
-    {
-        goto error;
-    }
 
-    if (fCreateFlags & MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE)
-    {
-        CHKOK(pHandshake->SerializeAppendToVect((*ppPlaintext)->Fragment()));
+    assert(CurrConn()->WriteParams()->IV()->size() == CurrConn()->WriteParams()->Cipher()->cbIVSize);
 
-        // indicates that we reused the existing plaintext message
-        hr = S_FALSE;
-    }
-    else
-    {
-        *ppPlaintext = new MT_TLSPlaintext();
+    PendingSends()->push_back(spCiphertext);
+    (*CurrConn()->WriteParams()->SequenceNumber())++;
 
-        CHKOK(CreatePlaintext(
-                 MT_ContentType::MTCT_Type_Handshake,
-                 version,
-                 pHandshake,
-                 *ppPlaintext));
+    wprintf(L"write seq num is now %d\n", *CurrConn()->WriteParams()->SequenceNumber());
+
+    // primarily used for logging by the app
+    CHKOK(Listener()->OnEnqueuePlaintext(
+             spPlaintext.get(),
+             spCiphertext->EndParams()->IsEncrypted()));
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function EnqueueMessage
+
+// alert the app about each message's raw bytes that need to be sent
+HRESULT
+TLSConnection::SendQueuedMessages()
+{
+    HRESULT hr = S_OK;
+
+    if (!PendingSends()->empty())
+    {
+        { // only logging
+            wprintf(L"sending %u messages\n", PendingSends()->size());
+
+            for_each(PendingSends()->begin(), PendingSends()->end(),
+            [](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
+            {
+                wprintf(L"    %s\n", rspStructure->ContentType()->ToString().c_str());
+            });
+        }
+
+        for_each(PendingSends()->begin(), PendingSends()->end(),
+        [&hr, this](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
+        {
+            if (hr == S_OK)
+            {
+                ByteVector vbRecord;
+
+                hr = rspStructure->SerializeToVect(&vbRecord);
+                if (hr == S_OK)
+                {
+                    hr = Listener()->OnSend(&vbRecord);
+                    if (FAILED(hr))
+                    {
+                        wprintf(L"warning: error in OnSend with listener: %08LX\n", hr);
+                    }
+                }
+                else
+                {
+                    wprintf(L"failed to serialize message: %08LX\n", hr);
+                }
+            }
+        });
+
+        if (hr != S_OK)
+        {
+            goto error;
+        }
+
+        PendingSends()->clear();
     }
 
 done:
@@ -1299,7 +1410,7 @@ done:
 
 error:
     goto done;
-} // end function AddHandshakeMessage
+} // end function SendQueuedMessages
 
 /*
 ** this is how the app calls the connection to send some application data. we
@@ -1365,116 +1476,6 @@ done:
 error:
     goto done;
 } // end function EnqueueStartRenegotiation
-
-HRESULT
-TLSConnection::CreatePlaintext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const MT_Structure* pFragment,
-    MT_TLSPlaintext* pPlaintext)
-{
-    HRESULT hr = S_OK;
-
-    ByteVector vbFragment;
-    CHKOK(pFragment->SerializeToVect(&vbFragment));
-
-    CHKOK(CreatePlaintext(
-             eContentType,
-             eProtocolVersion,
-             &vbFragment,
-             pPlaintext));
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function CreatePlaintext
-
-HRESULT
-TLSConnection::CreatePlaintext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const ByteVector* pvbFragment,
-    MT_TLSPlaintext* pPlaintext)
-{
-    MT_ContentType contentType;
-    MT_ProtocolVersion protocolVersion;
-
-    *contentType.Type() = eContentType;
-    *pPlaintext->ContentType() = contentType;
-
-    *protocolVersion.Version() = eProtocolVersion;
-    *pPlaintext->ProtocolVersion() = protocolVersion;
-
-    *pPlaintext->Fragment() = *pvbFragment;
-
-    assert(*pPlaintext->Conn() == nullptr);
-    *pPlaintext->Conn() = this;
-
-    return S_OK;
-} // end function CreatePlaintext
-
-HRESULT
-TLSConnection::CreateCiphertext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const MT_Structure* pFragment,
-    EndpointParameters* pEndParams,
-    MT_TLSCiphertext* pCiphertext)
-{
-    HRESULT hr = S_OK;
-    ByteVector vbFragment;
-
-    CHKOK(pFragment->SerializeToVect(&vbFragment));
-
-    CHKOK(CreateCiphertext(
-             eContentType,
-             eProtocolVersion,
-             &vbFragment,
-             pEndParams,
-             pCiphertext));
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function CreateCiphertext
-
-HRESULT
-TLSConnection::CreateCiphertext(
-    MT_ContentType::MTCT_Type eContentType,
-    MT_ProtocolVersion::MTPV_Version eProtocolVersion,
-    const ByteVector* pvbFragment,
-    EndpointParameters* pEndParams,
-    MT_TLSCiphertext* pCiphertext)
-{
-    HRESULT hr = S_OK;
-
-    MT_ContentType contentType;
-    MT_ProtocolVersion protocolVersion;
-
-    assert(*pCiphertext->Conn() == nullptr);
-    *pCiphertext->Conn() = this;
-
-    CHKOK(pCiphertext->SetSecurityParameters(pEndParams));
-
-    *contentType.Type() = eContentType;
-    *pCiphertext->ContentType() = contentType;
-
-    *protocolVersion.Version() = eProtocolVersion;
-    *pCiphertext->ProtocolVersion() = protocolVersion;
-    *pCiphertext->CipherFragment()->Content() = *pvbFragment;
-
-    CHKOK(pCiphertext->Protect());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function CreateCiphertext
 
 
 /*********** Utility functions *****************/
@@ -1708,6 +1709,65 @@ SerializeMessagesToVector(
     return hr;
 } // end function SerializeMessagesToVector
 
+/*
+** considers pvb as a byte blob containing one or more structures of type T.
+** tries to parse all of the contiguous structures out of it
+*/
+template <typename T>
+HRESULT
+ParseStructures(
+    const ByteVector* pvb,
+    vector<T>* pvStructures
+)
+{
+    HRESULT hr = S_OK;
+    vector<T> vStructures;
+
+    const BYTE* pv = &pvb->front();
+    size_t cb = pvb->size();
+
+    assert(cb > 0);
+
+    while (cb > 0)
+    {
+        size_t cbField = 0;
+
+        // instantiate an object of type T at the end
+        vStructures.emplace_back();
+
+        // try to populate the new element by parsing from the byte blob
+        hr = vStructures.back().ParseFrom(pv, cb);
+        if (hr != S_OK)
+        {
+            // if we failed to parse, remove the new element and exit
+            vStructures.pop_back();
+            break;
+        }
+
+        cbField = vStructures.back().Length();
+        ADVANCE_PARSE();
+    }
+
+    if (vStructures.empty())
+    {
+        // if we parsed nothing, there must have been some error
+        assert(hr != S_OK);
+        goto error;
+    }
+
+    // append newly parsed structures to the input vector
+    pvStructures->insert(
+        pvStructures->end(),
+        vStructures.begin(),
+        vStructures.end());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseStructures
+
 template <typename T>
 void
 ResizeVector<T>(
@@ -1793,66 +1853,6 @@ HRESULT PrintByteVector(const ByteVector* pvb)
      return S_OK;
 } // end function PrintByteVector
 
-/*
-** considers pvb as a byte blob containing one or more structures of type T.
-** tries to parse all of the contiguous structures out of it
-*/
-template <typename T>
-HRESULT
-ParseStructures(
-    const ByteVector* pvb,
-    vector<T>* pvStructures
-)
-{
-    HRESULT hr = S_OK;
-    vector<T> vStructures;
-
-    const BYTE* pv = &pvb->front();
-    size_t cb = pvb->size();
-
-    assert(cb > 0);
-
-    while (cb > 0)
-    {
-        size_t cbField = 0;
-
-        // instantiate an object of type T at the end
-        vStructures.emplace_back();
-
-        // try to populate the new element by parsing from the byte blob
-        hr = vStructures.back().ParseFrom(pv, cb);
-        if (hr != S_OK)
-        {
-            // if we failed to parse, remove the new element and exit
-            vStructures.pop_back();
-            break;
-        }
-
-        cbField = vStructures.back().Length();
-        ADVANCE_PARSE();
-    }
-
-    if (vStructures.empty())
-    {
-        // if we parsed nothing, there must have been some error
-        assert(hr != S_OK);
-        goto error;
-    }
-
-    // append newly parsed structures to the input vector
-    pvStructures->insert(
-        pvStructures->end(),
-        vStructures.begin(),
-        vStructures.end());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ParseStructures
-
-
 
 /*********** EndpointParameters *****************/
 
@@ -1923,6 +1923,7 @@ EndpointParameters::IsEncrypted() const
 {
     return (Cipher()->alg != CipherAlg_NULL);
 } // end function IsEncrypted
+
 
 /*********** ConnectionParameters *****************/
 
@@ -2303,6 +2304,7 @@ ConnectionParameters::IsHandshakeInProgress() const
 {
     return !HandshakeMessages()->empty();
 } // end function IsHandshakeInProgress
+
 
 /*********** crypto stuff *****************/
 
@@ -2760,6 +2762,7 @@ MT_Securable::CheckSecurity()
     return CheckSecurityPriv();
 } // end function CheckSecurity
 
+
 /*********** MT_VariableLengthFieldBase *****************/
 
 template <typename F,
@@ -2807,6 +2810,7 @@ MT_VariableLengthFieldBase
 
     return &(Data()->at(pos));
 } // end function at
+
 
 /*********** MT_VariableLengthField *****************/
 
@@ -2935,7 +2939,6 @@ error:
 } // end function SerializePriv
 
 
-
 /*********** MT_VariableLengthByteField *****************/
 
 template <size_t LengthFieldSize,
@@ -3020,6 +3023,7 @@ error:
     goto done;
 } // end function SerializePriv
 
+
 /*********** MT_FixedLengthStructureBase *****************/
 
 template <typename F, size_t Size>
@@ -3045,6 +3049,7 @@ MT_FixedLengthStructureBase<F, Size>::at(
 
     return &(Data()->at(pos));
 } // end function at
+
 
 /*********** MT_FixedLengthStructure *****************/
 
@@ -3129,6 +3134,7 @@ MT_FixedLengthStructure<F, Size>::Length() const
     return cbTotalDataLength;
 } // end function Length
 
+
 /*********** MT_FixedLengthByteStructure *****************/
 
 template <size_t Size>
@@ -3178,6 +3184,7 @@ MT_FixedLengthByteStructure<Size>::Length() const
     assert(Size == Data()->size());
     return Size;
 } // end function Length
+
 
 /*********** MT_PublicKeyEncryptedStructure *****************/
 
@@ -3329,6 +3336,1241 @@ done:
 error:
     goto done;
 } // end function SerializePriv
+
+
+/*********** MT_Handshake *****************/
+
+MT_Handshake::MT_Handshake()
+    : MT_Structure(),
+      m_eType(MTH_Unknown),
+      m_vbBody()
+{
+} // end ctor MT_Handshake
+
+HRESULT
+MT_Handshake::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = c_cbHandshakeType_Length;
+    size_t cbPayloadLength = 0;
+
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type())));
+
+    if (!IsKnownType(*Type()))
+    {
+        wprintf(L"warning: unknown handshake type: %d\n", *Type());
+    }
+
+    ADVANCE_PARSE();
+
+    cbField = c_cbHandshake_LFL;
+    CHKOK(ReadNetworkLong(pv, cb, cbField, &cbPayloadLength));
+
+    ADVANCE_PARSE();
+
+    PARSEVB(cbPayloadLength, Body());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+size_t
+MT_Handshake::Length() const
+{
+    return c_cbHandshakeType_Length +
+           c_cbHandshake_LFL +
+           PayloadLength();
+} // end function Length
+
+const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeKnownTypes[] =
+{
+    MTH_HelloRequest,
+    MTH_ClientHello,
+    MTH_ServerHello,
+    MTH_Certificate,
+    MTH_ServerKeyExchange,
+    MTH_CertificateRequest,
+    MTH_ServerHelloDone,
+    MTH_CertificateVerify,
+    MTH_ClientKeyExchange,
+    MTH_Finished,
+    MTH_Unknown,
+};
+
+bool
+MT_Handshake::IsKnownType(
+    MTH_HandshakeType eType
+)
+{
+    return (find(c_rgeKnownTypes, c_rgeKnownTypes+ARRAYSIZE(c_rgeKnownTypes), eType) != c_rgeKnownTypes+ARRAYSIZE(c_rgeKnownTypes));
+} // end function IsKnownType
+
+HRESULT
+MT_Handshake::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = c_cbHandshakeType_Length;
+
+    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb));
+
+    ADVANCE_PARSE();
+
+    cbField = c_cbHandshake_LFL;
+    CHKOK(WriteNetworkLong(PayloadLength(), cbField, pv, cb));
+
+    ADVANCE_PARSE();
+
+    assert(PayloadLength() == Body()->size());
+    SERIALIZEPVB(Body());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+wstring
+MT_Handshake::HandshakeTypeString() const
+{
+    PCWSTR wszType = nullptr;
+
+    switch (*Type())
+    {
+        case MTH_HelloRequest:
+        wszType = L"HelloRequest";
+        break;
+
+        case MTH_ClientHello:
+        wszType = L"ClientHello";
+        break;
+
+        case MTH_ServerHello:
+        wszType = L"ServerHello";
+        break;
+
+        case MTH_Certificate:
+        wszType = L"Certificate";
+        break;
+
+        case MTH_ServerKeyExchange:
+        wszType = L"ServerKeyExchange";
+        break;
+
+        case MTH_CertificateRequest:
+        wszType = L"CertificateRequest";
+        break;
+
+        case MTH_ServerHelloDone:
+        wszType = L"ServerHelloDone";
+        break;
+
+        case MTH_CertificateVerify:
+        wszType = L"CertificateVerify";
+        break;
+
+        case MTH_ClientKeyExchange:
+        wszType = L"ClientKeyExchange";
+        break;
+
+        case MTH_Finished:
+        wszType = L"Finished";
+        break;
+
+        default:
+        wszType = L"Unknown";
+        break;
+    }
+
+    return wstring(wszType);
+} // end function HandshakeTypeString
+
+
+/*********** MT_ClientHello *****************/
+
+MT_ClientHello::MT_ClientHello()
+    : MT_Structure(),
+      m_clientVersion(),
+      m_random(),
+      m_sessionID(),
+      m_cipherSuites(),
+      m_compressionMethods(),
+      m_extensions()
+{
+} // end ctor MT_ClientHello
+
+HRESULT
+MT_ClientHello::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    PARSEPSTRUCT(ClientVersion());
+
+    PARSEPSTRUCT(Random());
+
+    PARSEPSTRUCT(SessionID());
+
+    PARSEPSTRUCT(CipherSuites());
+
+    PARSEPSTRUCT(CompressionMethods());
+
+    PARSEPSTRUCT(Extensions());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+size_t
+MT_ClientHello::Length() const
+{
+    size_t cbLength = ClientVersion()->Length() +
+                      Random()->Length() +
+                      SessionID()->Length() +
+                      CipherSuites()->Length() +
+                      CompressionMethods()->Length() +
+                      Extensions()->Length();
+
+    return cbLength;
+} // end function Length
+
+
+/*********** MT_ServerHello *****************/
+
+MT_ServerHello::MT_ServerHello()
+    : MT_Structure(),
+      m_serverVersion(),
+      m_random(),
+      m_sessionID(),
+      m_cipherSuite(),
+      m_compressionMethod(),
+      m_extensions()
+{
+} // end ctor MT_ServerHello
+
+size_t
+MT_ServerHello::Length() const
+{
+    size_t cbLength = ServerVersion()->Length() +
+                      Random()->Length() +
+                      SessionID()->Length() +
+                      CipherSuite()->Length() +
+                      CompressionMethod()->Length();
+
+    if (Extensions()->Count() > 0)
+    {
+        cbLength += Extensions()->Length();
+    }
+
+    return cbLength;
+} // end function Length
+
+HRESULT
+MT_ServerHello::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    SERIALIZEPSTRUCT(ServerVersion());
+
+    SERIALIZEPSTRUCT(Random());
+
+    SERIALIZEPSTRUCT(SessionID());
+
+    SERIALIZEPSTRUCT(CipherSuite());
+
+    SERIALIZEPSTRUCT(CompressionMethod());
+
+    if (Extensions()->Count() > 0)
+    {
+        SERIALIZEPSTRUCT(Extensions());
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+
+/*********** MT_ProtocolVersion *****************/
+
+MT_ProtocolVersion::MT_ProtocolVersion()
+    : MT_Structure(),
+      m_eVersion(MTPV_Unknown)
+{
+} // end ctor MT_ProtocolVersion
+
+HRESULT
+MT_ProtocolVersion::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = Length();
+
+    assert(Length() == c_cbProtocolVersion_Length);
+
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Version())));
+
+    ADVANCE_PARSE();
+
+    if (!IsKnownVersion(*Version()))
+    {
+        wprintf(L"warning: unknown protocol version: %04X\n", *Version());
+    }
+
+done:
+    return hr;
+
+error:
+    *Version() = MTPV_Unknown;
+    goto done;
+} // end function ParseFromPriv
+
+HRESULT
+MT_ProtocolVersion::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = Length();
+    assert(Length() == c_cbProtocolVersion_Length);
+
+    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Version()), cbField, pv, cb));
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+bool
+MT_ProtocolVersion::IsKnownVersion(
+    MTPV_Version eVersion
+)
+{
+    return (eVersion == MTPV_TLS10 ||
+            eVersion == MTPV_TLS11 ||
+            eVersion == MTPV_TLS12);
+} // end function IsKnownVersion
+
+
+/*********** MT_CipherSuite *****************/
+
+MT_CipherSuite::MT_CipherSuite()
+    : MT_FixedLengthByteStructure()
+{
+} // end ctor MT_CipherSuite
+
+MT_CipherSuite::MT_CipherSuite(MT_CipherSuiteValue eValue)
+    : MT_FixedLengthByteStructure()
+{
+    HRESULT hr = SetValue(eValue);
+
+    // catch if it's ever okay, because we're not throwing exceptions right now
+    assert(hr == S_OK);
+} // end ctor MT_CipherSuite
+
+HRESULT
+MT_CipherSuite::KeyExchangeAlgorithm(
+    MT_KeyExchangeAlgorithm* pAlg
+) const
+{
+    HRESULT hr = S_OK;
+    MT_CipherSuiteValue eCSV;
+
+    CHKOK(Value(&eCSV));
+
+    switch (eCSV)
+    {
+        case MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256:
+        case MTCS_TLS_RSA_WITH_AES_256_CBC_SHA:
+        case MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256:
+        case MTCS_TLS_RSA_WITH_AES_128_CBC_SHA:
+        case MTCS_TLS_RSA_WITH_RC4_128_SHA:
+        case MTCS_TLS_RSA_WITH_RC4_128_MD5:
+        {
+            *pAlg = MTKEA_rsa;
+        }
+        break;
+
+        default:
+        {
+            hr = MT_E_UNKNOWN_CIPHER_SUITE;
+            goto error;
+        }
+        break;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function KeyExchangeAlgorithm
+
+HRESULT
+MT_CipherSuite::Value(
+    MT_CipherSuiteValue* peValue
+) const
+{
+    HRESULT hr = S_OK;
+    MT_CipherSuiteValue cs;
+
+    assert(Data()->size() <= sizeof(cs));
+    assert(Data()->size() == c_cbCipherSuite_Length);
+
+    CHKOK(ReadNetworkLong(
+                     &Data()->front(),
+                     Data()->size(),
+                     Data()->size(),
+                     reinterpret_cast<ULONG*>(&cs)));
+
+    *peValue = cs;
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function Value
+
+HRESULT
+MT_CipherSuite::SetValue(
+    MT_CipherSuiteValue eValue
+)
+{
+    HRESULT hr = S_OK;
+
+    ResizeVector(Data(), c_cbCipherSuite_Length);
+
+    CHKOK(WriteNetworkLong(
+             static_cast<ULONG>(eValue),
+             Data()->size(),
+             &Data()->front(),
+             Data()->size()));
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SetValue
+
+bool
+MT_CipherSuite::operator==(
+    const MT_CipherSuite& rOther
+) const
+{
+    HRESULT hr = S_OK;
+    MT_CipherSuiteValue eValue;
+    MT_CipherSuiteValue eOtherValue;
+    hr = Value(&eValue);
+    if (hr != S_OK)
+    {
+        return false;
+    }
+
+    hr = rOther.Value(&eOtherValue);
+    if (hr != S_OK)
+    {
+        return false;
+    }
+
+    return eValue == eOtherValue;
+} // end operator==
+
+const MT_CipherSuiteValue c_rgeCipherSuitePreference[] =
+{
+      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256,
+      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA,
+      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256,
+      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA,
+      MTCS_TLS_RSA_WITH_RC4_128_SHA,
+      MTCS_TLS_RSA_WITH_RC4_128_MD5
+};
+
+const vector<MT_CipherSuiteValue>* GetCipherSuitePreference()
+{
+    static vector<MT_CipherSuiteValue> s_veCipherSuiteValues;
+
+    C_ASSERT(ARRAYSIZE(c_rgeCipherSuitePreference) > 0);
+
+    // first time initialization
+    if (s_veCipherSuiteValues.empty())
+    {
+        s_veCipherSuiteValues.assign(
+            c_rgeCipherSuitePreference,
+            c_rgeCipherSuitePreference + ARRAYSIZE(c_rgeCipherSuitePreference));
+    }
+
+    return &s_veCipherSuiteValues;
+} // end function GetCipherSuitePreference
+
+/*
+** the client advertises its cipher suite preference in the ClientHello
+** message. on the server here, we have an internal ordering of preference, and
+** this function puts the two together and picks the server's favorite that the
+** client also advertises support for
+*/
+HRESULT
+ChooseBestCipherSuite(
+    const vector<MT_CipherSuiteValue>* pveClientPreference,
+    const vector<MT_CipherSuiteValue>* pveServerPreference,
+    MT_CipherSuiteValue* pePreferredCipherSuite
+)
+{
+    HRESULT hr = S_OK;
+
+    // loop through server supports. if client also supports it, woot
+    for (auto itServer = pveServerPreference->begin(); itServer != pveServerPreference->end(); itServer++)
+    {
+        for (auto itClient = pveClientPreference->begin(); itClient != pveClientPreference->end(); itClient++)
+        {
+            if (*itClient == *itServer)
+            {
+                *pePreferredCipherSuite = *itServer;
+                goto done;
+            }
+        }
+    }
+
+    hr = MT_E_NO_PREFERRED_CIPHER_SUITE;
+    goto error;
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ChooseBestCipherSuite
+
+
+/*********** MT_ContentType *****************/
+
+MT_ContentType::MT_ContentType()
+    : MT_Structure(),
+      m_eType(MTCT_Type_Unknown)
+{
+} // end ctor MT_ContentType
+
+HRESULT
+MT_ContentType::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = Length();
+
+    assert(Length() == c_cbContentType_Length);
+
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<BYTE*>(Type())));
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+HRESULT
+MT_ContentType::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+
+    size_t cbField = Length();
+    assert(Length() == c_cbContentType_Length);
+
+    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb));
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+wstring
+MT_ContentType::ToString() const
+{
+    switch (*Type())
+    {
+        case MTCT_Type_ChangeCipherSpec:
+            return wstring(L"ChangeCipherSpec");
+        break;
+
+        case MTCT_Type_Alert:
+            return wstring(L"Alert");
+        break;
+
+        case MTCT_Type_Handshake:
+            return wstring(L"Handshake");
+        break;
+
+        case MTCT_Type_ApplicationData:
+            return wstring(L"ApplicationData");
+        break;
+
+        default:
+            return wstring(L"UnknownContentType");
+        break;
+    }
+} // end function ToString
+
+
+/*********** MT_Random *****************/
+
+MT_Random::MT_Random()
+    : MT_Structure(),
+      m_timestamp(0),
+      m_randomBytes()
+{
+} // end ctor MT_Random
+
+HRESULT
+MT_Random::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+
+    size_t cbField = c_cbRandomTime_Length;
+    CHKOK(ReadNetworkLong(pv, cb, cbField, &m_timestamp));
+
+    ADVANCE_PARSE();
+
+    PARSEPSTRUCT(RandomBytes());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+HRESULT
+MT_Random::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = c_cbRandomTime_Length;
+
+    CHKOK(WriteNetworkLong(*GMTUnixTime(), cbField, pv, cb));
+
+    ADVANCE_PARSE();
+
+    SERIALIZEPSTRUCT(RandomBytes());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+HRESULT
+MT_Random::PopulateNow()
+{
+    HRESULT hr = S_OK;
+
+    SYSTEMTIME st = {0};
+    GetSystemTime(&st);
+
+    ULARGE_INTEGER li = {0};
+    CHKOK(EpochTimeFromSystemTime(&st, &li));
+
+    MT_UINT32 t = 0;
+    CHKOK(ULongLongToULong(li.QuadPart, &t));
+
+    *GMTUnixTime() = t;
+
+    // ResizeVector fills with a fixed value, for easier debugging
+    ResizeVector(RandomBytes()->Data(), c_cbRandomBytes_Length);
+
+    /* or else could fill with actual random bytes
+    CHKOK(WriteRandomBytes(&RandomBytes()->front(), RandomBytes()->size()));
+    */
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function PopulateNow
+
+
+/*********** MT_CompressionMethod *****************/
+
+MT_CompressionMethod::MT_CompressionMethod()
+    : MT_Structure(),
+      m_eMethod(MTCM_Unknown)
+{
+} // end ctor MT_CompressionMethod
+
+HRESULT
+MT_CompressionMethod::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = Length();
+
+    assert(Length() == c_cbCompressionMethod_Length);
+
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Method())));
+
+    if (*Method() != MTCM_Null)
+    {
+        wprintf(L"warning: unknown compression method: %d\n", *Method());
+    }
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+HRESULT
+MT_CompressionMethod::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = Length();
+    assert(Length() == c_cbCompressionMethod_Length);
+
+    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Method()), cbField, pv, cb));
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+
+/*********** MT_Certificate *****************/
+
+MT_Certificate::MT_Certificate()
+    : MT_Structure(),
+      m_certificateList()
+{
+} // end ctor MT_Certificate
+
+HRESULT
+MT_Certificate::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    SERIALIZEPSTRUCT(CertificateList());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+HRESULT
+MT_Certificate::AddCertificateFromMemory(
+    const BYTE* pvCert,
+    size_t cbCert
+)
+{
+    MT_ASN1Cert cert;
+    cert.Data()->assign(pvCert, pvCert + cbCert);
+    CertificateList()->Data()->push_back(cert);
+    return S_OK;
+} // end function AddCertificateFromMemory
+
+
+/*********** MT_SessionID *****************/
+
+HRESULT
+MT_SessionID::PopulateWithRandom()
+{
+    HRESULT hr = S_OK;
+
+    ResizeVector(Data(), MaxLength());
+
+    CHKOK(WriteRandomBytes(&Data()->front(), Data()->size()));
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function PopulateWithRandom
+
+
+/*********** MT_Extension *****************/
+
+MT_Extension::MT_Extension()
+    : MT_Structure(),
+      m_extensionType(MTEE_Unknown),
+      m_extensionData()
+{
+} // end ctor MT_Extension
+
+HRESULT
+MT_Extension::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = c_cbExtensionType_Length;
+
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(ExtensionType())));
+
+    ADVANCE_PARSE();
+
+    PARSEPSTRUCT(ExtensionData());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+size_t
+MT_Extension::Length() const
+{
+    size_t cbLength = c_cbExtensionType_Length +
+                      ExtensionData()->Length();
+    return cbLength;
+} // end function Length
+
+HRESULT
+MT_Extension::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    cbField = c_cbExtensionType_Length;
+    CHKOK(WriteNetworkLong(static_cast<ULONG>(*ExtensionType()), cbField, pv, cb));
+
+    ADVANCE_PARSE();
+
+    SERIALIZEPSTRUCT(ExtensionData());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+
+/*********** MT_PreMasterSecret *****************/
+
+MT_PreMasterSecret::MT_PreMasterSecret()
+    : MT_Structure(),
+      m_clientVersion(),
+      m_random()
+{
+} // end ctor MT_PreMasterSecret
+
+HRESULT
+MT_PreMasterSecret::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    PARSEPSTRUCT(ClientVersion());
+
+    PARSEPSTRUCT(Random());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+HRESULT
+MT_PreMasterSecret::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    SERIALIZEPSTRUCT(ClientVersion());
+
+    SERIALIZEPSTRUCT(Random());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+size_t
+MT_PreMasterSecret::Length() const
+{
+    size_t cbLength = ClientVersion()->Length() +
+                      Random()->Length();
+
+    return cbLength;
+} // end function Length
+
+
+/*********** MT_ClientKeyExchange *****************/
+
+template <typename KeyType>
+MT_ClientKeyExchange<KeyType>::MT_ClientKeyExchange()
+    : m_spExchangeKeys()
+{
+} // end ctor MT_ClientKeyExchange
+
+template <typename KeyType>
+HRESULT
+MT_ClientKeyExchange<KeyType>::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = 0;
+
+    assert(ExchangeKeys() == nullptr);
+
+    m_spExchangeKeys = shared_ptr<KeyType>(new KeyType());
+
+    PARSEPSTRUCT(ExchangeKeys());
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+
+/*********** MT_ChangeCipherSpec *****************/
+
+MT_ChangeCipherSpec::MT_ChangeCipherSpec()
+    : MT_Structure(),
+      m_eType(MTCCS_Unknown)
+{
+} // end ctor MT_ChangeCipherSpec
+
+HRESULT
+MT_ChangeCipherSpec::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    HRESULT hr = S_OK;
+    size_t cbField = Length();
+
+    assert(Length() == c_cbChangeCipherSpec_Length);
+
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type())));
+
+    if (*Type() != MTCCS_ChangeCipherSpec)
+    {
+        wprintf(L"warning: unrecognized change cipher spec type: %d\n", *Type());
+    }
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ParseFromPriv
+
+HRESULT
+MT_ChangeCipherSpec::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    HRESULT hr = S_OK;
+    size_t cbField = Length();
+    assert(Length() == c_cbChangeCipherSpec_Length);
+
+    CHKOK(WriteNetworkLong(static_cast<BYTE>(*Type()), cbField, pv, cb));
+
+    ADVANCE_PARSE();
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function SerializePriv
+
+
+/*********** MT_Finished *****************/
+
+MT_Finished::MT_Finished()
+    : MT_Structure(),
+      MT_Securable(),
+      m_verifyData()
+{
+} // end ctor MT_Finished
+
+HRESULT
+MT_Finished::ParseFromPriv(
+    const BYTE* pv,
+    size_t cb
+)
+{
+    return VerifyData()->ParseFrom(pv, cb);
+} // end function ParseFromPriv
+
+HRESULT
+MT_Finished::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    return VerifyData()->Serialize(pv, cb);
+} // end function SerializePriv
+
+/*
+** using data gathered across the whole handshake, compute some "verify data"
+** that can be used to ensure that the client sent us data encrypted with the
+** correct cipher suite. this is basically a hash of all the handshake messages
+** involved so far
+*/
+HRESULT
+MT_Finished::CheckSecurityPriv()
+{
+    HRESULT hr = S_OK;
+
+    ByteVector vbComputedVerifyData;
+
+    CHKOK(ComputeVerifyData(
+             c_szClientFinished_PRFLabel,
+             &vbComputedVerifyData));
+
+    wprintf(L"Received Finished hash:\n");
+    PrintByteVector(VerifyData()->Data());
+
+    if (vbComputedVerifyData != *VerifyData()->Data())
+    {
+        hr = MT_E_BAD_FINISHED_HASH;
+        goto error;
+    }
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function CheckSecurityPriv
+
+/*
+** TLS 1.0
+** verify_data
+**     PRF(master_secret, finished_label, MD5(handshake_messages) +
+**     SHA-1(handshake_messages)) [0..11];
+**
+** TLS 1.2
+** verify_data
+**    PRF(master_secret, finished_label, Hash(handshake_messages))
+**       [0..verify_data_length-1];
+**
+** take a hash (or two) of all handshake messages using the master secret
+*/
+HRESULT
+MT_Finished::ComputeVerifyData(
+    PCSTR szLabel,
+    ByteVector* pvbVerifyData
+)
+{
+    HRESULT hr = S_OK;
+
+    ByteVector vbHandshakeMessages;
+    ByteVector vbHashedHandshakeMessages;
+
+    { // just logging
+        wprintf(L"compute verify data: working on the following handshake messages:\n");
+        for_each(
+            ConnParams()->HandshakeMessages()->begin(),
+            ConnParams()->HandshakeMessages()->end(),
+            [] (const shared_ptr<MT_Structure> spStructure)
+            {
+                MT_Handshake* pHandshakeMessage = static_cast<MT_Handshake*>(spStructure.get());
+                wprintf(L"    %s\n", pHandshakeMessage->HandshakeTypeString().c_str());
+            }
+        );
+    }
+
+    CHKOK(SerializeMessagesToVector<MT_Structure>(
+             ConnParams()->HandshakeMessages()->begin(),
+             ConnParams()->HandshakeMessages()->end(),
+             &vbHandshakeMessages));
+
+    switch (*EndParams()->Version())
+    {
+        case MT_ProtocolVersion::MTPV_TLS10:
+        case MT_ProtocolVersion::MTPV_TLS11:
+        {
+            ByteVector vbMD5HandshakeHash;
+            ByteVector vbSHA1HandshakeHash;
+            ByteVector vbHandshakeHash;
+
+            // MD5 hash
+            CHKOK((*EndParams()->HashInst())->Hash(
+                     &c_HashInfo_MD5,
+                     &vbHandshakeMessages,
+                     &vbMD5HandshakeHash));
+
+            // SHA1 hash
+            CHKOK((*EndParams()->HashInst())->Hash(
+                     &c_HashInfo_SHA1,
+                     &vbHandshakeMessages,
+                     &vbSHA1HandshakeHash));
+
+            // concatenate
+            vbHashedHandshakeMessages = vbMD5HandshakeHash;
+            vbHashedHandshakeMessages.insert(
+                vbHashedHandshakeMessages.end(),
+                vbSHA1HandshakeHash.begin(),
+                vbSHA1HandshakeHash.end());
+        }
+        break;
+
+        // TLS 1.2 just uses a SHA-256 hash
+        case MT_ProtocolVersion::MTPV_TLS12:
+        {
+            CHKOK((*EndParams()->HashInst())->Hash(
+                     &c_HashInfo_SHA256,
+                     &vbHandshakeMessages,
+                     &vbHashedHandshakeMessages));
+        }
+        break;
+
+        default:
+        {
+            wprintf(L"unrecognized version: %04LX\n", *EndParams()->Version());
+            hr = MT_E_UNKNOWN_PROTOCOL_VERSION;
+            goto error;
+        }
+        break;
+    }
+
+    CHKOK(ConnParams()->ComputePRF(
+             ConnParams()->MasterSecret(),
+             szLabel,
+             &vbHashedHandshakeMessages,
+             c_cbFinishedVerifyData_Length,
+             pvbVerifyData));
+
+    printf("Computed Finished hash with label \"%s\":\n", szLabel);
+    PrintByteVector(pvbVerifyData);
+
+done:
+    return hr;
+
+error:
+    goto done;
+} // end function ComputeVerifyData
+
+
+/*********** MT_ServerHelloDone *****************/
+
+MT_ServerHelloDone::MT_ServerHelloDone()
+    : MT_Structure()
+{
+} // end ctor MT_ServerHelloDone
+
+HRESULT
+MT_ServerHelloDone::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    UNREFERENCED_PARAMETER(pv);
+    UNREFERENCED_PARAMETER(cb);
+
+    // 0-byte structure
+    return S_OK;
+} // end function SerializePriv
+
+
+/*********** MT_HelloRequest *****************/
+
+MT_HelloRequest::MT_HelloRequest()
+    : MT_Structure()
+{
+} // end ctor MT_HelloRequest
+
+HRESULT
+MT_HelloRequest::SerializePriv(
+    BYTE* pv,
+    size_t cb
+) const
+{
+    UNREFERENCED_PARAMETER(pv);
+    UNREFERENCED_PARAMETER(cb);
+
+    // 0-byte structure
+    return S_OK;
+} // end function SerializePriv
+
 
 /*********** MT_TLSCiphertext *****************/
 
@@ -3603,1185 +4845,6 @@ MT_TLSCiphertext::GenerateNextIV(ByteVector* pvbIV)
     return hr;
 } // end function GenerateNextIV
 
-/*********** MT_ContentType *****************/
-
-MT_ContentType::MT_ContentType()
-    : MT_Structure(),
-      m_eType(MTCT_Type_Unknown)
-{
-} // end ctor MT_ContentType
-
-HRESULT
-MT_ContentType::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-    size_t cbField = Length();
-
-    assert(Length() == c_cbContentType_Length);
-
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<BYTE*>(Type())));
-
-    ADVANCE_PARSE();
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ParseFromPriv
-
-HRESULT
-MT_ContentType::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    HRESULT hr = S_OK;
-
-    size_t cbField = Length();
-    assert(Length() == c_cbContentType_Length);
-
-    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb));
-
-    ADVANCE_PARSE();
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SerializePriv
-
-wstring
-MT_ContentType::ToString() const
-{
-    switch (*Type())
-    {
-        case MTCT_Type_ChangeCipherSpec:
-            return wstring(L"ChangeCipherSpec");
-        break;
-
-        case MTCT_Type_Alert:
-            return wstring(L"Alert");
-        break;
-
-        case MTCT_Type_Handshake:
-            return wstring(L"Handshake");
-        break;
-
-        case MTCT_Type_ApplicationData:
-            return wstring(L"ApplicationData");
-        break;
-
-        default:
-            return wstring(L"UnknownContentType");
-        break;
-    }
-} // end function ToString
-
-
-/*********** MT_ProtocolVersion *****************/
-
-MT_ProtocolVersion::MT_ProtocolVersion()
-    : MT_Structure(),
-      m_eVersion(MTPV_Unknown)
-{
-} // end ctor MT_ProtocolVersion
-
-HRESULT
-MT_ProtocolVersion::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-    size_t cbField = Length();
-
-    assert(Length() == c_cbProtocolVersion_Length);
-
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Version())));
-
-    ADVANCE_PARSE();
-
-    if (!IsKnownVersion(*Version()))
-    {
-        wprintf(L"warning: unknown protocol version: %04X\n", *Version());
-    }
-
-done:
-    return hr;
-
-error:
-    *Version() = MTPV_Unknown;
-    goto done;
-} // end function ParseFromPriv
-
-HRESULT
-MT_ProtocolVersion::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    HRESULT hr = S_OK;
-    size_t cbField = Length();
-    assert(Length() == c_cbProtocolVersion_Length);
-
-    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Version()), cbField, pv, cb));
-
-    ADVANCE_PARSE();
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SerializePriv
-
-bool
-MT_ProtocolVersion::IsKnownVersion(
-    MTPV_Version eVersion
-)
-{
-    return (eVersion == MTPV_TLS10 ||
-            eVersion == MTPV_TLS11 ||
-            eVersion == MTPV_TLS12);
-} // end function IsKnownVersion
-
-
-/*********** MT_Handshake *****************/
-
-MT_Handshake::MT_Handshake()
-    : MT_Structure(),
-      m_eType(MTH_Unknown),
-      m_vbBody()
-{
-} // end ctor MT_Handshake
-
-HRESULT
-MT_Handshake::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-    size_t cbField = c_cbHandshakeType_Length;
-    size_t cbPayloadLength = 0;
-
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type())));
-
-    if (!IsKnownType(*Type()))
-    {
-        wprintf(L"warning: unknown handshake type: %d\n", *Type());
-    }
-
-    ADVANCE_PARSE();
-
-    cbField = c_cbHandshake_LFL;
-    CHKOK(ReadNetworkLong(pv, cb, cbField, &cbPayloadLength));
-
-    ADVANCE_PARSE();
-
-    PARSEVB(cbPayloadLength, Body());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ParseFromPriv
-
-size_t
-MT_Handshake::Length() const
-{
-    return c_cbHandshakeType_Length +
-           c_cbHandshake_LFL +
-           PayloadLength();
-} // end function Length
-
-const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeKnownTypes[] =
-{
-    MTH_HelloRequest,
-    MTH_ClientHello,
-    MTH_ServerHello,
-    MTH_Certificate,
-    MTH_ServerKeyExchange,
-    MTH_CertificateRequest,
-    MTH_ServerHelloDone,
-    MTH_CertificateVerify,
-    MTH_ClientKeyExchange,
-    MTH_Finished,
-    MTH_Unknown,
-};
-
-bool
-MT_Handshake::IsKnownType(
-    MTH_HandshakeType eType
-)
-{
-    return (find(c_rgeKnownTypes, c_rgeKnownTypes+ARRAYSIZE(c_rgeKnownTypes), eType) != c_rgeKnownTypes+ARRAYSIZE(c_rgeKnownTypes));
-} // end function IsKnownType
-
-HRESULT
-MT_Handshake::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    HRESULT hr = S_OK;
-    size_t cbField = c_cbHandshakeType_Length;
-
-    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb));
-
-    ADVANCE_PARSE();
-
-    cbField = c_cbHandshake_LFL;
-    CHKOK(WriteNetworkLong(PayloadLength(), cbField, pv, cb));
-
-    ADVANCE_PARSE();
-
-    assert(PayloadLength() == Body()->size());
-    SERIALIZEPVB(Body());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SerializePriv
-
-wstring MT_Handshake::HandshakeTypeString() const
-{
-    PCWSTR wszType = nullptr;
-
-    switch (*Type())
-    {
-        case MTH_HelloRequest:
-        wszType = L"HelloRequest";
-        break;
-
-        case MTH_ClientHello:
-        wszType = L"ClientHello";
-        break;
-
-        case MTH_ServerHello:
-        wszType = L"ServerHello";
-        break;
-
-        case MTH_Certificate:
-        wszType = L"Certificate";
-        break;
-
-        case MTH_ServerKeyExchange:
-        wszType = L"ServerKeyExchange";
-        break;
-
-        case MTH_CertificateRequest:
-        wszType = L"CertificateRequest";
-        break;
-
-        case MTH_ServerHelloDone:
-        wszType = L"ServerHelloDone";
-        break;
-
-        case MTH_CertificateVerify:
-        wszType = L"CertificateVerify";
-        break;
-
-        case MTH_ClientKeyExchange:
-        wszType = L"ClientKeyExchange";
-        break;
-
-        case MTH_Finished:
-        wszType = L"Finished";
-        break;
-
-        default:
-        wszType = L"Unknown";
-        break;
-    }
-
-    return wstring(wszType);
-} // end function HandshakeTypeString
-
-/*********** MT_Random *****************/
-
-MT_Random::MT_Random()
-    : MT_Structure(),
-      m_timestamp(0),
-      m_randomBytes()
-{
-} // end ctor MT_Random
-
-HRESULT
-MT_Random::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-
-    size_t cbField = c_cbRandomTime_Length;
-    CHKOK(ReadNetworkLong(pv, cb, cbField, &m_timestamp));
-
-    ADVANCE_PARSE();
-
-    PARSEPSTRUCT(RandomBytes());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ParseFromPriv
-
-HRESULT
-MT_Random::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    HRESULT hr = S_OK;
-    size_t cbField = c_cbRandomTime_Length;
-
-    CHKOK(WriteNetworkLong(*GMTUnixTime(), cbField, pv, cb));
-
-    ADVANCE_PARSE();
-
-    SERIALIZEPSTRUCT(RandomBytes());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SerializePriv
-
-HRESULT
-MT_Random::PopulateNow()
-{
-    HRESULT hr = S_OK;
-
-    SYSTEMTIME st = {0};
-    GetSystemTime(&st);
-
-    ULARGE_INTEGER li = {0};
-    CHKOK(EpochTimeFromSystemTime(&st, &li));
-
-    MT_UINT32 t = 0;
-    CHKOK(ULongLongToULong(li.QuadPart, &t));
-
-    *GMTUnixTime() = t;
-
-    // ResizeVector fills with a fixed value, for easier debugging
-    ResizeVector(RandomBytes()->Data(), c_cbRandomBytes_Length);
-
-    /* or else could fill with actual random bytes
-    CHKOK(WriteRandomBytes(&RandomBytes()->front(), RandomBytes()->size()));
-    */
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function PopulateNow
-
-
-/*********** MT_ClientHello *****************/
-
-MT_ClientHello::MT_ClientHello()
-    : MT_Structure(),
-      m_clientVersion(),
-      m_random(),
-      m_sessionID(),
-      m_cipherSuites(),
-      m_compressionMethods(),
-      m_extensions()
-{
-} // end ctor MT_ClientHello
-
-HRESULT
-MT_ClientHello::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-    size_t cbField = 0;
-
-    PARSEPSTRUCT(ClientVersion());
-
-    PARSEPSTRUCT(Random());
-
-    PARSEPSTRUCT(SessionID());
-
-    PARSEPSTRUCT(CipherSuites());
-
-    PARSEPSTRUCT(CompressionMethods());
-
-    PARSEPSTRUCT(Extensions());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ParseFromPriv
-
-size_t
-MT_ClientHello::Length() const
-{
-    size_t cbLength = ClientVersion()->Length() +
-                      Random()->Length() +
-                      SessionID()->Length() +
-                      CipherSuites()->Length() +
-                      CompressionMethods()->Length() +
-                      Extensions()->Length();
-
-    return cbLength;
-} // end function Length
-
-/*********** MT_CompressionMethod *****************/
-
-MT_CompressionMethod::MT_CompressionMethod()
-    : MT_Structure(),
-      m_eMethod(MTCM_Unknown)
-{
-} // end ctor MT_CompressionMethod
-
-HRESULT
-MT_CompressionMethod::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-    size_t cbField = Length();
-
-    assert(Length() == c_cbCompressionMethod_Length);
-
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Method())));
-
-    if (*Method() != MTCM_Null)
-    {
-        wprintf(L"warning: unknown compression method: %d\n", *Method());
-    }
-
-    ADVANCE_PARSE();
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ParseFromPriv
-
-HRESULT
-MT_CompressionMethod::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    HRESULT hr = S_OK;
-    size_t cbField = Length();
-    assert(Length() == c_cbCompressionMethod_Length);
-
-    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Method()), cbField, pv, cb));
-
-    ADVANCE_PARSE();
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SerializePriv
-
-/*********** MT_ServerHello *****************/
-
-MT_ServerHello::MT_ServerHello()
-    : MT_Structure(),
-      m_serverVersion(),
-      m_random(),
-      m_sessionID(),
-      m_cipherSuite(),
-      m_compressionMethod(),
-      m_extensions()
-{
-} // end ctor MT_ServerHello
-
-size_t
-MT_ServerHello::Length() const
-{
-    size_t cbLength = ServerVersion()->Length() +
-                      Random()->Length() +
-                      SessionID()->Length() +
-                      CipherSuite()->Length() +
-                      CompressionMethod()->Length();
-
-    if (Extensions()->Count() > 0)
-    {
-        cbLength += Extensions()->Length();
-    }
-
-    return cbLength;
-} // end function Length
-
-HRESULT
-MT_ServerHello::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    HRESULT hr = S_OK;
-    size_t cbField = 0;
-
-    SERIALIZEPSTRUCT(ServerVersion());
-
-    SERIALIZEPSTRUCT(Random());
-
-    SERIALIZEPSTRUCT(SessionID());
-
-    SERIALIZEPSTRUCT(CipherSuite());
-
-    SERIALIZEPSTRUCT(CompressionMethod());
-
-    if (Extensions()->Count() > 0)
-    {
-        SERIALIZEPSTRUCT(Extensions());
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SerializePriv
-
-/*********** MT_Certificate *****************/
-
-MT_Certificate::MT_Certificate()
-    : MT_Structure(),
-      m_certificateList()
-{
-} // end ctor MT_Certificate
-
-HRESULT
-MT_Certificate::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    HRESULT hr = S_OK;
-    size_t cbField = 0;
-
-    SERIALIZEPSTRUCT(CertificateList());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SerializePriv
-
-HRESULT
-MT_Certificate::AddCertificateFromMemory(
-    const BYTE* pvCert,
-    size_t cbCert
-)
-{
-    MT_ASN1Cert cert;
-    cert.Data()->assign(pvCert, pvCert + cbCert);
-    CertificateList()->Data()->push_back(cert);
-    return S_OK;
-} // end function AddCertificateFromMemory
-
-/*********** MT_SessionID *****************/
-
-HRESULT
-MT_SessionID::PopulateWithRandom()
-{
-    HRESULT hr = S_OK;
-
-    ResizeVector(Data(), MaxLength());
-
-    CHKOK(WriteRandomBytes(&Data()->front(), Data()->size()));
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function PopulateWithRandom
-
-/*********** MT_PreMasterSecret *****************/
-
-MT_PreMasterSecret::MT_PreMasterSecret()
-    : MT_Structure(),
-      m_clientVersion(),
-      m_random()
-{
-} // end ctor MT_PreMasterSecret
-
-HRESULT
-MT_PreMasterSecret::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-    size_t cbField = 0;
-
-    PARSEPSTRUCT(ClientVersion());
-
-    PARSEPSTRUCT(Random());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ParseFromPriv
-
-HRESULT
-MT_PreMasterSecret::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    HRESULT hr = S_OK;
-    size_t cbField = 0;
-
-    SERIALIZEPSTRUCT(ClientVersion());
-
-    SERIALIZEPSTRUCT(Random());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SerializePriv
-
-size_t
-MT_PreMasterSecret::Length() const
-{
-    size_t cbLength = ClientVersion()->Length() +
-                      Random()->Length();
-
-    return cbLength;
-} // end function Length
-
-
-/*********** MT_CipherSuite *****************/
-
-MT_CipherSuite::MT_CipherSuite()
-    : MT_FixedLengthByteStructure()
-{
-} // end ctor MT_CipherSuite
-
-MT_CipherSuite::MT_CipherSuite(MT_CipherSuiteValue eValue)
-    : MT_FixedLengthByteStructure()
-{
-    HRESULT hr = SetValue(eValue);
-
-    // catch if it's ever okay, because we're not throwing exceptions right now
-    assert(hr == S_OK);
-} // end ctor MT_CipherSuite
-
-HRESULT
-MT_CipherSuite::KeyExchangeAlgorithm(
-    MT_KeyExchangeAlgorithm* pAlg
-) const
-{
-    HRESULT hr = S_OK;
-    MT_CipherSuiteValue eCSV;
-
-    CHKOK(Value(&eCSV));
-
-    switch (eCSV)
-    {
-        case MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256:
-        case MTCS_TLS_RSA_WITH_AES_256_CBC_SHA:
-        case MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256:
-        case MTCS_TLS_RSA_WITH_AES_128_CBC_SHA:
-        case MTCS_TLS_RSA_WITH_RC4_128_SHA:
-        case MTCS_TLS_RSA_WITH_RC4_128_MD5:
-        {
-            *pAlg = MTKEA_rsa;
-        }
-        break;
-
-        default:
-        {
-            hr = MT_E_UNKNOWN_CIPHER_SUITE;
-            goto error;
-        }
-        break;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function KeyExchangeAlgorithm
-
-HRESULT
-MT_CipherSuite::Value(
-    MT_CipherSuiteValue* peValue
-) const
-{
-    HRESULT hr = S_OK;
-    MT_CipherSuiteValue cs;
-
-    assert(Data()->size() <= sizeof(cs));
-    assert(Data()->size() == c_cbCipherSuite_Length);
-
-    CHKOK(ReadNetworkLong(
-                     &Data()->front(),
-                     Data()->size(),
-                     Data()->size(),
-                     reinterpret_cast<ULONG*>(&cs)));
-
-    *peValue = cs;
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function Value
-
-HRESULT
-MT_CipherSuite::SetValue(
-    MT_CipherSuiteValue eValue
-)
-{
-    HRESULT hr = S_OK;
-
-    ResizeVector(Data(), c_cbCipherSuite_Length);
-
-    CHKOK(WriteNetworkLong(
-             static_cast<ULONG>(eValue),
-             Data()->size(),
-             &Data()->front(),
-             Data()->size()));
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SetValue
-
-bool
-MT_CipherSuite::operator==(
-    const MT_CipherSuite& rOther
-) const
-{
-    HRESULT hr = S_OK;
-    MT_CipherSuiteValue eValue;
-    MT_CipherSuiteValue eOtherValue;
-    hr = Value(&eValue);
-    if (hr != S_OK)
-    {
-        return false;
-    }
-
-    hr = rOther.Value(&eOtherValue);
-    if (hr != S_OK)
-    {
-        return false;
-    }
-
-    return eValue == eOtherValue;
-} // end operator==
-
-const MT_CipherSuiteValue c_rgeCipherSuitePreference[] =
-{
-      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256,
-      MTCS_TLS_RSA_WITH_AES_256_CBC_SHA,
-      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA256,
-      MTCS_TLS_RSA_WITH_AES_128_CBC_SHA,
-      MTCS_TLS_RSA_WITH_RC4_128_SHA,
-      MTCS_TLS_RSA_WITH_RC4_128_MD5
-};
-
-const vector<MT_CipherSuiteValue>* GetCipherSuitePreference()
-{
-    static vector<MT_CipherSuiteValue> s_veCipherSuiteValues;
-
-    C_ASSERT(ARRAYSIZE(c_rgeCipherSuitePreference) > 0);
-
-    // first time initialization
-    if (s_veCipherSuiteValues.empty())
-    {
-        s_veCipherSuiteValues.assign(
-            c_rgeCipherSuitePreference,
-            c_rgeCipherSuitePreference + ARRAYSIZE(c_rgeCipherSuitePreference));
-    }
-
-    return &s_veCipherSuiteValues;
-} // end function GetCipherSuitePreference
-
-/*
-** the client advertises its cipher suite preference in the ClientHello
-** message. on the server here, we have an internal ordering of preference, and
-** this function puts the two together and picks the server's favorite that the
-** client also advertises support for
-*/
-HRESULT
-ChooseBestCipherSuite(
-    const vector<MT_CipherSuiteValue>* pveClientPreference,
-    const vector<MT_CipherSuiteValue>* pveServerPreference,
-    MT_CipherSuiteValue* pePreferredCipherSuite
-)
-{
-    HRESULT hr = S_OK;
-
-    // loop through server supports. if client also supports it, woot
-    for (auto itServer = pveServerPreference->begin(); itServer != pveServerPreference->end(); itServer++)
-    {
-        for (auto itClient = pveClientPreference->begin(); itClient != pveClientPreference->end(); itClient++)
-        {
-            if (*itClient == *itServer)
-            {
-                *pePreferredCipherSuite = *itServer;
-                goto done;
-            }
-        }
-    }
-
-    hr = MT_E_NO_PREFERRED_CIPHER_SUITE;
-    goto error;
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ChooseBestCipherSuite
-
-/*********** MT_ClientKeyExchange *****************/
-
-template <typename KeyType>
-MT_ClientKeyExchange<KeyType>::MT_ClientKeyExchange()
-    : m_spExchangeKeys()
-{
-} // end ctor MT_ClientKeyExchange
-
-template <typename KeyType>
-HRESULT
-MT_ClientKeyExchange<KeyType>::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-    size_t cbField = 0;
-
-    assert(ExchangeKeys() == nullptr);
-
-    m_spExchangeKeys = shared_ptr<KeyType>(new KeyType());
-
-    PARSEPSTRUCT(ExchangeKeys());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ParseFromPriv
-
-/*********** MT_ChangeCipherSpec *****************/
-
-MT_ChangeCipherSpec::MT_ChangeCipherSpec()
-    : MT_Structure(),
-      m_eType(MTCCS_Unknown)
-{
-} // end ctor MT_ChangeCipherSpec
-
-HRESULT
-MT_ChangeCipherSpec::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-    size_t cbField = Length();
-
-    assert(Length() == c_cbChangeCipherSpec_Length);
-
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type())));
-
-    if (*Type() != MTCCS_ChangeCipherSpec)
-    {
-        wprintf(L"warning: unrecognized change cipher spec type: %d\n", *Type());
-    }
-
-    ADVANCE_PARSE();
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ParseFromPriv
-
-HRESULT
-MT_ChangeCipherSpec::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    HRESULT hr = S_OK;
-    size_t cbField = Length();
-    assert(Length() == c_cbChangeCipherSpec_Length);
-
-    CHKOK(WriteNetworkLong(static_cast<BYTE>(*Type()), cbField, pv, cb));
-
-    ADVANCE_PARSE();
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SerializePriv
-
-/*********** MT_Extension *****************/
-
-MT_Extension::MT_Extension()
-    : MT_Structure(),
-      m_extensionType(MTEE_Unknown),
-      m_extensionData()
-{
-} // end ctor MT_Extension
-
-HRESULT
-MT_Extension::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    HRESULT hr = S_OK;
-    size_t cbField = c_cbExtensionType_Length;
-
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(ExtensionType())));
-
-    ADVANCE_PARSE();
-
-    PARSEPSTRUCT(ExtensionData());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ParseFromPriv
-
-size_t
-MT_Extension::Length() const
-{
-    size_t cbLength = c_cbExtensionType_Length +
-                      ExtensionData()->Length();
-    return cbLength;
-} // end function Length
-
-HRESULT
-MT_Extension::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    HRESULT hr = S_OK;
-    size_t cbField = 0;
-
-    cbField = c_cbExtensionType_Length;
-    CHKOK(WriteNetworkLong(static_cast<ULONG>(*ExtensionType()), cbField, pv, cb));
-
-    ADVANCE_PARSE();
-
-    SERIALIZEPSTRUCT(ExtensionData());
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function SerializePriv
-
-/*********** MT_Finished *****************/
-
-MT_Finished::MT_Finished()
-    : MT_Structure(),
-      MT_Securable(),
-      m_verifyData()
-{
-} // end ctor MT_Finished
-
-HRESULT
-MT_Finished::ParseFromPriv(
-    const BYTE* pv,
-    size_t cb
-)
-{
-    return VerifyData()->ParseFrom(pv, cb);
-} // end function ParseFromPriv
-
-HRESULT
-MT_Finished::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    return VerifyData()->Serialize(pv, cb);
-} // end function SerializePriv
-
-/*
-** using data gathered across the whole handshake, compute some "verify data"
-** that can be used to ensure that the client sent us data encrypted with the
-** correct cipher suite. this is basically a hash of all the handshake messages
-** involved so far
-*/
-HRESULT
-MT_Finished::CheckSecurityPriv()
-{
-    HRESULT hr = S_OK;
-
-    ByteVector vbComputedVerifyData;
-
-    CHKOK(ComputeVerifyData(
-             c_szClientFinished_PRFLabel,
-             &vbComputedVerifyData));
-
-    wprintf(L"Received Finished hash:\n");
-    PrintByteVector(VerifyData()->Data());
-
-    if (vbComputedVerifyData != *VerifyData()->Data())
-    {
-        hr = MT_E_BAD_FINISHED_HASH;
-        goto error;
-    }
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function CheckSecurityPriv
-
-/*
-** TLS 1.0
-** verify_data
-**     PRF(master_secret, finished_label, MD5(handshake_messages) +
-**     SHA-1(handshake_messages)) [0..11];
-**
-** TLS 1.2
-** verify_data
-**    PRF(master_secret, finished_label, Hash(handshake_messages))
-**       [0..verify_data_length-1];
-**
-** take a hash (or two) of all handshake messages using the master secret
-*/
-HRESULT
-MT_Finished::ComputeVerifyData(
-    PCSTR szLabel,
-    ByteVector* pvbVerifyData
-)
-{
-    HRESULT hr = S_OK;
-
-    ByteVector vbHandshakeMessages;
-    ByteVector vbHashedHandshakeMessages;
-
-    { // just logging
-        wprintf(L"compute verify data: working on the following handshake messages:\n");
-        for_each(
-            ConnParams()->HandshakeMessages()->begin(),
-            ConnParams()->HandshakeMessages()->end(),
-            [] (const shared_ptr<MT_Structure> spStructure)
-            {
-                MT_Handshake* pHandshakeMessage = static_cast<MT_Handshake*>(spStructure.get());
-                wprintf(L"    %s\n", pHandshakeMessage->HandshakeTypeString().c_str());
-            }
-        );
-    }
-
-    CHKOK(SerializeMessagesToVector<MT_Structure>(
-             ConnParams()->HandshakeMessages()->begin(),
-             ConnParams()->HandshakeMessages()->end(),
-             &vbHandshakeMessages));
-
-    switch (*EndParams()->Version())
-    {
-        case MT_ProtocolVersion::MTPV_TLS10:
-        case MT_ProtocolVersion::MTPV_TLS11:
-        {
-            ByteVector vbMD5HandshakeHash;
-            ByteVector vbSHA1HandshakeHash;
-            ByteVector vbHandshakeHash;
-
-            // MD5 hash
-            CHKOK((*EndParams()->HashInst())->Hash(
-                     &c_HashInfo_MD5,
-                     &vbHandshakeMessages,
-                     &vbMD5HandshakeHash));
-
-            // SHA1 hash
-            CHKOK((*EndParams()->HashInst())->Hash(
-                     &c_HashInfo_SHA1,
-                     &vbHandshakeMessages,
-                     &vbSHA1HandshakeHash));
-
-            // concatenate
-            vbHashedHandshakeMessages = vbMD5HandshakeHash;
-            vbHashedHandshakeMessages.insert(
-                vbHashedHandshakeMessages.end(),
-                vbSHA1HandshakeHash.begin(),
-                vbSHA1HandshakeHash.end());
-        }
-        break;
-
-        // TLS 1.2 just uses a SHA-256 hash
-        case MT_ProtocolVersion::MTPV_TLS12:
-        {
-            CHKOK((*EndParams()->HashInst())->Hash(
-                     &c_HashInfo_SHA256,
-                     &vbHandshakeMessages,
-                     &vbHashedHandshakeMessages));
-        }
-        break;
-
-        default:
-        {
-            wprintf(L"unrecognized version: %04LX\n", *EndParams()->Version());
-            hr = MT_E_UNKNOWN_PROTOCOL_VERSION;
-            goto error;
-        }
-        break;
-    }
-
-    CHKOK(ConnParams()->ComputePRF(
-             ConnParams()->MasterSecret(),
-             szLabel,
-             &vbHashedHandshakeMessages,
-             c_cbFinishedVerifyData_Length,
-             pvbVerifyData));
-
-    printf("Computed Finished hash with label \"%s\":\n", szLabel);
-    PrintByteVector(pvbVerifyData);
-
-done:
-    return hr;
-
-error:
-    goto done;
-} // end function ComputeVerifyData
 
 /*********** MT_CipherFragment *****************/
 
@@ -4942,6 +5005,7 @@ done:
 error:
     goto done;
 } // end function ComputeMAC
+
 
 /*********** MT_GenericStreamCipher *****************/
 
@@ -5110,6 +5174,7 @@ done:
 error:
     goto done;
 } // end function CheckSecurityPriv
+
 
 /*********** MT_GenericBlockCipher *****************/
 
@@ -5426,6 +5491,7 @@ error:
     goto done;
 } // end function CheckSecurityPriv
 
+
 /*********** MT_GenericBlockCipher_TLS10 *****************/
 
 const ByteVector*
@@ -5433,6 +5499,7 @@ MT_GenericBlockCipher_TLS10::IV() const
 {
     return EndParams()->IV();
 } // end function IV
+
 
 /*********** MT_GenericBlockCipher_TLS11 *****************/
 
@@ -5517,6 +5584,116 @@ MT_GenericBlockCipher_TLS11::Length() const
 
     return cbLength;
 } // end function Length
+
+
+/*********** SymmetricCipherer *****************/
+
+SymmetricCipherer::SymmetricCipherer()
+    : m_cipherInfo()
+{
+} // end ctor SymmetricCipherer
+
+HRESULT
+SymmetricCipherer::SetCipherInfo(
+    const ByteVector* pvbKey,
+    const CipherInfo* pCipherInfo
+)
+{
+    UNREFERENCED_PARAMETER(pvbKey);
+
+    *Cipher() = *pCipherInfo;
+
+    // if you pick null cipher, then better send an empty key
+    assert(Cipher()->alg != CipherAlg_NULL || pvbKey->empty());
+
+    return S_OK;
+} // end function SetCipherInfo
+
+/*
+** handle null cipher here. S_OK indicates to the caller that some "encryption"
+** was done here. E_NOTIMPL means that the caller needs to handle the
+** encryption itself
+*/
+HRESULT
+SymmetricCipherer::EncryptBuffer(
+    const ByteVector* pvbCleartext,
+    const ByteVector* pvbIV,
+    ByteVector* pvbEncrypted
+)
+{
+    UNREFERENCED_PARAMETER(pvbIV);
+
+    if (Cipher()->alg == CipherAlg_NULL)
+    {
+        *pvbEncrypted = *pvbCleartext;
+        return S_OK;
+    }
+
+    return E_NOTIMPL;
+} // end function EncryptBuffer
+
+// handle null encryption here. S_OK means we handled it. E_NOTIMPL otherwise
+HRESULT
+SymmetricCipherer::DecryptBuffer(
+    const ByteVector* pvbEncrypted,
+    const ByteVector* pvbIV,
+    ByteVector* pvbDecrypted
+)
+{
+    UNREFERENCED_PARAMETER(pvbIV);
+
+    if (Cipher()->alg == CipherAlg_NULL)
+    {
+        *pvbDecrypted = *pvbEncrypted;
+        return S_OK;
+    }
+
+    return E_NOTIMPL;
+} // end function DecryptBuffer
+
+
+/*********** Hasher *****************/
+
+// handle null (0 byte) hash. S_OK means we handled it. E_NOTIMPL otherwise
+HRESULT
+Hasher::Hash(
+    const HashInfo* pHashInfo,
+    const ByteVector* pvbText,
+    ByteVector* pvbHash)
+{
+    UNREFERENCED_PARAMETER(pvbText);
+
+    if (pHashInfo->alg == HashAlg_NULL)
+    {
+        // 0 byte hash
+        pvbHash->clear();
+        return S_OK;
+    }
+
+    return E_NOTIMPL;
+} // end function Hash
+
+// handle null (0 byte) HMAC. S_OK means we handled it. E_NOTIMPL otherwise
+HRESULT
+Hasher::HMAC(
+    const HashInfo* pHashInfo,
+    const ByteVector* pvbKey,
+    const ByteVector* pvbText,
+    ByteVector* pvbHMAC)
+{
+    UNREFERENCED_PARAMETER(pvbKey);
+    UNREFERENCED_PARAMETER(pvbText);
+
+    if (pHashInfo->alg == HashAlg_NULL)
+    {
+        // 0 byte hash
+        pvbHMAC->clear();
+        return S_OK;
+    }
+
+    return E_NOTIMPL;
+} // end function HMAC
+
 
 /*********** MT_Alert *****************/
 
@@ -5712,153 +5889,6 @@ MT_Alert::ToString() const
 } // end function ToString
 
 
-/*********** SymmetricCipherer *****************/
-
-SymmetricCipherer::SymmetricCipherer()
-    : m_cipherInfo()
-{
-} // end ctor SymmetricCipherer
-
-HRESULT
-SymmetricCipherer::SetCipherInfo(
-    const ByteVector* pvbKey,
-    const CipherInfo* pCipherInfo
-)
-{
-    UNREFERENCED_PARAMETER(pvbKey);
-
-    *Cipher() = *pCipherInfo;
-
-    // if you pick null cipher, then better send an empty key
-    assert(Cipher()->alg != CipherAlg_NULL || pvbKey->empty());
-
-    return S_OK;
-} // end function SetCipherInfo
-
-/*
-** handle null cipher here. S_OK indicates to the caller that some "encryption"
-** was done here. E_NOTIMPL means that the caller needs to handle the
-** encryption itself
-*/
-HRESULT
-SymmetricCipherer::EncryptBuffer(
-    const ByteVector* pvbCleartext,
-    const ByteVector* pvbIV,
-    ByteVector* pvbEncrypted
-)
-{
-    UNREFERENCED_PARAMETER(pvbIV);
-
-    if (Cipher()->alg == CipherAlg_NULL)
-    {
-        *pvbEncrypted = *pvbCleartext;
-        return S_OK;
-    }
-
-    return E_NOTIMPL;
-} // end function EncryptBuffer
-
-// handle null encryption here. S_OK means we handled it. E_NOTIMPL otherwise
-HRESULT
-SymmetricCipherer::DecryptBuffer(
-    const ByteVector* pvbEncrypted,
-    const ByteVector* pvbIV,
-    ByteVector* pvbDecrypted
-)
-{
-    UNREFERENCED_PARAMETER(pvbIV);
-
-    if (Cipher()->alg == CipherAlg_NULL)
-    {
-        *pvbDecrypted = *pvbEncrypted;
-        return S_OK;
-    }
-
-    return E_NOTIMPL;
-} // end function DecryptBuffer
-
-/*********** Hasher *****************/
-
-// handle null (0 byte) hash. S_OK means we handled it. E_NOTIMPL otherwise
-HRESULT
-Hasher::Hash(
-    const HashInfo* pHashInfo,
-    const ByteVector* pvbText,
-    ByteVector* pvbHash)
-{
-    UNREFERENCED_PARAMETER(pvbText);
-
-    if (pHashInfo->alg == HashAlg_NULL)
-    {
-        // 0 byte hash
-        pvbHash->clear();
-        return S_OK;
-    }
-
-    return E_NOTIMPL;
-} // end function Hash
-
-// handle null (0 byte) HMAC. S_OK means we handled it. E_NOTIMPL otherwise
-HRESULT
-Hasher::HMAC(
-    const HashInfo* pHashInfo,
-    const ByteVector* pvbKey,
-    const ByteVector* pvbText,
-    ByteVector* pvbHMAC)
-{
-    UNREFERENCED_PARAMETER(pvbKey);
-    UNREFERENCED_PARAMETER(pvbText);
-
-    if (pHashInfo->alg == HashAlg_NULL)
-    {
-        // 0 byte hash
-        pvbHMAC->clear();
-        return S_OK;
-    }
-
-    return E_NOTIMPL;
-} // end function HMAC
-
-/*********** MT_ServerHelloDone *****************/
-
-MT_ServerHelloDone::MT_ServerHelloDone()
-    : MT_Structure()
-{
-} // end ctor MT_ServerHelloDone
-
-HRESULT
-MT_ServerHelloDone::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    UNREFERENCED_PARAMETER(pv);
-    UNREFERENCED_PARAMETER(cb);
-
-    // 0-byte structure
-    return S_OK;
-} // end function SerializePriv
-
-/*********** MT_HelloRequest *****************/
-
-MT_HelloRequest::MT_HelloRequest()
-    : MT_Structure()
-{
-} // end ctor MT_HelloRequest
-
-HRESULT
-MT_HelloRequest::SerializePriv(
-    BYTE* pv,
-    size_t cb
-) const
-{
-    UNREFERENCED_PARAMETER(pv);
-    UNREFERENCED_PARAMETER(cb);
-
-    // 0-byte structure
-    return S_OK;
-} // end function SerializePriv
-
 /*********** MT_RenegotiationInfoExtension *****************/
 
 MT_RenegotiationInfoExtension::MT_RenegotiationInfoExtension()
@@ -5964,6 +5994,7 @@ MT_RenegotiationInfoExtension::RenegotiatedConnection() const
 
     return &m_renegotiatedConnection;
 } // end function RenegotiatedConnection
+
 
 // boilerplate code for quickly creating new structures
 /*********** MT_Thingy *****************/
