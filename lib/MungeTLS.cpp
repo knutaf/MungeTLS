@@ -71,7 +71,7 @@
     ADVANCE_PARSE();                                               \
 }                                                                  \
 
-#define SERIALIZEVB(vect)                                          \
+#define SERIALIZEPVB(vect)                                         \
 {                                                                  \
     cbField = (vect)->size();                                      \
     CHKOK(SerializeByteVector((vect), pv, cb));                    \
@@ -3011,7 +3011,7 @@ MT_VariableLengthByteField
 
     ADVANCE_PARSE();
 
-    SERIALIZEVB(Data());
+    SERIALIZEPVB(Data());
 
 done:
     return hr;
@@ -3162,7 +3162,7 @@ MT_FixedLengthByteStructure<Size>::SerializePriv(
 
     assert(Length() <= cb);
 
-    SERIALIZEVB(Data());
+    SERIALIZEPVB(Data());
 
 done:
     return hr;
@@ -3321,7 +3321,7 @@ MT_RecordLayerMessage::SerializePriv(
     ADVANCE_PARSE();
 
     assert(PayloadLength() == Fragment()->size());
-    SERIALIZEVB(Fragment());
+    SERIALIZEPVB(Fragment());
 
 done:
     return hr;
@@ -3843,7 +3843,7 @@ MT_Handshake::SerializePriv(
     ADVANCE_PARSE();
 
     assert(PayloadLength() == Body()->size());
-    SERIALIZEVB(Body());
+    SERIALIZEPVB(Body());
 
 done:
     return hr;
@@ -4835,7 +4835,7 @@ MT_CipherFragment::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    SERIALIZEVB(EncryptedContent());
+    SERIALIZEPVB(EncryptedContent());
 
     assert(cb == 0);
 
@@ -4921,7 +4921,7 @@ MT_CipherFragment::ComputeMAC(
 
     ADVANCE_PARSE();
 
-    SERIALIZEVB(Content());
+    SERIALIZEPVB(Content());
 
     assert(cb == 0);
 
@@ -5025,9 +5025,9 @@ MT_GenericStreamCipher::UpdateWriteSecurity()
     ResizeVector(&vbPlaintextStruct, cb);
     pv = &vbPlaintextStruct.front();
 
-    SERIALIZEVB(Content());
+    SERIALIZEPVB(Content());
 
-    SERIALIZEVB(MAC());
+    SERIALIZEPVB(MAC());
 
     assert(cb == 0);
 
@@ -5268,11 +5268,11 @@ MT_GenericBlockCipher::UpdateWriteSecurity()
     ResizeVector(&vbPlaintextContent, cb);
     pv = &vbPlaintextContent.front();
 
-    SERIALIZEVB(Content());
+    SERIALIZEPVB(Content());
 
-    SERIALIZEVB(MAC());
+    SERIALIZEPVB(MAC());
 
-    SERIALIZEVB(Padding());
+    SERIALIZEPVB(Padding());
 
     cbField = c_cbGenericBlockCipher_Padding_LFL;
     CHKOK(WriteNetworkLong(PaddingLength(), cbField, pv, cb));
@@ -5498,7 +5498,7 @@ MT_GenericBlockCipher_TLS11::SerializePriv(
     HRESULT hr = S_OK;
     size_t cbField = 0;
 
-    SERIALIZEVB(IV());
+    SERIALIZEPVB(IV());
 
     CHKOK(MT_GenericBlockCipher::SerializePriv(pv, cb));
 
