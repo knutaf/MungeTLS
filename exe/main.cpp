@@ -16,6 +16,10 @@
 using namespace std;
 using namespace MungeTLS;
 
+/*
+** Much of this is taken with little modification from an MSDN sockets sample,
+** so the coding style differs a little from all the other code in the project.
+*/
 int __cdecl wmain(int argc, wchar_t* argv[])
 {
     UNREFERENCED_PARAMETER(argc);
@@ -23,15 +27,107 @@ int __cdecl wmain(int argc, wchar_t* argv[])
 
     HRESULT hr = S_OK;
 
-    /*
-    ** this simple web server is attached to the TLS connection and implements
-    ** all its callbacks
-    */
-    SimpleHTTPServer ds;
+    SOCKET sockListen = INVALID_SOCKET;
 
-    hr = ds.ProcessConnections();
+    //----------------------
+    // Initialize Winsock.
+
+    WSADATA wsaData = {0};
+    int iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
+    if (iResult != NO_ERROR)
+    {
+        wprintf(L"Error at WSAStartup(): %lu\n", iResult);
+        hr = HRESULT_FROM_WIN32(iResult);
+        goto error;
+    }
+
+    //----------------------
+    // Create a SOCKET for listening for
+    // incoming connection requests.
+    sockListen = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sockListen == INVALID_SOCKET)
+    {
+        hr = HRESULT_FROM_WIN32(WSAGetLastError());
+        wprintf(L"Error at socket(): %08LX\n", hr);
+        goto error;
+    }
+
+    //----------------------
+    // The sockaddr_in structure specifies the address family,
+    // IP address, and port for the socket that is being bound.
+    sockaddr_in service;
+    service.sin_family = AF_INET;
+    service.sin_addr.s_addr = 0;
+    service.sin_port = htons(8879);
+
+    if (bind(
+          sockListen,
+          (SOCKADDR*) &service,
+          sizeof(service)) == SOCKET_ERROR)
+    {
+        hr = HRESULT_FROM_WIN32(WSAGetLastError());
+        wprintf(L"bind() failed: %08LX\n", hr);
+        goto error;
+    }
+
+    //----------------------
+    // Listen for incoming connection requests.
+    // on the created socket
+    if (listen( sockListen, 1 ) == SOCKET_ERROR)
+    {
+        hr = HRESULT_FROM_WIN32(WSAGetLastError());
+        wprintf(L"Error listening on socket: %08LX\n", hr);
+        goto error;
+    }
+
+    // keep accepting connections one after another
+    while (true)
+    {
+        //----------------------
+        // Create a SOCKET for accepting incoming requests.
+        wprintf(L"Waiting for client to connect...\n");
+        SOCKET sockAccept = accept( sockListen, NULL, NULL );
+
+        if (sockAccept == INVALID_SOCKET)
+        {
+            hr = HRESULT_FROM_WIN32(WSAGetLastError());
+            wprintf(L"accept failed: %08LX\n", hr);
+            goto error;
+        }
+
+        {
+            /*
+            ** this simple web server is attached to the TLS connection and
+            ** implements all its callbacks
+            */
+            SimpleHTTPServer server(sockAccept);
+            hr = server.ProcessConnection();
+            if (hr != S_OK)
+            {
+                wprintf(L"warning: failed in ProcessConnection: %08LX\n", hr);
+            }
+        }
+
+        if (sockAccept != INVALID_SOCKET)
+        {
+            closesocket(sockAccept);
+            sockAccept = INVALID_SOCKET;
+        }
+    }
+
+done:
+    if (sockListen != INVALID_SOCKET)
+    {
+        closesocket(sockListen);
+        sockListen = INVALID_SOCKET;
+    }
+
+    WSACleanup();
 
     return hr;
+
+error:
+    goto done;
 }
 
 template <typename N>
@@ -99,8 +195,15 @@ HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const ByteVector* pvb)
     }
     else
     {
-        wprintf(L"failed to create outfile: %s\n", wsFilename.c_str());
         hr = HRESULT_FROM_WIN32(GetLastError());
+
+        static bool fWarnedAboutLogFile = false;
+
+        if (!fWarnedAboutLogFile)
+        {
+            wprintf(L"warning: failed to create traffic log file: %s (%08LX)\n", wsFilename.c_str(), hr);
+            fWarnedAboutLogFile = true;
+        }
         goto error;
     }
 
@@ -118,102 +221,139 @@ error:
 } // end function LogTraffic
 
 /*
-** opens a socket and listens for connections. when it receives one, channels
-** data to and from TLSConnection instance, presuming it to be TLS traffic.
-**
-** Much of this is taken with little modification from an MSDN sockets sample,
-** so the coding style differs a little from all the other code in the project.
+** expects a TCP connection to have already been established, and processes all
+** data on it.
 */
-HRESULT SimpleHTTPServer::ProcessConnections()
+HRESULT SimpleHTTPServer::ProcessConnection()
 {
+    const size_t c_cbReadBuffer = 5000;
+    const size_t c_cbMaxRecvSize = 5000;
+
+    C_ASSERT(c_cbMaxRecvSize <= c_cbReadBuffer);
+
+    ByteVector vbData;
+    size_t cbConsumedBuffer = 0;
+    int cb;
+    int cbAvailable;
     HRESULT hr = S_OK;
-    SOCKET sockListen = INVALID_SOCKET;
-    SOCKET sockAccept = INVALID_SOCKET;
 
-    //----------------------
-    // Initialize Winsock.
+    CHKOK(Connection()->Initialize());
 
-    WSADATA wsaData = {0};
-    int iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
-    if (iResult != NO_ERROR)
+    vbData.reserve(c_cbReadBuffer);
+    ResizeVector(&vbData, c_cbReadBuffer);
+
+    CHKOK(SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable));
+
+    // even if our buffer size is bigger, limit how much we receive
+    if (cbAvailable > c_cbMaxRecvSize)
     {
-        wprintf(L"Error at WSAStartup(): %lu\n", iResult);
-        hr = HRESULT_FROM_WIN32(iResult);
-        goto error;
+        cbAvailable = c_cbMaxRecvSize;
     }
 
-    //----------------------
-    // Create a SOCKET for listening for
-    // incoming connection requests.
-    sockListen = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sockListen == INVALID_SOCKET)
+    // start reading at the next valid spot in the buffer
+    cb = recv(
+             *SockClient(),
+             reinterpret_cast<char*>(&vbData.front() + cbConsumedBuffer),
+             cbAvailable,
+             0);
+
+    // cb < 0 means failure. cb == 0 means end of stream
+    while (cb > 0)
     {
-        hr = HRESULT_FROM_WIN32(WSAGetLastError());
-        wprintf(L"Error at socket(): %08LX\n", hr);
-        goto error;
-    }
+        wprintf(L"read %d bytes from the network\n", cb);
 
-    //----------------------
-    // The sockaddr_in structure specifies the address family,
-    // IP address, and port for the socket that is being bound.
-    sockaddr_in service;
-    service.sin_family = AF_INET;
-    service.sin_addr.s_addr = 0;
-    service.sin_port = htons(8879);
+        assert(cb <= vbData.size());
+        cbConsumedBuffer += cb;
+        assert(cbConsumedBuffer <= vbData.size());
+        ResizeVector(&vbData, cbConsumedBuffer);
 
-    if (bind(sockListen,
-                (SOCKADDR*) &service,
-                sizeof(service)) == SOCKET_ERROR)
-    {
-        hr = HRESULT_FROM_WIN32(WSAGetLastError());
-        wprintf(L"bind() failed: %08LX\n", hr);
-        goto error;
-    }
+        // keep processing messages until we can't anymore
+        hr = Connection()->HandleMessage(&vbData);
+        while (hr == S_OK)
+        {
+            /*
+            ** HandleMessage reenters SimpleHTTPServer in callbacks, which can
+            ** result in queuing up traffic to send. check right now and
+            ** send any pending traffic
+            */
+            while (!PendingSends()->empty())
+            {
+                ByteVector vb(PendingSends()->front());
+                size_t cbPayload = vb.size();
 
-    //----------------------
-    // Listen for incoming connection requests.
-    // on the created socket
-    if (listen( sockListen, 1 ) == SOCKET_ERROR)
-    {
-        hr = HRESULT_FROM_WIN32(WSAGetLastError());
-        wprintf(L"Error listening on socket: %08LX\n", hr);
-        goto error;
-    }
+                PendingSends()->erase(PendingSends()->begin());
 
-    //----------------------
-    // Create a SOCKET for accepting incoming requests.
-    wprintf(L"Waiting for client to connect...\n");
-    sockAccept = accept( sockListen, NULL, NULL );
+                wprintf(L"responding with %d bytes\n", cbPayload);
 
-    if (sockAccept == INVALID_SOCKET)
-    {
-        hr = HRESULT_FROM_WIN32(WSAGetLastError());
-        wprintf(L"accept failed: %08LX\n", hr);
-        goto error;
-    }
+                // this loop sends the whole buffer, in pieces
+                while (cbPayload != 0)
+                {
+                    assert(cbPayload == vb.size());
 
-    // No longer need server socket
-    closesocket(sockListen);
-    sockListen = INVALID_SOCKET;
+                    assert(cbPayload <= INT_MAX);
 
-    wprintf(L"client connected with handle %d\n", sockAccept);
+                    cb = send(*SockClient(),
+                              reinterpret_cast<char*>(&vb.front()),
+                              static_cast<int>(cbPayload),
+                              0);
 
-    {
-        const size_t c_cbReadBuffer = 5000;
-        const size_t c_cbMaxRecvSize = 5000;
+                    if (cb == SOCKET_ERROR)
+                    {
+                        hr = HRESULT_FROM_WIN32(WSAGetLastError());
+                        wprintf(L"failed in send(): %08LX\n", hr);
+                        break;
+                    }
 
-        assert(c_cbMaxRecvSize <= c_cbReadBuffer);
+                    wprintf(L"sent %u bytes\n", cb);
 
-        ByteVector vbData;
-        size_t cbConsumedBuffer = 0;
-        int cb;
-        int cbAvailable;
-        HRESULT hr = S_OK;
+                    assert(cb >= 0);
+                    assert(static_cast<ULONG>(cb) <= cbPayload);
 
+                    cbPayload -= cb;
+                    vb.erase(
+                        vb.begin(),
+                        vb.begin() + cb);
+                }
 
-        CHKOK(Connection()->Initialize());
+                if (hr == S_OK)
+                {
+                    assert(vb.empty());
+                }
+                else
+                {
+                    wprintf(L"something failed (%08LX). exiting\n", hr);
+                    break;
+                }
+            }
 
-        vbData.reserve(c_cbReadBuffer);
+            hr = Connection()->HandleMessage(&vbData);
+        }
+
+        wprintf(L"failed HandleMessage (possibly expected): %08LX\n", hr);
+
+        // flush logging messages
+        _fflush_nolock(stdout);
+
+        if (FAILED(hr))
+        {
+            goto error;
+        }
+
+        assert(vbData.size() <= c_cbReadBuffer);
+
+        /*
+        ** SUCCEEDED instead of S_OK because HandleMessage returns S_FALSE
+        ** if it handles an empty message
+        */
+        assert(SUCCEEDED(hr));
+        hr = S_OK;
+
+        /*
+        ** HandleMessage, if it succeeds, resizes vector, so update our
+        ** current knowledge of the consumed size of the vector, then
+        ** inflate it to the buffer size
+        */
+        cbConsumedBuffer = vbData.size();
         ResizeVector(&vbData, c_cbReadBuffer);
 
         CHKOK(SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable));
@@ -224,157 +364,28 @@ HRESULT SimpleHTTPServer::ProcessConnections()
             cbAvailable = c_cbMaxRecvSize;
         }
 
-        // start reading at the next valid spot in the buffer
+        // again, start reading at latest unused spot in buffer
         cb = recv(
-                 sockAccept,
+                 *SockClient(),
                  reinterpret_cast<char*>(&vbData.front() + cbConsumedBuffer),
                  cbAvailable,
                  0);
-
-        // cb < 0 means failure. cb == 0 means end of stream
-        while (cb > 0)
-        {
-            wprintf(L"read %d bytes from the network\n", cb);
-
-            assert(cb <= vbData.size());
-            cbConsumedBuffer += cb;
-            assert(cbConsumedBuffer <= vbData.size());
-            ResizeVector(&vbData, cbConsumedBuffer);
-
-            // keep processing messages until we can't anymore
-            hr = Connection()->HandleMessage(&vbData);
-            while (hr == S_OK)
-            {
-                /*
-                ** HandleMessage reenters SimpleHTTPServer in callbacks, which can
-                ** result in queuing up traffic to send. check right now and
-                ** send any pending traffic
-                */
-                while (!PendingSends()->empty())
-                {
-                    ByteVector vb(PendingSends()->front());
-                    size_t cbPayload = vb.size();
-
-                    PendingSends()->erase(PendingSends()->begin());
-
-                    wprintf(L"responding with %d bytes\n", cbPayload);
-
-                    // this loop sends the whole buffer, in pieces
-                    while (cbPayload != 0)
-                    {
-                        assert(cbPayload == vb.size());
-
-                        assert(cbPayload <= INT_MAX);
-
-                        cb = send(sockAccept,
-                                  reinterpret_cast<char*>(&vb.front()),
-                                  static_cast<int>(cbPayload),
-                                  0);
-
-                        if (cb == SOCKET_ERROR)
-                        {
-                            hr = HRESULT_FROM_WIN32(WSAGetLastError());
-                            wprintf(L"failed in send(): %08LX\n", hr);
-                            break;
-                        }
-
-                        wprintf(L"sent %u bytes\n", cb);
-
-                        assert(cb >= 0);
-                        assert(static_cast<ULONG>(cb) <= cbPayload);
-
-                        cbPayload -= cb;
-                        vb.erase(
-                            vb.begin(),
-                            vb.begin() + cb);
-                    }
-
-                    if (hr == S_OK)
-                    {
-                        assert(vb.empty());
-                    }
-                    else
-                    {
-                        wprintf(L"something failed (%08LX). exiting\n", hr);
-                        break;
-                    }
-                }
-
-                hr = Connection()->HandleMessage(&vbData);
-            }
-
-            wprintf(L"failed HandleMessage (possibly expected): %08LX\n", hr);
-
-            // flush logging messages
-            _fflush_nolock(stdout);
-
-            if (FAILED(hr))
-            {
-                goto error;
-            }
-
-            assert(vbData.size() <= c_cbReadBuffer);
-
-            /*
-            ** SUCCEEDED instead of S_OK because HandleMessage returns S_FALSE
-            ** if it handles an empty message
-            */
-            assert(SUCCEEDED(hr));
-            hr = S_OK;
-
-            /*
-            ** HandleMessage, if it succeeds, resizes vector, so update our
-            ** current knowledge of the consumed size of the vector, then
-            ** inflate it to the buffer size
-            */
-            cbConsumedBuffer = vbData.size();
-            ResizeVector(&vbData, c_cbReadBuffer);
-
-            CHKOK(SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable));
-
-            // even if our buffer size is bigger, limit how much we receive
-            if (cbAvailable > c_cbMaxRecvSize)
-            {
-                cbAvailable = c_cbMaxRecvSize;
-            }
-
-            // again, start reading at latest unused spot in buffer
-            cb = recv(
-                     sockAccept,
-                     reinterpret_cast<char*>(&vbData.front() + cbConsumedBuffer),
-                     cbAvailable,
-                     0);
-        }
-
-        if (cb < 0)
-        {
-            wprintf(L"failed on recv: cb=%d, err=%08LX\n", cb, WSAGetLastError());
-            goto error;
-        }
     }
 
-    wprintf(L"done reading: %d", errno);
+    if (cb < 0)
+    {
+        wprintf(L"failed on recv: cb=%d, err=%08LX\n", cb, WSAGetLastError());
+        goto error;
+    }
+
+    wprintf(L"done reading: %d\n", errno);
 
 done:
-    if (sockListen != INVALID_SOCKET)
-    {
-        closesocket(sockListen);
-        sockListen = INVALID_SOCKET;
-    }
-
-    if (sockAccept != INVALID_SOCKET)
-    {
-        closesocket(sockAccept);
-        sockAccept = INVALID_SOCKET;
-    }
-
-    WSACleanup();
-
     return hr;
 
 error:
     goto done;
-} // end function ProcessConnections
+} // end function ProcessConnection
 
 HRESULT SimpleHTTPServer::EnqueueSendApplicationData(const ByteVector* pvb)
 {
@@ -727,8 +738,7 @@ HRESULT SimpleHTTPServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, 
         wsLogPrefix += L"_c";
     }
 
-    hr = LogTraffic(m_cMessages, &wsLogPrefix, &vb);
-    assert(hr == S_OK);
+    LogTraffic(m_cMessages, &wsLogPrefix, &vb);
     m_cMessages++;
 
 done:
@@ -758,8 +768,7 @@ HRESULT SimpleHTTPServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext
         wsLogPrefix += L"_c";
     }
 
-    hr = LogTraffic(m_cMessages, &wsLogPrefix, &vb);
-    assert(hr == S_OK);
+    LogTraffic(m_cMessages, &wsLogPrefix, &vb);
     m_cMessages++;
 
 done:

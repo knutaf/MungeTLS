@@ -11,19 +11,20 @@ using namespace MungeTLS;
 class SimpleHTTPServer : public ITLSListener
 {
     public:
-    SimpleHTTPServer()
+    SimpleHTTPServer(SOCKET sockClient)
         : m_vPendingSends(),
           m_con(this), // not a copy ctor; taking this as an ITLSListener
           m_sPendingRequest(""),
           m_iCipherSelected(0),
           m_cMessages(0),
           m_cRequestsReceived(0),
-          m_vbPendingAppData()
+          m_vbPendingAppData(),
+		  m_sockClient(sockClient)
     { }
 
     ~SimpleHTTPServer() { }
 
-    HRESULT ProcessConnections();
+    HRESULT ProcessConnection();
     HRESULT EnqueueSendApplicationData(const ByteVector* pvb);
 
     HRESULT OnSend(const ByteVector* pvb);
@@ -58,6 +59,7 @@ class SimpleHTTPServer : public ITLSListener
     ACCESSORS(TLSConnection*, Connection, &m_con);
     ACCESSORS(std::string*, PendingRequest, &m_sPendingRequest);
     ACCESSORS(PCCERT_CHAIN_CONTEXT*, CertChain, &m_pCertChain);
+    ACCESSORS(SOCKET*, SockClient, &m_sockClient);
 
     ACCESSORS(std::shared_ptr<WindowsPublicKeyCipherer>*, PubKeyCipherer, &m_spPubKeyCipherer);
     ACCESSORS(std::shared_ptr<WindowsSymmetricCipherer>*, ClientSymCipherer, &m_spClientSymCipherer);
@@ -72,6 +74,7 @@ class SimpleHTTPServer : public ITLSListener
     ULONG m_cMessages;
     ULONG m_cRequestsReceived;
     ByteVector m_vbPendingAppData;
+    SOCKET m_sockClient;
 
     std::shared_ptr<WindowsPublicKeyCipherer> m_spPubKeyCipherer;
     std::shared_ptr<WindowsSymmetricCipherer> m_spClientSymCipherer;
