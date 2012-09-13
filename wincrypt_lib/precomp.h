@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MTLS_WINCRYPT_LIB_PRECOMP_H
+#define MTLS_WINCRYPT_LIB_PRECOMP_H
 #include <windows.h>
 #include <vector>
 #include <assert.h>
@@ -18,3 +19,4 @@
 
 #include "MungeTLS.h"
 #include "MungeCrypto.h"
+#endif

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MTLS_EXE_MAIN_H
+#define MTLS_EXE_MAIN_H
 #include <windows.h>
 #include <wincrypt.h>
 #include <string>
@@ -81,3 +82,4 @@ class SimpleHTTPServer : public ITLSListener
     std::shared_ptr<WindowsSymmetricCipherer> m_spServerSymCipherer;
     std::shared_ptr<WindowsHasher> m_spHasher;
 };
+#endif

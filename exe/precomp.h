@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MTLS_EXE_PRECOMP_H
+#define MTLS_EXE_PRECOMP_H
 #include <windows.h>
 #include <wincrypt.h>
 #include <assert.h>
@@ -16,3 +17,4 @@
 #include "MungeTLS.h"
 #include "wincrypt_help.h"
 #include "main.h"
+#endif

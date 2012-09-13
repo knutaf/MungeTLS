@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MTLS_WINCRYPT_LIB_WINCRYPT_HELP_H
+#define MTLS_WINCRYPT_LIB_WINCRYPT_HELP_H
 #include <windows.h>
 #include <wincrypt.h>
 #include <memory>
@@ -173,3 +174,4 @@ class WindowsHasher : public Hasher
 };
 
 }
+#endif

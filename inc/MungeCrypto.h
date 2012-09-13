@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MTLS_INC_MUNGECRYPTO_H
+#define MTLS_INC_MUNGECRYPTO_H
 #include <windows.h>
 #include <vector>
 #include "mtls_defs.h"
@@ -229,3 +230,4 @@ class Hasher
 };
 
 }
+#endif

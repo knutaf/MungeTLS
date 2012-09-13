@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MTLS_INC_MUNGETLS_H
+#define MTLS_INC_MUNGETLS_H
 #include <windows.h>
 #include <vector>
 #include <memory>
@@ -1847,3 +1848,4 @@ CryptoInfoFromCipherSuite(
     HashInfo* pHashInfo);
 
 }
+#endif

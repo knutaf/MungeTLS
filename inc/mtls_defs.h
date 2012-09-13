@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MTLS_INC_MTLS_DEFS_H
+#define MTLS_INC_MTLS_DEFS_H
 #include <windows.h>
 #include <vector>
 
@@ -80,3 +81,4 @@ typedef ULONGLONG MT_UINT64;
 }                                                           \
 
 }
+#endif
