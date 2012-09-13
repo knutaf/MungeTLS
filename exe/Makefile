@@ -17,11 +17,11 @@ LIBS=\
 
 MY_LIBS=\
     ..\lib\MungeTLS.lib \
-    ..\wincrypt_lib\MTLS_WinCrypt.lib \
+    ..\plat_lib_windows\MTLS_Windows.lib \
 
 INCLUDES=\
     $(INCLUDES) \
-    -I..\wincrypt_lib \
+    -I..\plat_lib_windows \
 
 SOURCES=$(C_FILES) $(H_FILES)
 

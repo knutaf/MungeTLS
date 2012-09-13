@@ -1,5 +1,5 @@
-#ifndef MTLS_WINCRYPT_LIB_WINCRYPT_HELP_H
-#define MTLS_WINCRYPT_LIB_WINCRYPT_HELP_H
+#ifndef MTLS_PLAT_LIB_WINDOWS_MTLS_PLAT_WINDOWS_H
+#define MTLS_PLAT_LIB_WINDOWS_MTLS_PLAT_WINDOWS_H
 #include <windows.h>
 #include <wincrypt.h>
 #include <memory>

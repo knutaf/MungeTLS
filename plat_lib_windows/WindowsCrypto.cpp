@@ -9,7 +9,7 @@
 
 #include "MungeTLS.h"
 #include "MungeCrypto.h"
-#include "wincrypt_help.h"
+#include "mtls_plat_windows.h"
 
 /*
 ** All the functions in this file are Windows implementations/wrappers of

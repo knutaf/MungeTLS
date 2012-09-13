@@ -12,7 +12,7 @@ all:
 	cd lib
 	$(MAKE)
 	cd ..
-	cd wincrypt_lib
+	cd plat_lib_windows
 	$(MAKE)
 	cd ..
 	cd exe
@@ -25,7 +25,7 @@ clean:
 	cd exe
 	$(MAKE) clean
 	cd ..
-	cd wincrypt_lib
+	cd plat_lib_windows
 	$(MAKE) clean
 	cd ..
 	cd lib

@@ -1,4 +1,4 @@
-TARGET=MTLS_WinCrypt
+TARGET=MTLS_Windows
 C_DEFINES=/DUNICODE
 
 C_FILES=\
@@ -9,7 +9,7 @@ O_FILES=\
 
 H_FILES=\
     $(H_FILES) \
-    wincrypt_help.h  \
+    mtls_plat_windows.h  \
     precomp.h  \
 
 SOURCES=$(C_FILES) $(H_FILES)

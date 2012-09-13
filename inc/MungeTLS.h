@@ -11,7 +11,7 @@
 ** - I am sacrificing a lot in terms of const-ability in favor of being
 **   generous about the const-ness of crypto operations like hashing and
 **   encrypting. That is, I am not restricting platform-specific crypto
-**   functions to be const or not, since I can't predict it. Consequently, this
+**   functions to be const, since I can't predict it. Consequently, this
 **   flows outwards through most of the code and eliminates a lot of const
 **   opportunities.
 */

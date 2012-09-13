@@ -5,7 +5,6 @@
 #include <io.h>
 #include <stdlib.h>
 #include <process.h>
-#include <fcntl.h>
 #include <errno.h>
 #include <string>
 #include <vector>
@@ -15,7 +14,7 @@
 #include <assert.h>
 #include <wincrypt.h>
 #include "mungetls.h"
-#include "wincrypt_help.h"
+#include "mtls_plat_windows.h"
 
 using namespace std;
 using namespace MungeTLS;

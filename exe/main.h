@@ -5,7 +5,7 @@
 #include <string>
 #include <memory>
 #include "MungeTLS.h"
-#include "wincrypt_help.h"
+#include "mtls_plat_windows.h"
 
 using namespace MungeTLS;
 

@@ -15,6 +15,6 @@
 #include <strsafe.h>
 
 #include "MungeTLS.h"
-#include "wincrypt_help.h"
+#include "mtls_plat_windows.h"
 #include "main.h"
 #endif

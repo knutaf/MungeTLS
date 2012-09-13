@@ -1,5 +1,5 @@
-#ifndef MTLS_WINCRYPT_LIB_PRECOMP_H
-#define MTLS_WINCRYPT_LIB_PRECOMP_H
+#ifndef MTLS_PLAT_LIB_WINDOWS_PRECOMP_H
+#define MTLS_PLAT_LIB_WINDOWS_PRECOMP_H
 #include <windows.h>
 #include <vector>
 #include <assert.h>
