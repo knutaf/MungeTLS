@@ -3,9 +3,11 @@ C_DEFINES=/DUNICODE
 
 C_FILES=\
     WindowsCrypto.cpp \
+    mtls_plat_windows.cpp \
 
 O_FILES=\
     WindowsCrypto.obj \
+    mtls_plat_windows.obj \
 
 H_FILES=\
     $(H_FILES) \

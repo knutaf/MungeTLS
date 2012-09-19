@@ -28,16 +28,16 @@ class SimpleHTTPServer : public ITLSListener
     HRESULT ProcessConnection();
     HRESULT EnqueueSendApplicationData(const ByteVector* pvb);
 
-    HRESULT OnSend(const ByteVector* pvb);
-    HRESULT OnReceivedApplicationData(const ByteVector* pvb);
-    HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);
-    HRESULT OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite);
-    HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags);
-    HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
-    HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
-    HRESULT OnHandshakeComplete();
+    MTERR OnSend(const ByteVector* pvb);
+    MTERR OnReceivedApplicationData(const ByteVector* pvb);
+    MTERR OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);
+    MTERR OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite);
+    MTERR OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags);
+    MTERR OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
+    MTERR OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
+    MTERR OnHandshakeComplete();
 
-    HRESULT
+    MTERR
     OnInitializeCrypto(
         MT_CertificateList* pCertChain,
         std::shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
@@ -46,7 +46,7 @@ class SimpleHTTPServer : public ITLSListener
         std::shared_ptr<Hasher>* pspClientHasher,
         std::shared_ptr<Hasher>* pspServerHasher);
 
-    HRESULT
+    MTERR
     OnReconcileSecurityVersion(
         const MT_TLSCiphertext* pCiphertext,
         MT_ProtocolVersion::MTPV_Version connVersion,

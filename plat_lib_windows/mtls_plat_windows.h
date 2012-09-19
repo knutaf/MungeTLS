@@ -10,6 +10,61 @@
 namespace MungeTLS
 {
 
+MTERR HR2MR(HRESULT hr);
+HRESULT MR2HR(MTERR mr);
+
+#define CHKNUL(stmt)                                        \
+{                                                           \
+    if (NULL == (stmt))                                     \
+    {                                                       \
+        hr = HRESULT_FROM_WIN32(GetLastError());            \
+        LOGFAIL(L"NULL", (stmt), hr);                       \
+        goto error;                                         \
+    }                                                       \
+}                                                           \
+
+#define CHKWINOK(stmt)                                      \
+{                                                           \
+    hr = (stmt);                                            \
+    if (hr != S_OK)                                         \
+    {                                                       \
+        LOGFAIL(L"!= S_OK", (stmt), hr);                    \
+        goto error;                                         \
+    }                                                       \
+}                                                           \
+
+#define CHKWINOKM(stmt)                                     \
+{                                                           \
+    hr = (stmt);                                            \
+    mr = HR2MR(hr);                                         \
+    if (hr != S_OK)                                         \
+    {                                                       \
+        LOGFAIL(L"!= S_OK", (stmt), hr);                    \
+        goto error;                                         \
+    }                                                       \
+}                                                           \
+
+#define CHKWIN(stmt)                                        \
+{                                                           \
+    if (!(stmt))                                            \
+    {                                                       \
+        hr = HRESULT_FROM_WIN32(GetLastError());            \
+        LOGFAIL(L"FALSE", (stmt), hr);                      \
+        goto error;                                         \
+    }                                                       \
+}                                                           \
+
+#define CHKWINM(stmt)                                       \
+{                                                           \
+    if (!(stmt))                                            \
+    {                                                       \
+        hr = HRESULT_FROM_WIN32(GetLastError());            \
+        mr = HR2MR(hr);                                     \
+        LOGFAIL(L"FALSE", (stmt), hr);                      \
+        goto error;                                         \
+    }                                                       \
+}                                                           \
+
 class KeyAndProv
 {
     public:
@@ -83,23 +138,25 @@ class WindowsPublicKeyCipherer : public PublicKeyCipherer
     WindowsPublicKeyCipherer();
     ~WindowsPublicKeyCipherer() { }
 
-    HRESULT Initialize(
+    HRESULT
+    Initialize(
         std::shared_ptr<KeyAndProv> spPublicKeyProv,
         std::shared_ptr<KeyAndProv> spPrivateKeyProv);
 
-    HRESULT Initialize(PCCERT_CONTEXT pCertCContext);
-
     HRESULT
+    Initialize(PCCERT_CONTEXT pCertCContext);
+
+    MTERR
     EncryptBufferWithPublicKey(
         const ByteVector* pvbCleartext,
         ByteVector* pvbEncrypted) const;
 
-    HRESULT
+    MTERR
     DecryptBufferWithPrivateKey(
         const ByteVector* pvbEncrypted,
         ByteVector* pvbDecrypted) const;
 
-    HRESULT
+    MTERR
     EncryptBufferWithPrivateKey(
         const ByteVector* pvbCleartext,
         ByteVector* pvbEncrypted) const;
@@ -121,18 +178,18 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
     WindowsSymmetricCipherer();
     ~WindowsSymmetricCipherer() { }
 
-    HRESULT
+    MTERR
     SetCipherInfo(
         const ByteVector* pvbKey,
         const CipherInfo* pCipherInfo);
 
-    HRESULT
+    MTERR
     EncryptBuffer(
         const ByteVector* pvbCleartext,
         const ByteVector* pvbIV,
         ByteVector* pvbEncrypted);
 
-    HRESULT
+    MTERR
     DecryptBuffer(
         const ByteVector* pvbEncrypted,
         const ByteVector* pvbIV,
@@ -153,13 +210,13 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
 class WindowsHasher : public Hasher
 {
     public:
-    HRESULT
+    MTERR
     Hash(
         const HashInfo* pHashInfo,
         const ByteVector* pvbText,
         ByteVector* pvbHash);
 
-    HRESULT
+    MTERR
     HMAC(
         const HashInfo* pHashInfo,
         const ByteVector* pvbKey,
@@ -168,7 +225,8 @@ class WindowsHasher : public Hasher
 
     private:
     static
-    HRESULT WindowsHashAlgFromMTHashInfo(
+    HRESULT
+    WindowsHashAlgFromMTHashInfo(
         const HashInfo* pHashInfo,
         ALG_ID* pAlg);
 };

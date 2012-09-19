@@ -36,7 +36,7 @@ struct PlaintextKey
 };
 
 ByteVector ReverseByteOrder(const ByteVector* pvb);
-extern HRESULT PrintByteVector(const ByteVector* pvb);
+extern MTERR PrintByteVector(const ByteVector* pvb);
 
 
 /*********** KeyAndProv *****************/
@@ -198,13 +198,13 @@ EncryptBuffer(
         default:
         {
             assert(false);
-            hr = MT_E_UNSUPPORTED_CIPHER;
+            hr = MR2HR(MT_E_UNSUPPORTED_CIPHER);
             goto error;
         }
         break;
     }
 
-    CHKOK(SizeTToDWord(pvbCleartext->size(), &cb));
+    CHKWINOK(SizeTToDWord(pvbCleartext->size(), &cb));
 
     CryptEncrypt(
              hKeyNew,
@@ -230,9 +230,9 @@ EncryptBuffer(
     *pvbEncrypted = *pvbCleartext;
     ResizeVector(pvbEncrypted, cb);
 
-    CHKOK(SizeTToDWord(pvbCleartext->size(), &cb));
+    CHKWINOK(SizeTToDWord(pvbCleartext->size(), &cb));
 
-    CHKOK(SizeTToDWord(pvbEncrypted->size(), &dwBufLen));
+    CHKWINOK(SizeTToDWord(pvbEncrypted->size(), &dwBufLen));
 
     // the actual encryption, finally
     CHKWIN(CryptEncrypt(
@@ -352,13 +352,13 @@ DecryptBuffer(
         default:
         {
             assert(false);
-            hr = MT_E_UNSUPPORTED_CIPHER;
+            hr = MR2HR(MT_E_UNSUPPORTED_CIPHER);
             goto error;
         }
         break;
     }
 
-    CHKOK(SizeTToDWord(pvbDecrypted->size(), &cb));
+    CHKWINOK(SizeTToDWord(pvbDecrypted->size(), &cb));
 
     wprintf(L"actual decrypt\n");
 
@@ -407,7 +407,7 @@ DecryptBuffer(
             // each byte should have the value equal to the number of bytes
             if (*rit != paddingByteValue)
             {
-                hr = MT_E_BAD_PADDING;
+                hr = MR2HR(MT_E_BAD_PADDING);
                 goto error;
             }
         }
@@ -418,7 +418,7 @@ DecryptBuffer(
         */
         if (cbPaddingBytes != 0)
         {
-            hr = MT_E_BAD_PADDING;
+            hr = MR2HR(MT_E_BAD_PADDING);
             goto error;
         }
 
@@ -430,7 +430,7 @@ DecryptBuffer(
         */
         if (rit != pvbDecrypted->begin() + cb - 1)
         {
-            hr = MT_E_BAD_PADDING;
+            hr = MR2HR(MT_E_BAD_PADDING);
             goto error;
         }
     }
@@ -772,11 +772,11 @@ ImportSymmetricKey(
     pPlaintextKey->hdr.reserved = 0;
     pPlaintextKey->hdr.aiKeyAlg = algID;
 
-    CHKOK(SizeTToDWord(pvbKey->size(), &(pPlaintextKey->cbKeySize)));
+    CHKWINOK(SizeTToDWord(pvbKey->size(), &(pPlaintextKey->cbKeySize)));
 
     copy(pvbKey->begin(), pvbKey->end(), pPlaintextKey->rgbKeyData);
 
-    CHKOK(SizeTToDWord(vbPlaintextKey.size(), &cbKeySize));
+    CHKWINOK(SizeTToDWord(vbPlaintextKey.size(), &cbKeySize));
 
     // RC2 is used for HMAC keys. very spammy, so limit it
     if (algID != CALG_RC2)
@@ -786,12 +786,12 @@ ImportSymmetricKey(
 
     // need to pass CRYPT_IPSEC_HMAC_KEY to allow long key lengths, per MSDN
     CHKWIN(CryptImportKey(
-             hProv,
-             reinterpret_cast<const BYTE*>(pPlaintextKey),
-             cbKeySize,
-             NULL,
-             CRYPT_IPSEC_HMAC_KEY,
-             &hKey));
+               hProv,
+               reinterpret_cast<const BYTE*>(pPlaintextKey),
+               cbKeySize,
+               NULL,
+               CRYPT_IPSEC_HMAC_KEY,
+               &hKey));
 
     kp.SetKey(hKey);
     *pKey = kp;
@@ -835,16 +835,16 @@ WindowsPublicKeyCipherer::Initialize(
     assert(m_spPrivateKeyProv == nullptr);
     m_spPrivateKeyProv.reset(new KeyAndProv());
 
-    CHKOK(GetPrivateKeyFromCertificate(
-             pCertContext,
-             PrivateKeyAndProv().get()));
+    CHKWINOK(GetPrivateKeyFromCertificate(
+                 pCertContext,
+                 PrivateKeyAndProv().get()));
 
     assert(m_spPublicKeyProv == nullptr);
     m_spPublicKeyProv.reset(new KeyAndProv());
 
-    CHKOK(GetPublicKeyFromCertificate(
-             pCertContext,
-             PublicKeyAndProv().get()));
+    CHKWINOK(GetPublicKeyFromCertificate(
+                 pCertContext,
+                 PublicKeyAndProv().get()));
 
 done:
     return hr;
@@ -853,67 +853,70 @@ error:
     goto done;
 } // end function Initialize
 
-HRESULT
+MTERR
 WindowsPublicKeyCipherer::EncryptBufferWithPublicKey(
     const ByteVector* pvbCleartext,
     ByteVector* pvbEncrypted
 ) const
 {
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
 
-    CHKOK(MungeTLS::EncryptBuffer(
-             pvbCleartext,
-             PublicKey(),
-             &c_CipherInfo_RSA,
-             nullptr,
-             pvbEncrypted));
+    CHKWINOKM(MungeTLS::EncryptBuffer(
+                  pvbCleartext,
+                  PublicKey(),
+                  &c_CipherInfo_RSA,
+                  nullptr,
+                  pvbEncrypted));
 
 done:
-    return hr;
+    return mr;
 
 error:
     goto done;
 } // end function EncryptBufferWithPublicKey
 
-HRESULT
+MTERR
 WindowsPublicKeyCipherer::DecryptBufferWithPrivateKey(
     const ByteVector* pvbEncrypted,
     ByteVector* pvbDecrypted
 ) const
 {
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
 
-    CHKOK(MungeTLS::DecryptBuffer(
-             pvbEncrypted,
-             PrivateKey(),
-             &c_CipherInfo_RSA,
-             nullptr,
-             pvbDecrypted));
+    CHKWINOKM(MungeTLS::DecryptBuffer(
+                  pvbEncrypted,
+                  PrivateKey(),
+                  &c_CipherInfo_RSA,
+                  nullptr,
+                  pvbDecrypted));
 
 done:
-    return hr;
+    return mr;
 
 error:
     goto done;
 } // end function DecryptBufferWithPrivateKey
 
-HRESULT
+MTERR
 WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
     const ByteVector* pvbCleartext,
     ByteVector* pvbEncrypted
 ) const
 {
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
 
-    CHKOK(MungeTLS::EncryptBuffer(
-             pvbCleartext,
-             PrivateKey(),
-             &c_CipherInfo_RSA,
-             nullptr,
-             pvbEncrypted));
+    CHKWINOKM(MungeTLS::EncryptBuffer(
+                  pvbCleartext,
+                  PrivateKey(),
+                  &c_CipherInfo_RSA,
+                  nullptr,
+                  pvbEncrypted));
 
 done:
-    return hr;
+    return mr;
 
 error:
     goto done;
@@ -928,12 +931,13 @@ WindowsSymmetricCipherer::WindowsSymmetricCipherer()
 {
 } // end ctor WindowsSymmetricCipherer
 
-HRESULT
+MTERR
 WindowsSymmetricCipherer::SetCipherInfo(
     const ByteVector* pvbKey,
     const CipherInfo* pCipherInfo
 )
 {
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
     ALG_ID algID;
 
@@ -943,101 +947,105 @@ WindowsSymmetricCipherer::SetCipherInfo(
              pCipherInfo->alg,
              &algID);
 
+    // S_FALSE means there is no need to import the key, so skip
     if (hr == S_FALSE)
     {
-        hr = S_OK;
+        mr = MT_S_OK;
         goto done;
     }
     else if (hr != S_OK)
     {
+        mr = HR2MR(hr);
         goto error;
     }
 
     m_spKey = shared_ptr<KeyAndProv>(new KeyAndProv());
 
-    CHKOK(ImportSymmetricKey(
-             pvbKey,
-             algID,
-             m_spKey.get()));
+    CHKWINOKM(ImportSymmetricKey(
+                  pvbKey,
+                  algID,
+                  m_spKey.get()));
 
 done:
-    return hr;
+    return mr;
 
 error:
     goto done;
 } // end function SetCipherInfo
 
-HRESULT
+MTERR
 WindowsSymmetricCipherer::EncryptBuffer(
     const ByteVector* pvbCleartext,
     const ByteVector* pvbIV,
     ByteVector* pvbEncrypted
 )
 {
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
 
     // check if superclass handles it
-    hr = SymmetricCipherer::EncryptBuffer(
+    mr = SymmetricCipherer::EncryptBuffer(
              pvbCleartext,
              pvbIV,
              pvbEncrypted);
 
-    if (hr == S_OK)
+    if (mr == MT_S_OK)
     {
         goto done;
     }
-    else if (hr != E_NOTIMPL)
+    else if (mr != MT_E_NOTIMPL)
     {
         goto error;
     }
 
-    CHKOK(MungeTLS::EncryptBuffer(
-             pvbCleartext,
-             (*Key())->GetKey(),
-             Cipher(),
-             pvbIV,
-             pvbEncrypted));
+    CHKWINOKM(MungeTLS::EncryptBuffer(
+                  pvbCleartext,
+                  (*Key())->GetKey(),
+                  Cipher(),
+                  pvbIV,
+                  pvbEncrypted));
 
 done:
-    return hr;
+    return mr;
 
 error:
     goto done;
 } // end function EncryptBuffer
 
-HRESULT
+MTERR
 WindowsSymmetricCipherer::DecryptBuffer(
     const ByteVector* pvbEncrypted,
     const ByteVector* pvbIV,
     ByteVector* pvbDecrypted
 )
 {
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
 
     // check if superclas handles it
-    hr = SymmetricCipherer::DecryptBuffer(
+    mr = SymmetricCipherer::DecryptBuffer(
              pvbEncrypted,
              pvbIV,
              pvbDecrypted);
 
-    if (hr == S_OK)
+    if (mr == MT_S_OK)
     {
         goto done;
     }
-    else if (hr != E_NOTIMPL)
+    else if (mr != MT_E_NOTIMPL)
     {
         goto error;
     }
 
-    CHKOK(MungeTLS::DecryptBuffer(
-             pvbEncrypted,
-             (*Key())->GetKey(),
-             Cipher(),
-             pvbIV,
-             pvbDecrypted));
+    CHKWINOKM(MungeTLS::DecryptBuffer(
+                  pvbEncrypted,
+                  (*Key())->GetKey(),
+                  Cipher(),
+                  pvbIV,
+                  pvbDecrypted));
 
 done:
-    return hr;
+    return mr;
 
 error:
     goto done;
@@ -1080,7 +1088,7 @@ WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
 
         default:
         {
-            hr = MT_E_UNSUPPORTED_CIPHER;
+            hr = MR2HR(MT_E_UNSUPPORTED_CIPHER);
             goto error;
         }
         break;
@@ -1096,13 +1104,14 @@ error:
 
 /*********** WindowsHasher *****************/
 
-HRESULT
+MTERR
 WindowsHasher::Hash(
     const HashInfo* pHashInfo,
     const ByteVector* pvbText,
     ByteVector* pvbHash
 )
 {
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
     HCRYPTPROV hProv = NULL;
     HCRYPTHASH hHash = NULL;
@@ -1111,42 +1120,42 @@ WindowsHasher::Hash(
     KeyAndProv kp;
 
     // gotta call superclass implementation first. it might handle it
-    hr = Hasher::Hash(pHashInfo, pvbText, pvbHash);
-    if (hr == S_OK)
+    mr = Hasher::Hash(pHashInfo, pvbText, pvbHash);
+    if (mr == MT_S_OK)
     {
         goto done;
     }
 
-    CHKOK(WindowsHashAlgFromMTHashInfo(pHashInfo, &algID));
+    CHKWINOKM(WindowsHashAlgFromMTHashInfo(pHashInfo, &algID));
 
     /*
     ** use the RSA/AES provider, the most fully featured one, and an ephemeral
     ** key container (as specified by CRYPT_VERIFYCONTEXT).
     */
-    CHKWIN(CryptAcquireContextW(
-             &hProv,
-             NULL,
-             MS_ENH_RSA_AES_PROV_W,
-             PROV_RSA_AES,
-             CRYPT_VERIFYCONTEXT));
+    CHKWINM(CryptAcquireContextW(
+                &hProv,
+                NULL,
+                MS_ENH_RSA_AES_PROV_W,
+                PROV_RSA_AES,
+                CRYPT_VERIFYCONTEXT));
 
     kp.Init(hProv);
 
-    CHKWIN(CryptCreateHash(
-             hProv,
-             algID,
-             0,
-             0,
-             &hHash));
+    CHKWINM(CryptCreateHash(
+                hProv,
+                algID,
+                0,
+                0,
+                &hHash));
 
-    CHKOK(SizeTToDWord(pvbText->size(), &cbText));
+    CHKWINOKM(SizeTToDWord(pvbText->size(), &cbText));
 
     // actually adds the data to the hash
-    CHKWIN(CryptHashData(
-             hHash,
-             &pvbText->front(),
-             cbText,
-             0));
+    CHKWINM(CryptHashData(
+                hHash,
+                &pvbText->front(),
+                cbText,
+                0));
 
     {
         // this is how to get the value of the hash. kinda roundabout. get size
@@ -1162,18 +1171,19 @@ WindowsHasher::Hash(
             GetLastError() != ERROR_SUCCESS)
         {
             hr = HRESULT_FROM_WIN32(GetLastError());
+            mr = HR2MR(hr);
             goto error;
         }
 
         ResizeVector(pvbHash, cbHashValue);
 
         // gets the actual hash value
-        CHKWIN(CryptGetHashParam(
-                 hHash,
-                 HP_HASHVAL,
-                 &pvbHash->front(),
-                 &cbHashValue,
-                 0));
+        CHKWINM(CryptGetHashParam(
+                    hHash,
+                    HP_HASHVAL,
+                    &pvbHash->front(),
+                    &cbHashValue,
+                    0));
 
         assert(cbHashValue == pvbHash->size());
     }
@@ -1185,14 +1195,14 @@ done:
         hHash = NULL;
     }
 
-    return hr;
+    return mr;
 
 error:
     pvbHash->clear();
     goto done;
 } // end function Hash
 
-HRESULT
+MTERR
 WindowsHasher::HMAC(
     const HashInfo* pHashInfo,
     const ByteVector* pvbKey,
@@ -1200,6 +1210,7 @@ WindowsHasher::HMAC(
     ByteVector* pvbHMAC
 )
 {
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
 
     HCRYPTHASH hHash = NULL;
@@ -1209,37 +1220,37 @@ WindowsHasher::HMAC(
     HMAC_INFO hinfo = {0};
 
     // check if superclass handles the hash
-    hr = Hasher::HMAC(pHashInfo, pvbKey, pvbText, pvbHMAC);
-    if (hr == S_OK)
+    mr = Hasher::HMAC(pHashInfo, pvbKey, pvbText, pvbHMAC);
+    if (mr == MT_S_OK)
     {
         goto done;
     }
 
-    CHKOK(WindowsHashAlgFromMTHashInfo(pHashInfo, &hinfo.HashAlgid));
+    CHKWINOKM(WindowsHashAlgFromMTHashInfo(pHashInfo, &hinfo.HashAlgid));
 
     // according to MSDN, keys imported for HMAC use RC2
-    CHKOK(ImportSymmetricKey(pvbKey, CALG_RC2, &kp));
+    CHKWINOKM(ImportSymmetricKey(pvbKey, CALG_RC2, &kp));
 
-    CHKWIN(CryptCreateHash(
-             kp.GetProv(),
-             CALG_HMAC,
-             kp.GetKey(),
-             0,
-             &hHash));
+    CHKWINM(CryptCreateHash(
+                kp.GetProv(),
+                CALG_HMAC,
+                kp.GetKey(),
+                0,
+                &hHash));
 
-    CHKWIN(CryptSetHashParam(
-             hHash,
-             HP_HMAC_INFO,
-             reinterpret_cast<const BYTE*>(&hinfo),
-             NULL));
+    CHKWINM(CryptSetHashParam(
+                hHash,
+                HP_HMAC_INFO,
+                reinterpret_cast<const BYTE*>(&hinfo),
+                NULL));
 
-    CHKOK(SizeTToDWord(pvbText->size(), &cbTextSize));
+    CHKWINOKM(SizeTToDWord(pvbText->size(), &cbTextSize));
 
-    CHKWIN(CryptHashData(
-             hHash,
-             &pvbText->front(),
-             cbTextSize,
-             0));
+    CHKWINM(CryptHashData(
+                 hHash,
+                 &pvbText->front(),
+                 cbTextSize,
+                 0));
 
     CryptGetHashParam(
         hHash,
@@ -1251,22 +1262,22 @@ WindowsHasher::HMAC(
     if (GetLastError() != ERROR_MORE_DATA &&
         GetLastError() != ERROR_SUCCESS)
     {
-        wprintf(L"CryptGetHashParam 1\n");
         hr = HRESULT_FROM_WIN32(GetLastError());
+        mr = HR2MR(hr);
         goto error;
     }
 
     ResizeVector(pvbHMAC, cbHashValue);
 
-    CHKWIN(CryptGetHashParam(
-             hHash,
-             HP_HASHVAL,
-             &pvbHMAC->front(),
-             &cbHashValue,
-             0));
+    CHKWINM(CryptGetHashParam(
+                hHash,
+                HP_HASHVAL,
+                &pvbHMAC->front(),
+                &cbHashValue,
+                0));
 
 done:
-    return hr;
+    return mr;
 
 error:
     pvbHMAC->clear();
@@ -1304,7 +1315,7 @@ WindowsHasher::WindowsHashAlgFromMTHashInfo(
 
         default:
         {
-            hr = MT_E_UNSUPPORTED_HASH;
+            hr = HR2MR(MT_E_UNSUPPORTED_HASH);
             goto error;
         }
         break;

@@ -30,6 +30,10 @@ typedef ULONG MT_UINT16;
 typedef ULONG MT_UINT32;
 typedef ULONGLONG MT_UINT64;
 
+typedef MT_UINT32 MTERR;
+bool MT_Succeeded(MTERR mr);
+bool MT_Failed(MTERR mr);
+
 // 2^(b*8) - 1
 #define MAXFORBYTES(b) ((1 << ((b) * 8)) - 1)
 
@@ -38,44 +42,35 @@ typedef ULONGLONG MT_UINT64;
 #define WSTRINGIFY2(x) L## #x
 #define WSTRINGIFY(x) WSTRINGIFY2(x)
 
-#define LOGFAIL(tag, stmt) wprintf(tag L" %s:%u - %s == %08LX\n", WIDEN(__FILE__), __LINE__, WSTRINGIFY(stmt), hr); \
+#define LOGFAIL(tag, stmt, err) wprintf(tag L" %s:%u - %s == %08LX\n", WIDEN(__FILE__), __LINE__, WSTRINGIFY(stmt), (err)); \
 
 #define CHKSUC(stmt)                                        \
 {                                                           \
-    hr = (stmt);                                            \
-    if (FAILED(hr))                                         \
+    mr = (stmt);                                            \
+    if (MT_Failed(mr))                                       \
     {                                                       \
-        LOGFAIL(L"FAILED", (stmt));                         \
+        LOGFAIL(L"FAILED", (stmt), mr);                     \
         goto error;                                         \
     }                                                       \
 }                                                           \
 
 #define CHKOK(stmt)                                         \
 {                                                           \
-    hr = (stmt);                                            \
-    if (hr != S_OK)                                         \
+    mr = (stmt);                                            \
+    if (mr != MT_S_OK)                                      \
     {                                                       \
-        LOGFAIL(L"!= S_OK", (stmt));                        \
+        LOGFAIL(L"!= MT_S_OK", (stmt), mr);                 \
         goto error;                                         \
     }                                                       \
 }                                                           \
 
-#define CHKWIN(stmt)                                        \
+// TODO: need to be moved
+#define CHKWIN_OLD(stmt)                                    \
 {                                                           \
     if (!(stmt))                                            \
     {                                                       \
-        hr = HRESULT_FROM_WIN32(GetLastError());            \
-        LOGFAIL(L"FALSE", (stmt));                          \
-        goto error;                                         \
-    }                                                       \
-}                                                           \
-
-#define CHKNUL(stmt)                                        \
-{                                                           \
-    if (NULL == (stmt))                                     \
-    {                                                       \
-        hr = HRESULT_FROM_WIN32(GetLastError());            \
-        LOGFAIL(L"NULL", (stmt));                           \
+        mr = HRESULT_FROM_WIN32(GetLastError());            \
+        LOGFAIL(L"FALSE", (stmt), mr);                      \
         goto error;                                         \
     }                                                       \
 }                                                           \

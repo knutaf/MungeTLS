@@ -8,6 +8,11 @@ WORK:
 - change up goto style of main loop
 - support cached sessions with SessionIDs
 - move a bunch of code into a platform-specific lib
+  - potentially templatize safe conversion and subsitution?
+  - move all templated code into -inl.h files
+  - CHKWIN should be renamed
+  - remove #include windows.h when possible
+- take project headers out of precomp
 
 MAYBE:
 - instead of logging a single flag about whether a record was encrypted, always log the cipher suite used at that time. this could be displayed easily in netmon

@@ -235,6 +235,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
     size_t cbConsumedBuffer = 0;
     int cb;
     int cbAvailable;
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
 
     CHKOK(Connection()->Initialize());
@@ -242,7 +243,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
     vbData.reserve(c_cbReadBuffer);
     ResizeVector(&vbData, c_cbReadBuffer);
 
-    CHKOK(SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable));
+    CHKWINOKM(SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable));
 
     // even if our buffer size is bigger, limit how much we receive
     if (cbAvailable > c_cbMaxRecvSize)
@@ -356,7 +357,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
         cbConsumedBuffer = vbData.size();
         ResizeVector(&vbData, c_cbReadBuffer);
 
-        CHKOK(SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable));
+        CHKWINOKM(SizeTToInt32(vbData.size() - cbConsumedBuffer, &cbAvailable));
 
         // even if our buffer size is bigger, limit how much we receive
         if (cbAvailable > c_cbMaxRecvSize)
@@ -381,7 +382,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
     wprintf(L"done reading: %d\n", errno);
 
 done:
-    return hr;
+    return mr;
 
 error:
     goto done;
@@ -390,7 +391,7 @@ error:
 HRESULT SimpleHTTPServer::EnqueueSendApplicationData(const ByteVector* pvb)
 {
     static const size_t cbChunkSize = 50;
-    HRESULT hr = S_OK;
+    MTERR mr = MT_S_OK;
 
     auto iter = pvb->begin();
     while (iter < pvb->end())
@@ -417,23 +418,24 @@ HRESULT SimpleHTTPServer::EnqueueSendApplicationData(const ByteVector* pvb)
     }
 
 done:
-    return hr;
+    return MR2HR(mr);
 
 error:
     goto done;
 } // end function EnqueueSendApplicationData
 
 // called when the TLS connection has some bytes to be sent over the network
-HRESULT SimpleHTTPServer::OnSend(const ByteVector* pvb)
+MTERR SimpleHTTPServer::OnSend(const ByteVector* pvb)
 {
     wprintf(L"queueing up %d bytes of data to send\n", pvb->size());
     PendingSends()->push_back(*pvb);
-    return S_OK;
+    return MT_S_OK;
 } // end function OnSend
 
 // pvb is the plaintext application data that's been received
-HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
+MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
 {
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
 
     wprintf(L"got %d bytes of application data\n", pvb->size());
@@ -517,11 +519,11 @@ HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             ResizeVector(&vbApplicationData, ARRAYSIZE(szApplicationDataTemplate) * 2);
 
             // substituting in the real content length
-            CHKOK(StringCchPrintfA(
-                     reinterpret_cast<PSTR>(&vbApplicationData.front()),
-                     vbApplicationData.size(),
-                     szApplicationDataTemplate,
-                     itEndRequest - PendingRequest()->begin()));
+            CHKWINOKM(StringCchPrintfA(
+                          reinterpret_cast<PSTR>(&vbApplicationData.front()),
+                          vbApplicationData.size(),
+                          szApplicationDataTemplate,
+                          itEndRequest - PendingRequest()->begin()));
 
             // trim to just the part we sprintf'd. excludes null terminator
             ResizeVector(&vbApplicationData, strlen(reinterpret_cast<PSTR>(&vbApplicationData.front())));
@@ -559,7 +561,7 @@ HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             // on first response, just send it now. no fancy tricks
             else
             {
-                CHKOK(EnqueueSendApplicationData(&vbApplicationData));
+                CHKWINOKM(EnqueueSendApplicationData(&vbApplicationData));
             }
 
             // this would send any appdata OR renegotiation request
@@ -575,7 +577,7 @@ HRESULT SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
     }
 
 done:
-    return hr;
+    return mr;
 
 error:
     goto done;
@@ -585,7 +587,7 @@ error:
 ** called during handshake to choose the protocol version to use in ServerHello
 ** default is to use ClientHello.version
 */
-HRESULT SimpleHTTPServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion)
+MTERR SimpleHTTPServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion)
 {
     UNREFERENCED_PARAMETER(pProtocolVersion);
     return MT_S_LISTENER_IGNORED;
@@ -599,7 +601,7 @@ HRESULT SimpleHTTPServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolV
 ** this client implementation helps testing renegotation by choosing a
 ** different cipher suite round-robin from a list of choices.
 */
-HRESULT SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite)
+MTERR SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite)
 {
     // negotiations will cycle through this list. "unknown" means use default
     static const MT_CipherSuiteValue c_rgCipherSuites[] =
@@ -612,7 +614,7 @@ HRESULT SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello
         //,MTCS_TLS_RSA_WITH_AES_256_CBC_SHA256
     };
 
-    HRESULT hr = MT_S_LISTENER_IGNORED;
+    MTERR mr = MT_S_LISTENER_IGNORED;
 
     UNREFERENCED_PARAMETER(pClientHello);
 
@@ -621,12 +623,12 @@ HRESULT SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello
     if (csv != MTCS_UNKNOWN)
     {
         pCipherSuite->SetValue(csv);
-        hr = MT_S_LISTENER_HANDLED;
+        mr = MT_S_LISTENER_HANDLED;
     }
 
     m_iCipherSelected = (m_iCipherSelected + 1) % ARRAYSIZE(c_rgCipherSuites);
 
-    return hr;
+    return mr;
 } // end function OnSelectCipherSuite
 
 /*
@@ -640,7 +642,7 @@ HRESULT SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello
 ** is Windows-specific code, but that's okay, because it's contained in the
 ** application (rather than lib) portion.
 */
-HRESULT
+MTERR
 SimpleHTTPServer::OnInitializeCrypto(
     MT_CertificateList* pCertChain,
     shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
@@ -650,6 +652,7 @@ SimpleHTTPServer::OnInitializeCrypto(
     shared_ptr<Hasher>* pspServerHasher
 )
 {
+    MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
     PCCERT_CHAIN_CONTEXT pCertChainCtx = nullptr;
     shared_ptr<WindowsPublicKeyCipherer> spPubKeyCipherer;
@@ -658,11 +661,11 @@ SimpleHTTPServer::OnInitializeCrypto(
     shared_ptr<WindowsHasher> spClientHasher;
     shared_ptr<WindowsHasher> spServerHasher;
 
-    CHKOK(LookupCertificate(
-             CERT_SYSTEM_STORE_CURRENT_USER,
-             L"my",
-             L"mtls-test",
-             &pCertChainCtx));
+    CHKWINOKM(LookupCertificate(
+                  CERT_SYSTEM_STORE_CURRENT_USER,
+                  L"my",
+                  L"mtls-test",
+                  &pCertChainCtx));
 
     spPubKeyCipherer = shared_ptr<WindowsPublicKeyCipherer>(new WindowsPublicKeyCipherer());
 
@@ -679,7 +682,7 @@ SimpleHTTPServer::OnInitializeCrypto(
     spServerHasher = shared_ptr<WindowsHasher>(new WindowsHasher());
 
     // convert to internal MT_CertificateList
-    CHKOK(MTCertChainFromWinChain(pCertChainCtx, pCertChain));
+    CHKWINOKM(MTCertChainFromWinChain(pCertChainCtx, pCertChain));
 
     *pspPubKeyCipherer = spPubKeyCipherer;
     *pspClientSymCipherer = spClientSymCipherer;
@@ -694,7 +697,7 @@ done:
         pCertChainCtx = nullptr;
     }
 
-    return hr;
+    return mr;
 
 error:
     goto done;
@@ -706,7 +709,7 @@ error:
 ** same record layer message, since they're all of the same content type
 ** default is to do separate records
 */
-HRESULT SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags)
+MTERR SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags)
 {
     UNREFERENCED_PARAMETER(pHandshake);
     //*pfFlags |= MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE;
@@ -719,19 +722,13 @@ HRESULT SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, D
 ** of being sent, either in its plaintext form or after conversion to
 ** ciphertext. this is primarily used for logging traffic
 */
-HRESULT SimpleHTTPServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
+MTERR SimpleHTTPServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
-    HRESULT hr = S_OK;
+    MTERR mr = MT_S_OK;
     ByteVector vb;
     wstring wsLogPrefix(L"w");
 
-    // debugger break when I've forgotten to implement serialization for struct
-    hr = pPlaintext->SerializeToVect(&vb);
-    assert(hr != E_NOTIMPL);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pPlaintext->SerializeToVect(&vb));
 
     if (fActuallyEncrypted)
     {
@@ -742,26 +739,22 @@ HRESULT SimpleHTTPServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, 
     m_cMessages++;
 
 done:
-    return hr;
+    return mr;
 
 error:
+    // debugger break when I've forgotten to implement serialization for struct
+    assert(mr != MT_E_NOTIMPL);
     goto done;
 } // end function OnEnqueuePlaintext
 
 // the "receiving" equivalent of OnEnqueuePlaintext. primarily used for logging
-HRESULT SimpleHTTPServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
+MTERR SimpleHTTPServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
-    HRESULT hr = S_OK;
+    MTERR mr = MT_S_OK;
     ByteVector vb;
     wstring wsLogPrefix(L"r");
 
-    // debugger break when I've forgotten to implement serialization for struct
-    hr = pPlaintext->SerializeToVect(&vb);
-    assert(hr != E_NOTIMPL);
-    if (hr != S_OK)
-    {
-        goto error;
-    }
+    CHKOK(pPlaintext->SerializeToVect(&vb));
 
     if (fActuallyEncrypted)
     {
@@ -772,7 +765,9 @@ HRESULT SimpleHTTPServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext
     m_cMessages++;
 
 done:
-    return hr;
+    // debugger break when I've forgotten to implement serialization for struct
+    assert(mr != MT_E_NOTIMPL);
+    return mr;
 
 error:
     goto done;
@@ -783,9 +778,9 @@ error:
 ** application data. here we send the data we saved off back in
 ** OnReceivedApplicationData before the renegotiation.
 */
-HRESULT SimpleHTTPServer::OnHandshakeComplete()
+MTERR SimpleHTTPServer::OnHandshakeComplete()
 {
-    HRESULT hr = S_OK;
+    MTERR mr = MT_S_OK;
 
     if (!PendingResponse()->empty())
     {
@@ -794,10 +789,10 @@ HRESULT SimpleHTTPServer::OnHandshakeComplete()
         PendingResponse()->clear();
     }
 
-    hr = MT_S_LISTENER_HANDLED;
+    mr = MT_S_LISTENER_HANDLED;
 
 done:
-    return hr;
+    return mr;
 
 error:
     goto done;
@@ -813,7 +808,7 @@ error:
 ** always set to whatever higher version was previously negotiated if the
 ** versions differ
 */
-HRESULT
+MTERR
 SimpleHTTPServer::OnReconcileSecurityVersion(
     const MT_TLSCiphertext* pCiphertext,
     MT_ProtocolVersion::MTPV_Version connVersion,

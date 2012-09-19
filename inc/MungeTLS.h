@@ -1,6 +1,7 @@
 #ifndef MTLS_INC_MUNGETLS_H
 #define MTLS_INC_MUNGETLS_H
 #include <windows.h>
+#include <assert.h>
 #include <vector>
 #include <memory>
 #include "mtls_defs.h"
@@ -19,23 +20,29 @@
 namespace MungeTLS
 {
 
-const HRESULT MT_E_INCOMPLETE_MESSAGE                       = 0x80230001;
-const HRESULT MT_E_UNKNOWN_CONTENT_TYPE                     = 0x80230002;
-const HRESULT MT_E_UNKNOWN_PROTOCOL_VERSION                 = 0x80230003;
-const HRESULT MT_E_UNKNOWN_HANDSHAKE_TYPE                   = 0x80230004;
-const HRESULT MT_E_UNSUPPORTED_HANDSHAKE_TYPE               = 0x80230005;
-const HRESULT MT_E_DATA_SIZE_OUT_OF_RANGE                   = 0x80230006;
-const HRESULT MT_E_UNKNOWN_COMPRESSION_METHOD               = 0x80230007;
-const HRESULT MT_E_UNKNOWN_CIPHER_SUITE                     = 0x80230008;
-const HRESULT MT_E_UNSUPPORTED_KEY_EXCHANGE                 = 0x80230009;
-const HRESULT MT_E_BAD_PADDING                              = 0x8023000a;
-const HRESULT MT_E_UNSUPPORTED_HASH                         = 0x8023000b;
-const HRESULT MT_E_UNSUPPORTED_CIPHER                       = 0x8023000c;
-const HRESULT MT_E_BAD_FINISHED_HASH                        = 0x8023000d;
-const HRESULT MT_E_BAD_RECORD_MAC                           = 0x8023000e;
-const HRESULT MT_E_BAD_RECORD_PADDING                       = 0x8023000f;
-const HRESULT MT_E_NO_PREFERRED_CIPHER_SUITE                = 0x80230010;
-const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+const MTERR MT_S_OK                                       = 0x00000000;
+const MTERR MT_S_FALSE                                    = 0x00000001;
+const MTERR MT_E_FAIL                                     = 0x80230000;
+const MTERR MT_E_INCOMPLETE_MESSAGE                       = 0x80230001;
+const MTERR MT_E_UNKNOWN_CONTENT_TYPE                     = 0x80230002;
+const MTERR MT_E_UNKNOWN_PROTOCOL_VERSION                 = 0x80230003;
+const MTERR MT_E_UNKNOWN_HANDSHAKE_TYPE                   = 0x80230004;
+const MTERR MT_E_UNSUPPORTED_HANDSHAKE_TYPE               = 0x80230005;
+const MTERR MT_E_DATA_SIZE_OUT_OF_RANGE                   = 0x80230006;
+const MTERR MT_E_UNKNOWN_COMPRESSION_METHOD               = 0x80230007;
+const MTERR MT_E_UNKNOWN_CIPHER_SUITE                     = 0x80230008;
+const MTERR MT_E_UNSUPPORTED_KEY_EXCHANGE                 = 0x80230009;
+const MTERR MT_E_BAD_PADDING                              = 0x8023000a;
+const MTERR MT_E_UNSUPPORTED_HASH                         = 0x8023000b;
+const MTERR MT_E_UNSUPPORTED_CIPHER                       = 0x8023000c;
+const MTERR MT_E_BAD_FINISHED_HASH                        = 0x8023000d;
+const MTERR MT_E_BAD_RECORD_MAC                           = 0x8023000e;
+const MTERR MT_E_BAD_RECORD_PADDING                       = 0x8023000f;
+const MTERR MT_E_NO_PREFERRED_CIPHER_SUITE                = 0x80230010;
+const MTERR MT_E_INSUFFICIENT_BUFFER                      = 0x80230011;
+
+const MTERR MT_E_NOTIMPL                                  = 0x80234001;
+const MTERR MT_E_INVALIDARG                               = 0x80230057;
 
 /*
 ** used in the ITLSListener callbacks
@@ -44,8 +51,8 @@ const HRESULT E_INSUFFICIENT_BUFFER                         = HRESULT_FROM_WIN32
 ** ignored - the app did not handle the callback, so MungeTLS should use
 **           whatever default behavior it has
 */
-const HRESULT MT_S_LISTENER_HANDLED                         = 0x00230002;
-const HRESULT MT_S_LISTENER_IGNORED                         = 0x00230003;
+const MTERR MT_S_LISTENER_HANDLED                         = 0x00230002;
+const MTERR MT_S_LISTENER_IGNORED                         = 0x00230003;
 
 // flags for ITLSListener::OnCreatingHandshakeMessage's pfFlags
 const DWORD MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE         = 0x00000000;
@@ -137,29 +144,29 @@ class MT_Structure
     MT_Structure() { }
     virtual ~MT_Structure() { }
 
-    HRESULT ParseFrom(const BYTE* pv, size_t cb);
-    HRESULT ParseFromVect(const ByteVector* pvb);
-    HRESULT Serialize(BYTE* pv, size_t cb) const;
-    HRESULT SerializeToVect(ByteVector* pvb) const;
-    HRESULT SerializeAppendToVect(ByteVector* pvb) const;
+    MTERR ParseFrom(const BYTE* pv, size_t cb);
+    MTERR ParseFromVect(const ByteVector* pvb);
+    MTERR Serialize(BYTE* pv, size_t cb) const;
+    MTERR SerializeToVect(ByteVector* pvb) const;
+    MTERR SerializeAppendToVect(ByteVector* pvb) const;
     virtual size_t Length() const = 0;
 
     private:
     // not making these two pure virtual just for convenience
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb)
+    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb)
     {
         UNREFERENCED_PARAMETER(pv);
         UNREFERENCED_PARAMETER(cb);
         assert(false);
-        return E_NOTIMPL;
+        return MT_E_NOTIMPL;
     }
 
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const
+    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const
     {
         UNREFERENCED_PARAMETER(pv);
         UNREFERENCED_PARAMETER(cb);
         assert(false);
-        return E_NOTIMPL;
+        return MT_E_NOTIMPL;
     }
 };
 
@@ -197,8 +204,8 @@ class MT_VariableLengthFieldBase : public MT_Structure
     size_t MaxLength() const { return MaxSize; }
 
     private:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb) = 0;
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const = 0;
+    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb) = 0;
+    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const = 0;
 
     std::vector<F> m_vData;
 };
@@ -218,8 +225,8 @@ class MT_VariableLengthField : public MT_VariableLengthFieldBase
     virtual size_t DataLength() const;
 
     private:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const;
 };
 
 // specializes MT_VariableLengthFieldBase for the common byte vector
@@ -236,8 +243,8 @@ class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
     virtual size_t DataLength() const;
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 };
 
 /*
@@ -261,8 +268,8 @@ class MT_FixedLengthStructureBase : public MT_Structure
     F* at(typename std::vector<F>::size_type pos);
 
     private:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb) = 0;
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const = 0;
+    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb) = 0;
+    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const = 0;
 
     std::vector<F> m_vData;
 };
@@ -275,8 +282,8 @@ class MT_FixedLengthStructure : public MT_FixedLengthStructureBase<F, Size>
     virtual size_t Length() const;
 
     private:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const;
 };
 
 // a specialization of MT_FixedLengthStructureBase for the common byte array
@@ -289,8 +296,8 @@ class MT_FixedLengthByteStructure : public MT_FixedLengthStructureBase
     virtual size_t Length() const;
 
     private:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const;
 };
 
 /*
@@ -324,8 +331,8 @@ class MT_ProtocolVersion : public MT_Structure
     static bool IsKnownVersion(MTPV_Version eVersion);
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     MTPV_Version m_eVersion;
 };
@@ -353,11 +360,11 @@ class MT_Random : public MT_Structure
     ACCESSORS(MT_RandomBytes*, RandomBytes, &m_randomBytes);
 
     // fills with the current timestamp, and some random numbers
-    HRESULT PopulateNow();
+    MTERR PopulateNow();
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     MT_UINT32 m_timestamp;
     MT_RandomBytes m_randomBytes;
@@ -373,7 +380,7 @@ class MT_SessionID : public MT_VariableLengthByteField<
                                 c_cbSessionID_MaxLength>
 {
     public:
-    HRESULT PopulateWithRandom();
+    MTERR PopulateWithRandom();
 };
 
 // TLS 1.2: taken basically verbatim.
@@ -420,9 +427,9 @@ class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length
     MT_CipherSuite();
     MT_CipherSuite(MT_CipherSuiteValue eValue);
 
-    HRESULT KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
-    HRESULT Value(MT_CipherSuiteValue* peValue) const;
-    HRESULT SetValue(MT_CipherSuiteValue eValue);
+    MTERR KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
+    MTERR Value(MT_CipherSuiteValue* peValue) const;
+    MTERR SetValue(MT_CipherSuiteValue eValue);
 
     bool operator==(const MT_CipherSuite& rOther) const;
     bool operator!=(const MT_CipherSuite& rOther) const { return !(*this == rOther); }
@@ -441,7 +448,7 @@ typedef MT_VariableLengthField<
 
 const std::vector<MT_CipherSuiteValue>* GetCipherSuitePreference();
 
-HRESULT
+MTERR
 ChooseBestCipherSuite(
     const std::vector<MT_CipherSuiteValue>* pveClientPreference,
     const std::vector<MT_CipherSuiteValue>* pveServerPreference,
@@ -466,8 +473,8 @@ class MT_CompressionMethod : public MT_Structure
     ACCESSORS(MTCM_Method*, Method, &m_eMethod);
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     MTCM_Method m_eMethod;
 };
@@ -527,8 +534,8 @@ class MT_Extension : public MT_Structure
     ACCESSORS(MT_ExtensionData*, ExtensionData, &m_extensionData);
 
     protected:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     private:
     MTE_ExtensionType m_extensionType;
@@ -597,11 +604,11 @@ class MT_RenegotiationInfoExtension : public MT_Extension
     const MT_RenegotiatedConnection* RenegotiatedConnection() const;
 
     // not a normal accessor, so we can push the new value into ExtensionData
-    HRESULT SetRenegotiatedConnection(const MT_RenegotiatedConnection* pRenegotiatedConnection);
+    MTERR SetRenegotiatedConnection(const MT_RenegotiatedConnection* pRenegotiatedConnection);
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT CheckExtensionDataIntegrity() const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR CheckExtensionDataIntegrity() const;
 
     MT_RenegotiatedConnection m_renegotiatedConnection;
 };
@@ -638,7 +645,7 @@ class MT_ClientHello : public MT_Structure
     size_t Length() const;
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
 
     MT_ProtocolVersion m_clientVersion;
     MT_Random m_random;
@@ -693,7 +700,7 @@ class EndpointParameters
     EndpointParameters();
     ~EndpointParameters() { }
 
-    HRESULT Initialize(
+    MTERR Initialize(
         std::shared_ptr<SymmetricCipherer> spSymCipherer,
         std::shared_ptr<Hasher> spHasher);
 
@@ -733,7 +740,7 @@ class ConnectionParameters
     ConnectionParameters();
     ~ConnectionParameters() { }
 
-    HRESULT Initialize(
+    MTERR Initialize(
         const MT_CertificateList* pCertChain,
         std::shared_ptr<PublicKeyCipherer> spPubKeyCipherer,
         std::shared_ptr<SymmetricCipherer> spClientSymCipherer,
@@ -759,13 +766,13 @@ class ConnectionParameters
     ** the endpoint-specific parameters can be copied easily using the
     ** accessors for ReadParams and WriteParams. This copies the rest of them.
     */
-    HRESULT CopyCommonParamsTo(ConnectionParameters* pDest);
+    MTERR CopyCommonParamsTo(ConnectionParameters* pDest);
 
     bool IsHandshakeInProgress() const;
 
-    HRESULT GenerateKeyMaterial(const MT_PreMasterSecret* pPreMasterSecret);
+    MTERR GenerateKeyMaterial(const MT_PreMasterSecret* pPreMasterSecret);
 
-    HRESULT
+    MTERR
     ComputePRF(
         const ByteVector* pvbSecret,
         PCSTR szLabel,
@@ -774,7 +781,7 @@ class ConnectionParameters
         ByteVector* pvbPRF);
 
     private:
-    HRESULT ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
+    MTERR ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
 
     MT_CertificateList m_certChain;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
@@ -822,8 +829,8 @@ class MT_ContentType : public MT_Structure
     std::wstring ToString() const;
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     MTCT_Type m_eType;
 };
@@ -851,34 +858,34 @@ class TLSConnection
     TLSConnection(ITLSListener* pListener);
     virtual ~TLSConnection() { }
 
-    HRESULT Initialize();
+    MTERR Initialize();
 
-    HRESULT HandleMessage(ByteVector* pvb);
+    MTERR HandleMessage(ByteVector* pvb);
 
-    HRESULT EnqueueSendApplicationData(const ByteVector* pvbPayload);
-    HRESULT EnqueueStartRenegotiation();
+    MTERR EnqueueSendApplicationData(const ByteVector* pvbPayload);
+    MTERR EnqueueStartRenegotiation();
 
-    HRESULT EnqueueMessage(std::shared_ptr<MT_TLSPlaintext> spMessage);
-    HRESULT SendQueuedMessages();
+    MTERR EnqueueMessage(std::shared_ptr<MT_TLSPlaintext> spMessage);
+    MTERR SendQueuedMessages();
 
     ACCESSORS(MessageList*, PendingSends, &m_pendingSends);
     ITLSListener* Listener() { return m_pListener; }
 
-    HRESULT
+    MTERR
     CreatePlaintext(
         MT_ContentType::MTCT_Type eContentType,
         MT_ProtocolVersion::MTPV_Version eProtocolVersion,
         const MT_Structure* pFragment,
         MT_TLSPlaintext* pPlaintext);
 
-    HRESULT
+    MTERR
     CreatePlaintext(
         MT_ContentType::MTCT_Type eContentType,
         MT_ProtocolVersion::MTPV_Version eProtocolVersion,
         const ByteVector* pvbFragment,
         MT_TLSPlaintext* pPlaintext);
 
-    HRESULT
+    MTERR
     CreateCiphertext(
         MT_ContentType::MTCT_Type eContentType,
         MT_ProtocolVersion::MTPV_Version eProtocolVersion,
@@ -886,7 +893,7 @@ class TLSConnection
         EndpointParameters* pEndParams,
         MT_TLSCiphertext* pCiphertext);
 
-    HRESULT
+    MTERR
     CreateCiphertext(
         MT_ContentType::MTCT_Type eContentType,
         MT_ProtocolVersion::MTPV_Version eProtocolVersion,
@@ -895,15 +902,15 @@ class TLSConnection
         MT_TLSCiphertext* pCiphertext);
 
     private:
-    HRESULT InitializeConnection(ConnectionParameters* pParams);
-    HRESULT StartNextHandshake(MT_ClientHello* pClientHello);
-    HRESULT FinishNextHandshake();
-    HRESULT HandleHandshakeMessage(const MT_Handshake* pHandshake);
+    MTERR InitializeConnection(ConnectionParameters* pParams);
+    MTERR StartNextHandshake(MT_ClientHello* pClientHello);
+    MTERR FinishNextHandshake();
+    MTERR HandleHandshakeMessage(const MT_Handshake* pHandshake);
 
-    HRESULT RespondToClientHello();
-    HRESULT RespondToFinished();
+    MTERR RespondToClientHello();
+    MTERR RespondToFinished();
 
-    HRESULT
+    MTERR
     AddHandshakeMessage(
         MT_Handshake* pHandshake,
         MT_ProtocolVersion::MTPV_Version version,
@@ -926,10 +933,10 @@ class ITLSListener
 {
     public:
     // called when MTLS has bytes to be sent to the client
-    virtual HRESULT OnSend(const ByteVector* pvb) = 0;
+    virtual MTERR OnSend(const ByteVector* pvb) = 0;
 
     // called when MTLS has received bytes from the client
-    virtual HRESULT OnReceivedApplicationData(const ByteVector* pvb) = 0;
+    virtual MTERR OnReceivedApplicationData(const ByteVector* pvb) = 0;
 
     /*
     ** called when a new handshake is starting and MTLS needs (usually
@@ -937,7 +944,7 @@ class ITLSListener
     ** also tells the cert chain to use
     */
     virtual
-    HRESULT
+    MTERR
     OnInitializeCrypto(
         MT_CertificateList* pCertChain,
         std::shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
@@ -951,7 +958,7 @@ class ITLSListener
     ** app should modify pProtocolVersion to set the version they want, or say
     ** "ignored" to use ClientHello.client_version
     */
-    virtual HRESULT OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
+    virtual MTERR OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
 
     /*
     ** called during handshake to choose the cipher suite to be used in the
@@ -963,21 +970,21 @@ class ITLSListener
     ** if the app says "ignore", MTLS chooses from a built-in list
     ** (c_rgeCipherSuitePreference)
     */
-    virtual HRESULT OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite) = 0;
+    virtual MTERR OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite) = 0;
 
     /*
     ** caller can choose flags for handshake messages. at this point the only
     ** choice is whether consecutive handshake messages should be combined into
     ** a single record layer message or separate ones
     */
-    virtual HRESULT OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags) = 0;
+    virtual MTERR OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags) = 0;
 
     /*
     ** tells the app that the handshake is complete, and they can start sending
     ** application layer data. of course, they could always try to send app
     ** data messages earlier for testing purposes
     */
-    virtual HRESULT OnHandshakeComplete() = 0;
+    virtual MTERR OnHandshakeComplete() = 0;
 
     /*
     ** called when MTLS has readied a record layer message to be sent. this is
@@ -985,10 +992,10 @@ class ITLSListener
     ** it is going to be transmitted as encrypted, generally for logging
     ** purposes
     */
-    virtual HRESULT OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
+    virtual MTERR OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
 
     // same as OnEnqueuePlaintext, but for receiving a decrypted message
-    virtual HRESULT OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
+    virtual MTERR OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted) = 0;
 
     /*
     ** called when a record layer message is received with a different version
@@ -996,7 +1003,7 @@ class ITLSListener
     ** bug in the other side's TLS implementation
     */
     virtual
-    HRESULT
+    MTERR
     OnReconcileSecurityVersion(
         const MT_TLSCiphertext* pCiphertext,
         MT_ProtocolVersion::MTPV_Version connVersion,
@@ -1016,17 +1023,17 @@ class MT_Securable
     public:
     MT_Securable();
     virtual ~MT_Securable() { }
-    HRESULT CheckSecurity();
+    MTERR CheckSecurity();
 
     // same idiom as ACCESSORS macro
     const EndpointParameters* EndParams() const { return m_pEndParams; }
     EndpointParameters* EndParams() { return const_cast<EndpointParameters*>(static_cast<const MT_Securable*>(this)->EndParams()); }
 
-    virtual HRESULT SetSecurityParameters(EndpointParameters* pEndParams) { m_pEndParams = pEndParams; return S_OK; }
+    virtual MTERR SetSecurityParameters(EndpointParameters* pEndParams) { m_pEndParams = pEndParams; return MT_S_OK; }
 
     private:
     // check the security aspects of this structure, e.g. MAC or something
-    virtual HRESULT CheckSecurityPriv() = 0;
+    virtual MTERR CheckSecurityPriv() = 0;
 
     EndpointParameters* m_pEndParams;
 };
@@ -1070,8 +1077,8 @@ class MT_RecordLayerMessage : public MT_Structure, public MT_ConnectionAware
     MT_UINT16 PayloadLength() const;
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     MT_ContentType m_contentType;
     MT_ProtocolVersion m_protocolVersion;
@@ -1100,26 +1107,26 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
 
     ACCESSORS(MT_CipherFragment*, CipherFragment, m_spCipherFragment.get());
 
-    HRESULT ToTLSPlaintext(MT_TLSPlaintext* pPlaintext);
+    MTERR ToTLSPlaintext(MT_TLSPlaintext* pPlaintext);
 
     static
-    HRESULT
+    MTERR
     FromTLSPlaintext(
         MT_TLSPlaintext* pPlaintext,
         EndpointParameters* pEndParams,
         std::shared_ptr<MT_TLSCiphertext>* pspCiphertext);
 
-    HRESULT SetSecurityParameters(EndpointParameters* pEndParams);
-    HRESULT Decrypt();
+    MTERR SetSecurityParameters(EndpointParameters* pEndParams);
+    MTERR Decrypt();
 
-    HRESULT Protect();
+    MTERR Protect();
 
-    HRESULT GetProtocolVersionForSecurity(MT_ProtocolVersion* pVersion);
+    MTERR GetProtocolVersionForSecurity(MT_ProtocolVersion* pVersion);
 
-    HRESULT GenerateNextIV(ByteVector* pvbIV);
+    MTERR GenerateNextIV(ByteVector* pvbIV);
 
     private:
-    HRESULT CheckSecurityPriv();
+    MTERR CheckSecurityPriv();
     bool HasKnownCipherFragmentType();
 
     std::shared_ptr<MT_CipherFragment> m_spCipherFragment;
@@ -1194,8 +1201,8 @@ class MT_Handshake : public MT_Structure
     private:
     static const MTH_HandshakeType c_rgeKnownTypes[];
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     MTH_HandshakeType m_eType;
     ByteVector m_vbBody;
@@ -1236,7 +1243,7 @@ class MT_ServerHello : public MT_Structure
     ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions);
 
     private:
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     MT_ProtocolVersion m_serverVersion;
     MT_Random m_random;
@@ -1258,10 +1265,10 @@ class MT_Certificate : public MT_Structure
     MT_Certificate();
     ~MT_Certificate() { }
 
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
     size_t Length() const { return CertificateList()->Length(); }
 
-    HRESULT AddCertificateFromMemory(const BYTE* pvCert, size_t cbCert);
+    MTERR AddCertificateFromMemory(const BYTE* pvCert, size_t cbCert);
 
     ACCESSORS(MT_CertificateList*, CertificateList, &m_certificateList);
 
@@ -1292,8 +1299,8 @@ class MT_ClientKeyExchange : public MT_Structure
     ACCESSORS(KeyType*, ExchangeKeys, m_spExchangeKeys.get());
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    // MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     std::shared_ptr<KeyType> m_spExchangeKeys;
 };
@@ -1315,13 +1322,13 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
 
     virtual size_t Length() const;
 
-    HRESULT DecryptStructure(PublicKeyCipherer* pCipherer);
+    MTERR DecryptStructure(PublicKeyCipherer* pCipherer);
 
     ACCESSORS(T*, Structure, &m_structure);
     ACCESSORS(ByteVector*, EncryptedStructure, &m_vbEncryptedStructure);
 
     private:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
     ACCESSORS(ByteVector*, PlaintextStructure, &m_vbPlaintextStructure);
 
     T m_structure;
@@ -1352,8 +1359,8 @@ class MT_PreMasterSecret : public MT_Structure
 
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     MT_ProtocolVersion m_clientVersion;
     OpaqueRandom m_random;
@@ -1391,8 +1398,8 @@ class MT_ChangeCipherSpec : public MT_Structure
     ACCESSORS(MTCCS_Type*, Type, &m_eType);
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     MTCCS_Type m_eType;
 };
@@ -1413,15 +1420,15 @@ class MT_Finished : public MT_Structure, public MT_Securable
 
     ACCESSORS(MT_FinishedVerifyData*, VerifyData, &m_verifyData);
 
-    HRESULT ComputeVerifyData(PCSTR szLabel, ByteVector* pvbVerifyData);
-    HRESULT SetConnectionParameters(ConnectionParameters* pConnectionParams) { m_pConnectionParams = pConnectionParams; return S_OK; }
+    MTERR ComputeVerifyData(PCSTR szLabel, ByteVector* pvbVerifyData);
+    MTERR SetConnectionParameters(ConnectionParameters* pConnectionParams) { m_pConnectionParams = pConnectionParams; return MT_S_OK; }
 
     private:
     ACCESSORS(ConnectionParameters*, ConnParams, m_pConnectionParams);
 
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
-    HRESULT CheckSecurityPriv();
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR CheckSecurityPriv();
 
     ConnectionParameters* m_pConnectionParams;
     MT_FinishedVerifyData m_verifyData;
@@ -1446,9 +1453,9 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
 
     virtual size_t Length() const;
 
-    virtual HRESULT UpdateWriteSecurity() = 0;
+    virtual MTERR UpdateWriteSecurity() = 0;
 
-    HRESULT
+    MTERR
     ComputeMAC(
         MT_UINT64 sequenceNumber,
         const ByteVector* pvbMACKey,
@@ -1461,8 +1468,8 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
 
     protected:
     MT_TLSCiphertext* Ciphertext() { return m_pCiphertext; }
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     private:
     ByteVector m_vbContent;
@@ -1483,15 +1490,15 @@ class MT_GenericStreamCipher : public MT_CipherFragment
     MT_GenericStreamCipher(MT_TLSCiphertext* pCiphertext);
     ~MT_GenericStreamCipher() { }
 
-    HRESULT UpdateWriteSecurity();
+    MTERR UpdateWriteSecurity();
 
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT CheckSecurityPriv();
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR CheckSecurityPriv();
 
-    HRESULT
+    MTERR
     ComputeSecurityInfo(
         MT_UINT64 sequenceNumber,
         const ByteVector* pvbMACKey,
@@ -1514,15 +1521,15 @@ class MT_GenericBlockCipher : public MT_CipherFragment
 
     virtual const ByteVector* IV() const = 0;
 
-    virtual HRESULT UpdateWriteSecurity();
+    virtual MTERR UpdateWriteSecurity();
 
     protected:
-    virtual HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
 
     private:
-    virtual HRESULT CheckSecurityPriv();
+    virtual MTERR CheckSecurityPriv();
 
-    HRESULT
+    MTERR
     ComputeSecurityInfo(
         MT_UINT64 sequenceNumber,
         const ByteVector* pvbMACKey,
@@ -1591,11 +1598,11 @@ class MT_GenericBlockCipher_TLS11 : public MT_GenericBlockCipher
 
     ACCESSORS(ByteVector*, IV, &m_vbIV);
 
-    HRESULT UpdateWriteSecurity();
+    MTERR UpdateWriteSecurity();
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     ByteVector m_vbIV;
 };
@@ -1719,8 +1726,8 @@ class MT_Alert : public MT_Structure
     std::wstring ToString() const;
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     MT_AlertLevel m_eLevel;
     MT_AlertDescription m_eDescription;
@@ -1740,8 +1747,8 @@ class MT_ServerHelloDone : public MT_Structure
     size_t Length() const { return c_cbServerHelloDone_Length; }
 
     private:
-    // HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    // MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 };
 
 /*
@@ -1758,8 +1765,8 @@ class MT_HelloRequest : public MT_Structure
     size_t Length() const { return c_cbHelloRequest_Length; }
 
     private:
-    // HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    // MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR SerializePriv(BYTE* pv, size_t cb) const;
 };
 
 /* boilerplate for defining new structures
@@ -1774,15 +1781,15 @@ class MT_Thingy : public MT_Structure
     ACCESSORS(ThingyType*, Thingy, &m_thingy);
 
     private:
-    HRESULT ParseFromPriv(const BYTE* pv, size_t cb);
-    // HRESULT SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    // MTERR SerializePriv(BYTE* pv, size_t cb) const;
 
     ThingyType m_thingy;
 };
 */
 
 template <typename N>
-HRESULT
+MTERR
 ReadNetworkLong(
     const BYTE* pv,
     size_t cb,
@@ -1791,7 +1798,7 @@ ReadNetworkLong(
 );
 
 template <typename I>
-HRESULT
+MTERR
 WriteNetworkLong(
     I toWrite,
     size_t cbToWrite,
@@ -1799,20 +1806,21 @@ WriteNetworkLong(
     size_t cb
 );
 
-HRESULT
+MTERR
 WriteRandomBytes(
     BYTE* pv,
     size_t cb
 );
 
-HRESULT
+// TODO: needs to be moved
+MTERR
 EpochTimeFromSystemTime(
     const SYSTEMTIME* pST,
     ULARGE_INTEGER* pLI
 );
 
 template <typename T>
-HRESULT
+MTERR
 SerializeMessagesToVector(
     typename std::vector<T>::const_iterator itBegin,
     typename std::vector<T>::const_iterator itEnd,
@@ -1820,7 +1828,7 @@ SerializeMessagesToVector(
 );
 
 template <typename T>
-HRESULT
+MTERR
 SerializeMessagesToVector(
     typename std::vector<std::shared_ptr<T>>::const_iterator itBegin,
     typename std::vector<std::shared_ptr<T>>::const_iterator itEnd,
@@ -1829,7 +1837,7 @@ SerializeMessagesToVector(
 
 // attempt to parse many of the same type from a block of data
 template <typename T>
-HRESULT
+MTERR
 ParseStructures(
     const ByteVector* pvb,
     std::vector<T>* pvStructures);
@@ -1841,7 +1849,7 @@ void ResizeVector(std::vector<T>* pVect, typename std::vector<T>::size_type siz)
 template <>
 void ResizeVector(ByteVector* pv, typename ByteVector::size_type siz);
 
-HRESULT
+MTERR
 CryptoInfoFromCipherSuite(
     const MT_CipherSuite* pCipherSuite,
     CipherInfo* pCipherInfo,

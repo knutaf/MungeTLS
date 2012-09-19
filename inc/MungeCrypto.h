@@ -1,7 +1,5 @@
 #ifndef MTLS_INC_MUNGECRYPTO_H
 #define MTLS_INC_MUNGECRYPTO_H
-#include <windows.h>
-#include <vector>
 #include "mtls_defs.h"
 
 // this header contains purely crypto related constants and definitions
@@ -150,19 +148,19 @@ class PublicKeyCipherer
 {
     public:
     virtual
-    HRESULT
+    MTERR
     EncryptBufferWithPublicKey(
         const ByteVector* pvbCleartext,
         ByteVector* pvbEncrypted) const = 0;
 
     virtual
-    HRESULT
+    MTERR
     DecryptBufferWithPrivateKey(
         const ByteVector* pvbEncrypted,
         ByteVector* pvbDecrypted) const = 0;
 
     virtual
-    HRESULT
+    MTERR
     EncryptBufferWithPrivateKey(
         const ByteVector* pvbCleartext,
         ByteVector* pvbEncrypted) const = 0;
@@ -180,20 +178,20 @@ class SymmetricCipherer
     virtual ~SymmetricCipherer() { }
 
     virtual
-    HRESULT
+    MTERR
     SetCipherInfo(
         const ByteVector* pvbKey,
         const CipherInfo* pCipherInfo) = 0;
 
     virtual
-    HRESULT
+    MTERR
     EncryptBuffer(
         const ByteVector* pvbCleartext,
         const ByteVector* pvbIV,
         ByteVector* pvbEncrypted);
 
     virtual
-    HRESULT
+    MTERR
     DecryptBuffer(
         const ByteVector* pvbEncrypted,
         const ByteVector* pvbIV,
@@ -214,14 +212,14 @@ class Hasher
 {
     public:
     virtual
-    HRESULT
+    MTERR
     Hash(
         const HashInfo* pHashInfo,
         const ByteVector* pvbText,
         ByteVector* pvbHash);
 
     virtual
-    HRESULT
+    MTERR
     HMAC(
         const HashInfo* pHashInfo,
         const ByteVector* pvbKey,
