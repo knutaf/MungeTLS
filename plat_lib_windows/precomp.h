@@ -1,22 +1,15 @@
 #ifndef MTLS_PLAT_LIB_WINDOWS_PRECOMP_H
 #define MTLS_PLAT_LIB_WINDOWS_PRECOMP_H
 #include <windows.h>
-#include <vector>
 #include <assert.h>
-#include <algorithm>
-#include <numeric>
 #include <intsafe.h>
-#include <atlbase.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <fstream>
-#include <sstream>
-#include <string>
 #include <wincrypt.h>
 #include <memory>
-#include <functional>
 
 #include "MungeTLS.h"
 #include "MungeCrypto.h"
+#include "mtls_plat_windows.h"
 #endif

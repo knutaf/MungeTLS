@@ -1,12 +1,12 @@
 #include "precomp.h"
 #include <windows.h>
-#include <atlbase.h>
+#include <winsock2.h>
+#include <wincrypt.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <fstream>
-#include <sstream>
 #include <string>
+#include <sstream>
 #include <strsafe.h>
 #include "main.h"
 #include "mtls_plat_windows.h"

@@ -1,3 +1,8 @@
+C_DEFINES=\
+    -DUNICODE \
+    -DWINDOWS \
+    -DWIN32_LEAN_AND_MEAN \
+
 H_FILES=\
     ..\inc\mtls_defs.h \
     ..\inc\MungeTLS.h \
@@ -9,6 +14,7 @@ INCLUDES=\
 all:
 	set H_FILES=$(H_FILES)
 	set INCLUDES=$(INCLUDES)
+	set C_DEFINES=$(C_DEFINES)
 	cd lib
 	$(MAKE)
 	cd ..
@@ -22,6 +28,7 @@ all:
 clean:
 	set H_FILES=$(H_FILES)
 	set INCLUDES=$(INCLUDES)
+	set C_DEFINES=$(C_DEFINES)
 	cd exe
 	$(MAKE) clean
 	cd ..

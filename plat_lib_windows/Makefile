@@ -1,5 +1,4 @@
 TARGET=MTLS_Windows
-C_DEFINES=/DUNICODE
 
 C_FILES=\
     WindowsCrypto.cpp \

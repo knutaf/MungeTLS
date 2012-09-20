@@ -1,5 +1,6 @@
 #include "precomp.h"
 #include <windows.h>
+#include <intsafe.h>
 #include "MungeTLS.h"
 #include "mtls_plat_windows.h"
 
@@ -90,14 +91,39 @@ error:
     goto done;
 } // end function EpochTimeFromSystemTime
 
-MTERR HR2MR(HRESULT hr)
+MTERR
+HR2MR(
+    HRESULT hr
+)
 {
     return hr;
 } // end function HR2MR
 
-HRESULT MR2HR(MTERR mr)
+HRESULT
+MR2HR(
+    MTERR mr
+)
 {
     return mr;
 } // end function MR2HR
+
+MTERR
+MT_SizeTToByte(
+    size_t s,
+    BYTE* pb
+)
+{
+    return HR2MR(SizeTToByte(s, pb));
+} // end function MT_SizeTToByte
+
+MTERR
+MT_SizeTSub(
+    size_t l,
+    size_t r,
+    size_t* pOut
+)
+{
+    return HR2MR(SizeTSub(l, r, pOut));
+} // end function MT_SizeTSub
 
 }

@@ -5,7 +5,6 @@
 #include <assert.h>
 #include <algorithm>
 #include <numeric>
-#include <intsafe.h>
 #include <functional>
 
 #include "mtls_defs.h"
@@ -52,10 +51,10 @@
 */
 
 // catches underflow errors in a MTERR
-#define SAFE_SUB(h, l, r)                                          \
+#define SAFE_SUB(m, l, r)                                          \
 {                                                                  \
-    (h) = SizeTSub((l), (r), &(l));                                \
-    if ((h) != MT_S_OK) { goto error; }                               \
+    (m) = MT_SizeTSub((l), (r), &(l));                             \
+    if ((m) != MT_S_OK) { goto error; }                            \
 }                                                                  \
 
 #define ADVANCE_PARSE()                                            \
@@ -973,7 +972,7 @@ TLSConnection::AddHandshakeMessage(
 )
 {
     MTERR mr = MT_S_OK;
-    DWORD fCreateFlags = 0;
+    MT_UINT32 fCreateFlags = 0;
 
     mr = Listener()->OnCreatingHandshakeMessage(pHandshake, &fCreateFlags);
     if (mr == MT_S_LISTENER_IGNORED)
@@ -4996,7 +4995,7 @@ MT_GenericStreamCipher::ParseFromPriv(
     ** allows for 0-length content (i.e. content that is only the hash). if the
     ** subtraction here underflows, the resultant size we try to parse will be
     ** huge, and therefore fail, so it should be safe. Or we could have used
-    ** SizeTSub().
+    ** MT_SizeTSub().
     */
     PARSEVB(cb - pHashInfo->cbHashSize, Content());
 
@@ -5315,7 +5314,7 @@ MT_GenericBlockCipher::PaddingLength() const
 {
     MTERR mr = MT_S_OK;
     BYTE b = 0;
-    mr = SizeTToByte(Padding()->size(), &b);
+    mr = MT_SizeTToByte(Padding()->size(), &b);
     assert(mr == MT_S_OK);
     return b;
 } // end function PaddingLength
@@ -5366,7 +5365,7 @@ MT_GenericBlockCipher::ComputeSecurityInfo(
                                  cbUnpaddedBlockLength -
                                  c_cbGenericBlockCipher_Padding_LFL;
         BYTE b = 0;
-        CHKOK(SizeTToByte(cbPaddingLength, &b));
+        CHKOK(MT_SizeTToByte(cbPaddingLength, &b));
 
         assert(b == cbPaddingLength);
 

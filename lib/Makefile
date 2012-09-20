@@ -1,5 +1,4 @@
 TARGET=MungeTLS
-C_DEFINES=/DUNICODE
 
 C_FILES=\
     MungeTLS.cpp \

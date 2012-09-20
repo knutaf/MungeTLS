@@ -1,5 +1,4 @@
 TARGET=MungeTLS
-C_DEFINES=/DUNICODE
 
 C_FILES=\
     main.cpp \
@@ -13,6 +12,7 @@ LIBS=\
     shell32.lib \
     ws2_32.lib \
     crypt32.lib \
+    advapi32.lib \
     $(MY_LIBS) \
 
 MY_LIBS=\
