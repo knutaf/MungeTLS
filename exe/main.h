@@ -20,7 +20,7 @@ class SimpleHTTPServer : public ITLSListener
           m_cMessages(0),
           m_cRequestsReceived(0),
           m_vbPendingAppData(),
-		  m_sockClient(sockClient)
+          m_sockClient(sockClient)
     { }
 
     ~SimpleHTTPServer() { }
@@ -32,7 +32,7 @@ class SimpleHTTPServer : public ITLSListener
     MTERR OnReceivedApplicationData(const ByteVector* pvb);
     MTERR OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);
     MTERR OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite);
-    MTERR OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags);
+    MTERR OnCreatingHandshakeMessage(MT_Handshake* pHandshake, MT_UINT32* pfFlags);
     MTERR OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
     MTERR OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
     MTERR OnHandshakeComplete();

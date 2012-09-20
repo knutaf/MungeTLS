@@ -6,8 +6,12 @@
 namespace MungeTLS
 {
 
-// PLATFORM: make sure that BYTE is defined
+#define MT_C_ASSERT(e) typedef char __C_ASSERT__[(e)?1:-1]
+#define MT_UNREFERENCED_PARAMETER(P)          (P)
+
 // PLATFORM: may need to fix these typedefs for another platform
+// see mtls_helper.h for C_ASSERTs about sizeof
+typedef unsigned char MT_BYTE;
 typedef unsigned char MT_UINT8;
 typedef unsigned short MT_UINT16;
 typedef unsigned long MT_UINT32;
@@ -16,14 +20,14 @@ typedef unsigned long MT_UINT32;
 typedef unsigned __int64 MT_UINT64;
 #endif
 
-C_ASSERT(sizeof(BYTE) == 1);
-C_ASSERT(sizeof(MT_UINT8) == 1);
-C_ASSERT(sizeof(MT_UINT16) == 2);
-C_ASSERT(sizeof(MT_UINT32) == 4);
-C_ASSERT(sizeof(MT_UINT64) == 8);
+MT_C_ASSERT(sizeof(MT_BYTE) == 1);
+MT_C_ASSERT(sizeof(MT_UINT8) == 1);
+MT_C_ASSERT(sizeof(MT_UINT16) == 2);
+MT_C_ASSERT(sizeof(MT_UINT32) == 4);
+MT_C_ASSERT(sizeof(MT_UINT64) == 8);
 
 // just for convenience, since it's used everywhere
-typedef std::vector<BYTE> ByteVector;
+typedef std::vector<MT_BYTE> ByteVector;
 
 typedef MT_UINT32 MTERR;
 bool MT_Succeeded(MTERR mr);
@@ -42,7 +46,7 @@ bool MT_Failed(MTERR mr);
 #define CHKSUC(stmt)                                        \
 {                                                           \
     mr = (stmt);                                            \
-    if (MT_Failed(mr))                                       \
+    if (MT_Failed(mr))                                      \
     {                                                       \
         LOGFAIL(L"FAILED", (stmt), mr);                     \
         goto error;                                         \
@@ -70,9 +74,9 @@ bool MT_Failed(MTERR mr);
 #define ACCESSOR_RW(returnType, name, member)                    \
     virtual returnType name() { return member; }                 \
 
-#define ACCESSORS(returnType, name, member) \
-    ACCESSOR_RO(returnType, name, member) \
-    ACCESSOR_RW(returnType, name, member) \
+#define ACCESSORS(returnType, name, member)                      \
+    ACCESSOR_RO(returnType, name, member)                        \
+    ACCESSOR_RW(returnType, name, member)                        \
 
 }
 #endif

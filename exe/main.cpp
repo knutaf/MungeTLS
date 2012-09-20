@@ -81,7 +81,7 @@ int __cdecl wmain(int argc, wchar_t* argv[])
     }
 
     // keep accepting connections one after another
-    while (true)
+    for(;;)
     {
         //----------------------
         // Create a SOCKET for accepting incoming requests.
@@ -709,7 +709,7 @@ error:
 ** same record layer message, since they're all of the same content type
 ** default is to do separate records
 */
-MTERR SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags)
+MTERR SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, MT_UINT32* pfFlags)
 {
     UNREFERENCED_PARAMETER(pHandshake);
     //*pfFlags |= MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE;

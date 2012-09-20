@@ -1,11 +1,10 @@
 #include "precomp.h"
-
-#include <windows.h>
 #include <vector>
 #include <assert.h>
 #include <algorithm>
 #include <numeric>
 #include <functional>
+#include <stdlib.h>
 
 #include "mtls_defs.h"
 #include "MungeTLS.h"
@@ -102,7 +101,7 @@ MTERR
 ComputePRF_TLS12(
     Hasher* pHasher,
     const ByteVector* pvbSecret,
-    PCSTR szLabel,
+    const char* szLabel,
     const ByteVector* pvbSeed,
     size_t cbLengthDesired,
     ByteVector* pvbPRF);
@@ -111,7 +110,7 @@ MTERR
 ComputePRF_TLS10(
     Hasher* pHasher,
     const ByteVector* pvbSecret,
-    PCSTR szLabel,
+    const char* szLabel,
     const ByteVector* pvbSeed,
     size_t cbLengthDesired,
     ByteVector* pvbPRF);
@@ -134,13 +133,13 @@ MTERR
 PRF_A(
     Hasher* pHasher,
     const HashInfo* pHashInfo,
-    UINT i,
+    MT_UINT32 i,
     const ByteVector* pvbSecret,
     const ByteVector* pvbSeed,
     ByteVector* pvbResult);
 
-MTERR ParseByteVector(size_t cbField, const BYTE* pv, size_t cb, ByteVector* pvb);
-MTERR SerializeByteVector(const ByteVector* pvb, BYTE* pv, size_t cb, size_t cbField);
+MTERR ParseByteVector(size_t cbField, const MT_BYTE* pv, size_t cb, ByteVector* pvb);
+MTERR SerializeByteVector(const ByteVector* pvb, MT_BYTE* pv, size_t cb, size_t cbField);
 
 
 /*********** TLSConnection *****************/
@@ -1385,7 +1384,7 @@ TLSConnection::SendQueuedMessages()
                 if (mr == MT_S_OK)
                 {
                     mr = Listener()->OnSend(&vbRecord);
-                    if (FAILED(mr))
+                    if (MT_Failed(mr))
                     {
                         wprintf(L"warning: error in OnSend with listener: %08LX\n", mr);
                     }
@@ -1495,7 +1494,7 @@ bool MT_Failed(MTERR mr)
 template <typename N>
 MTERR
 ReadNetworkLong(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb,
     size_t cbToRead,
     N* pResult
@@ -1539,7 +1538,7 @@ MTERR
 WriteNetworkLong(
     I toWrite,
     size_t cbToWrite,
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 )
 {
@@ -1574,7 +1573,7 @@ error:
 
 MTERR
 WriteRandomBytes(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 )
 {
@@ -1680,7 +1679,7 @@ ParseStructures(
     MTERR mr = MT_S_OK;
     vector<T> vStructures;
 
-    const BYTE* pv = &pvb->front();
+    const MT_BYTE* pv = &pvb->front();
     size_t cb = pvb->size();
 
     assert(cb > 0);
@@ -1738,19 +1737,19 @@ ResizeVector<T>(
 // specialization of above, for bytes
 template <>
 void
-ResizeVector<BYTE>(
+ResizeVector<MT_BYTE>(
     ByteVector* pv,
     typename ByteVector::size_type siz
 )
 {
     // arbitrary filler value
     pv->resize(siz, 0x23);
-} // end function ResizeVector<BYTE>
+} // end function ResizeVector<MT_BYTE>
 
 MTERR
 ParseByteVector(
     size_t cbField,
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb,
     ByteVector* pvb
 )
@@ -1775,7 +1774,7 @@ error:
 MTERR
 SerializeByteVector(
     const ByteVector* pvb,
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 )
 {
@@ -1800,7 +1799,7 @@ error:
 MTERR PrintByteVector(const ByteVector* pvb)
 {
      for_each(pvb->begin(), pvb->end(),
-     [](BYTE b)
+     [](MT_BYTE b)
      {
          wprintf(L"%02X ", b);
      });
@@ -1964,7 +1963,7 @@ error:
 MTERR
 ConnectionParameters::ComputePRF(
     const ByteVector* pvbSecret,
-    PCSTR szLabel,
+    const char* szLabel,
     const ByteVector* pvbSeed,
     size_t cbLengthDesired,
     ByteVector* pvbPRF
@@ -2167,7 +2166,7 @@ ConnectionParameters::GenerateKeyMaterial(
         // grabs the next chunk into the specified byte vector
         auto fnPartitionBlock =
             [&itKeyBlock, &vbKeyBlock, this]
-            (ByteVector* pvb, size_t cbField, PCWSTR wszLabel)
+            (ByteVector* pvb, size_t cbField, const wchar_t* wszLabel)
             {
                 assert(itKeyBlock <= vbKeyBlock.end() - cbField);
                 pvb->assign(itKeyBlock, itKeyBlock + cbField);
@@ -2274,7 +2273,7 @@ MTERR
 ComputePRF_TLS12(
     Hasher* pHasher,
     const ByteVector* pvbSecret,
-    PCSTR szLabel,
+    const char* szLabel,
     const ByteVector* pvbSeed,
     size_t cbLengthDesired,
     ByteVector* pvbPRF
@@ -2338,7 +2337,7 @@ MTERR
 ComputePRF_TLS10(
     Hasher* pHasher,
     const ByteVector* pvbSecret,
-    PCSTR szLabel,
+    const char* szLabel,
     const ByteVector* pvbSeed,
     size_t cbLengthDesired,
     ByteVector* pvbPRF
@@ -2417,7 +2416,7 @@ ComputePRF_TLS10(
         vbS1_Expanded.begin() + cbLengthDesired,
         vbS2_Expanded.begin(),
         pvbPRF->begin(),
-        bit_xor<BYTE>());
+        bit_xor<MT_BYTE>());
 
 done:
     return mr;
@@ -2437,7 +2436,7 @@ MTERR
 PRF_A(
     Hasher* pHasher,
     const HashInfo* pHashInfo,
-    UINT i,
+    MT_UINT32 i,
     const ByteVector* pvbSecret,
     const ByteVector* pvbSeed,
     ByteVector* pvbResult
@@ -2501,7 +2500,7 @@ PRF_P_hash(
     assert(pvbResult->empty());
 
     // starts from A(1), not A(0). keep expanding until we have enough output
-    for (UINT i = 1; pvbResult->size() < cbMinimumLengthDesired; i++)
+    for (MT_UINT32 i = 1; pvbResult->size() < cbMinimumLengthDesired; i++)
     {
         wprintf(L"PRF_P generated %d out of %d bytes\n", pvbResult->size(), cbMinimumLengthDesired);
 
@@ -2653,7 +2652,7 @@ error:
 
 MTERR
 MT_Structure::ParseFrom(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -2670,7 +2669,7 @@ MT_Structure::ParseFromVect(
 
 MTERR
 MT_Structure::Serialize(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -2732,9 +2731,9 @@ MT_VariableLengthFieldBase
 ::MT_VariableLengthFieldBase()
     : MT_Structure()
 {
-    C_ASSERT(LengthFieldSize <= sizeof(size_t));
-    C_ASSERT(MAXFORBYTES(LengthFieldSize) >= MaxSize);
-    C_ASSERT(MaxSize >= MinSize);
+    MT_C_ASSERT(LengthFieldSize <= sizeof(size_t));
+    MT_C_ASSERT(MAXFORBYTES(LengthFieldSize) >= MaxSize);
+    MT_C_ASSERT(MaxSize >= MinSize);
 } // end ctor MT_VariableLengthFieldBase
 
 template <typename F,
@@ -2784,7 +2783,7 @@ MTERR
 MT_VariableLengthField
 <F, LengthFieldSize, MinSize, MaxSize>
 ::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -2873,7 +2872,7 @@ MTERR
 MT_VariableLengthField
 <F, LengthFieldSize, MinSize, MaxSize>
 ::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -2906,7 +2905,7 @@ MTERR
 MT_VariableLengthByteField
 <LengthFieldSize, MinSize, MaxSize>
 ::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -2961,7 +2960,7 @@ MTERR
 MT_VariableLengthByteField
 <LengthFieldSize, MinSize, MaxSize>
 ::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -2989,7 +2988,7 @@ MT_FixedLengthStructureBase<F, Size>::MT_FixedLengthStructureBase()
     : MT_Structure(),
       m_vData()
 {
-    C_ASSERT(Size > 0);
+    MT_C_ASSERT(Size > 0);
 } // end ctor MT_FixedLengthStructureBase
 
 template <typename F,
@@ -3014,7 +3013,7 @@ MT_FixedLengthStructureBase<F, Size>::at(
 template <typename F, size_t Size>
 MTERR
 MT_FixedLengthStructure<F, Size>::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -3054,7 +3053,7 @@ error:
 template <typename F, size_t Size>
 MTERR
 MT_FixedLengthStructure<F, Size>::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -3098,7 +3097,7 @@ MT_FixedLengthStructure<F, Size>::Length() const
 template <size_t Size>
 MTERR
 MT_FixedLengthByteStructure<Size>::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -3117,7 +3116,7 @@ error:
 template <size_t Size>
 MTERR
 MT_FixedLengthByteStructure<Size>::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -3158,7 +3157,7 @@ MT_PublicKeyEncryptedStructure<T>::MT_PublicKeyEncryptedStructure()
 template <typename T>
 MTERR
 MT_PublicKeyEncryptedStructure<T>::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -3222,7 +3221,7 @@ MT_RecordLayerMessage::MT_RecordLayerMessage()
 
 MTERR
 MT_RecordLayerMessage::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -3269,7 +3268,7 @@ MT_RecordLayerMessage::Length() const
 
 MTERR
 MT_RecordLayerMessage::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -3307,7 +3306,7 @@ MT_Handshake::MT_Handshake()
 
 MTERR
 MT_Handshake::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -3315,7 +3314,7 @@ MT_Handshake::ParseFromPriv(
     size_t cbField = c_cbHandshakeType_Length;
     size_t cbPayloadLength = 0;
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Type())));
 
     if (!IsKnownType(*Type()))
     {
@@ -3366,19 +3365,19 @@ MT_Handshake::IsKnownType(
     MTH_HandshakeType eType
 )
 {
-    return (find(c_rgeKnownTypes, c_rgeKnownTypes+ARRAYSIZE(c_rgeKnownTypes), eType) != c_rgeKnownTypes+ARRAYSIZE(c_rgeKnownTypes));
+    return (find(c_rgeKnownTypes, c_rgeKnownTypes+_countof(c_rgeKnownTypes), eType) != c_rgeKnownTypes+_countof(c_rgeKnownTypes));
 } // end function IsKnownType
 
 MTERR
 MT_Handshake::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
     MTERR mr = MT_S_OK;
     size_t cbField = c_cbHandshakeType_Length;
 
-    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_UINT8>(*Type()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -3400,7 +3399,7 @@ error:
 wstring
 MT_Handshake::HandshakeTypeString() const
 {
-    PCWSTR wszType = nullptr;
+    const wchar_t* wszType = nullptr;
 
     switch (*Type())
     {
@@ -3468,7 +3467,7 @@ MT_ClientHello::MT_ClientHello()
 
 MTERR
 MT_ClientHello::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -3540,7 +3539,7 @@ MT_ServerHello::Length() const
 
 MTERR
 MT_ServerHello::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -3580,7 +3579,7 @@ MT_ProtocolVersion::MT_ProtocolVersion()
 
 MTERR
 MT_ProtocolVersion::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -3589,7 +3588,7 @@ MT_ProtocolVersion::ParseFromPriv(
 
     assert(Length() == c_cbProtocolVersion_Length);
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Version())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT16*>(Version())));
 
     ADVANCE_PARSE();
 
@@ -3608,7 +3607,7 @@ error:
 
 MTERR
 MT_ProtocolVersion::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -3616,7 +3615,7 @@ MT_ProtocolVersion::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbProtocolVersion_Length);
 
-    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Version()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_UINT16>(*Version()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -3707,7 +3706,7 @@ MT_CipherSuite::Value(
                      &Data()->front(),
                      Data()->size(),
                      Data()->size(),
-                     reinterpret_cast<ULONG*>(&cs)));
+                     reinterpret_cast<MT_UINT16*>(&cs)));
 
     *peValue = cs;
 
@@ -3728,7 +3727,7 @@ MT_CipherSuite::SetValue(
     ResizeVector(Data(), c_cbCipherSuite_Length);
 
     CHKOK(WriteNetworkLong(
-             static_cast<ULONG>(eValue),
+             static_cast<MT_UINT16>(eValue),
              Data()->size(),
              &Data()->front(),
              Data()->size()));
@@ -3777,14 +3776,14 @@ const vector<MT_CipherSuiteValue>* GetCipherSuitePreference()
 {
     static vector<MT_CipherSuiteValue> s_veCipherSuiteValues;
 
-    C_ASSERT(ARRAYSIZE(c_rgeCipherSuitePreference) > 0);
+    MT_C_ASSERT(_countof(c_rgeCipherSuitePreference) > 0);
 
     // first time initialization
     if (s_veCipherSuiteValues.empty())
     {
         s_veCipherSuiteValues.assign(
             c_rgeCipherSuitePreference,
-            c_rgeCipherSuitePreference + ARRAYSIZE(c_rgeCipherSuitePreference));
+            c_rgeCipherSuitePreference + _countof(c_rgeCipherSuitePreference));
     }
 
     return &s_veCipherSuiteValues;
@@ -3839,7 +3838,7 @@ MT_ContentType::MT_ContentType()
 
 MTERR
 MT_ContentType::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -3848,7 +3847,7 @@ MT_ContentType::ParseFromPriv(
 
     assert(Length() == c_cbContentType_Length);
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<BYTE*>(Type())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Type())));
 
     ADVANCE_PARSE();
 
@@ -3861,7 +3860,7 @@ error:
 
 MTERR
 MT_ContentType::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -3870,7 +3869,7 @@ MT_ContentType::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbContentType_Length);
 
-    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Type()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_UINT8>(*Type()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -3920,7 +3919,7 @@ MT_Random::MT_Random()
 
 MTERR
 MT_Random::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -3942,7 +3941,7 @@ error:
 
 MTERR
 MT_Random::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -3993,7 +3992,7 @@ MT_CompressionMethod::MT_CompressionMethod()
 
 MTERR
 MT_CompressionMethod::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -4002,7 +4001,7 @@ MT_CompressionMethod::ParseFromPriv(
 
     assert(Length() == c_cbCompressionMethod_Length);
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Method())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Method())));
 
     if (*Method() != MTCM_Null)
     {
@@ -4020,7 +4019,7 @@ error:
 
 MTERR
 MT_CompressionMethod::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -4028,7 +4027,7 @@ MT_CompressionMethod::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbCompressionMethod_Length);
 
-    CHKOK(WriteNetworkLong(static_cast<ULONG>(*Method()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_UINT8>(*Method()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -4050,7 +4049,7 @@ MT_Certificate::MT_Certificate()
 
 MTERR
 MT_Certificate::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -4068,7 +4067,7 @@ error:
 
 MTERR
 MT_Certificate::AddCertificateFromMemory(
-    const BYTE* pvCert,
+    const MT_BYTE* pvCert,
     size_t cbCert
 )
 {
@@ -4109,14 +4108,14 @@ MT_Extension::MT_Extension()
 
 MTERR
 MT_Extension::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
     MTERR mr = MT_S_OK;
     size_t cbField = c_cbExtensionType_Length;
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(ExtensionType())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT16*>(ExtensionType())));
 
     ADVANCE_PARSE();
 
@@ -4139,7 +4138,7 @@ MT_Extension::Length() const
 
 MTERR
 MT_Extension::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -4147,7 +4146,7 @@ MT_Extension::SerializePriv(
     size_t cbField = 0;
 
     cbField = c_cbExtensionType_Length;
-    CHKOK(WriteNetworkLong(static_cast<ULONG>(*ExtensionType()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_UINT16>(*ExtensionType()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -4172,7 +4171,7 @@ MT_PreMasterSecret::MT_PreMasterSecret()
 
 MTERR
 MT_PreMasterSecret::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -4192,7 +4191,7 @@ error:
 
 MTERR
 MT_PreMasterSecret::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -4231,7 +4230,7 @@ MT_ClientKeyExchange<KeyType>::MT_ClientKeyExchange()
 template <typename KeyType>
 MTERR
 MT_ClientKeyExchange<KeyType>::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -4262,7 +4261,7 @@ MT_ChangeCipherSpec::MT_ChangeCipherSpec()
 
 MTERR
 MT_ChangeCipherSpec::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -4271,7 +4270,7 @@ MT_ChangeCipherSpec::ParseFromPriv(
 
     assert(Length() == c_cbChangeCipherSpec_Length);
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Type())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Type())));
 
     if (*Type() != MTCCS_ChangeCipherSpec)
     {
@@ -4289,7 +4288,7 @@ error:
 
 MTERR
 MT_ChangeCipherSpec::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -4297,7 +4296,7 @@ MT_ChangeCipherSpec::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbChangeCipherSpec_Length);
 
-    CHKOK(WriteNetworkLong(static_cast<BYTE>(*Type()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_BYTE>(*Type()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -4320,7 +4319,7 @@ MT_Finished::MT_Finished()
 
 MTERR
 MT_Finished::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -4329,7 +4328,7 @@ MT_Finished::ParseFromPriv(
 
 MTERR
 MT_Finished::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -4384,7 +4383,7 @@ error:
 */
 MTERR
 MT_Finished::ComputeVerifyData(
-    PCSTR szLabel,
+    const char* szLabel,
     ByteVector* pvbVerifyData
 )
 {
@@ -4487,12 +4486,12 @@ MT_ServerHelloDone::MT_ServerHelloDone()
 
 MTERR
 MT_ServerHelloDone::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
-    UNREFERENCED_PARAMETER(pv);
-    UNREFERENCED_PARAMETER(cb);
+    MT_UNREFERENCED_PARAMETER(pv);
+    MT_UNREFERENCED_PARAMETER(cb);
 
     // 0-byte structure
     return MT_S_OK;
@@ -4508,12 +4507,12 @@ MT_HelloRequest::MT_HelloRequest()
 
 MTERR
 MT_HelloRequest::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
-    UNREFERENCED_PARAMETER(pv);
-    UNREFERENCED_PARAMETER(cb);
+    MT_UNREFERENCED_PARAMETER(pv);
+    MT_UNREFERENCED_PARAMETER(cb);
 
     // 0-byte structure
     return MT_S_OK;
@@ -4770,7 +4769,7 @@ MTERR
 MT_TLSCiphertext::GenerateNextIV(ByteVector* pvbIV)
 {
     MTERR mr = MT_S_OK;
-    static BYTE iIVSeed = 1;
+    static MT_BYTE iIVSeed = 1;
 
     switch (*EndParams()->Version())
     {
@@ -4815,7 +4814,7 @@ MT_CipherFragment::MT_CipherFragment(
 */
 MTERR
 MT_CipherFragment::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -4839,7 +4838,7 @@ error:
 */
 MTERR
 MT_CipherFragment::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -4888,7 +4887,7 @@ MT_CipherFragment::ComputeMAC(
     MTERR mr = MT_S_OK;
 
     ByteVector vbHashText;
-    BYTE* pv = nullptr;
+    MT_BYTE* pv = nullptr;
     size_t cb = 0;
     size_t cbField = 0;
 
@@ -4967,7 +4966,7 @@ MT_GenericStreamCipher::MT_GenericStreamCipher(
 
 MTERR
 MT_GenericStreamCipher::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -5016,7 +5015,7 @@ MTERR
 MT_GenericStreamCipher::UpdateWriteSecurity()
 {
     MTERR mr = MT_S_OK;
-    BYTE* pv = nullptr;
+    MT_BYTE* pv = nullptr;
     size_t cb = 0;
     size_t cbField = 0;
     ByteVector vbPlaintextStruct;
@@ -5138,13 +5137,13 @@ MT_GenericBlockCipher::MT_GenericBlockCipher(
 // parses and also decrypts... then parses the decrypted part, too
 MTERR
 MT_GenericBlockCipher::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
     MTERR mr = MT_S_OK;
     const HashInfo* pHashInfo = EndParams()->Hash();
-    const BYTE* pvEnd = nullptr;
+    const MT_BYTE* pvEnd = nullptr;
     MT_UINT8 cbPaddingLength = 0;
     size_t cbField = 0;
     ByteVector vbDecryptedStruct;
@@ -5201,7 +5200,7 @@ MT_GenericBlockCipher::ParseFromPriv(
     Padding()->assign(pvEnd - cbField + 1, pvEnd + 1);
 
     {
-        ByteVector vbExpectedPadding(cbPaddingLength, static_cast<BYTE>(cbPaddingLength));
+        ByteVector vbExpectedPadding(cbPaddingLength, static_cast<MT_BYTE>(cbPaddingLength));
         if (*Padding() != vbExpectedPadding)
         {
             mr = MT_E_BAD_RECORD_PADDING;
@@ -5245,7 +5244,7 @@ MTERR
 MT_GenericBlockCipher::UpdateWriteSecurity()
 {
     MTERR mr = MT_S_OK;
-    BYTE* pv = nullptr;
+    MT_BYTE* pv = nullptr;
     size_t cb = 0;
     size_t cbField = 0;
     ByteVector vbPlaintextContent;
@@ -5313,7 +5312,7 @@ MT_UINT8
 MT_GenericBlockCipher::PaddingLength() const
 {
     MTERR mr = MT_S_OK;
-    BYTE b = 0;
+    MT_BYTE b = 0;
     mr = MT_SizeTToByte(Padding()->size(), &b);
     assert(mr == MT_S_OK);
     return b;
@@ -5364,7 +5363,7 @@ MT_GenericBlockCipher::ComputeSecurityInfo(
         size_t cbPaddingLength = cbPaddedBlockLength -
                                  cbUnpaddedBlockLength -
                                  c_cbGenericBlockCipher_Padding_LFL;
-        BYTE b = 0;
+        MT_BYTE b = 0;
         CHKOK(MT_SizeTToByte(cbPaddingLength, &b));
 
         assert(b == cbPaddingLength);
@@ -5461,7 +5460,7 @@ MT_GenericBlockCipher_TLS11::MT_GenericBlockCipher_TLS11(
 
 MTERR
 MT_GenericBlockCipher_TLS11::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -5506,7 +5505,7 @@ MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
 */
 MTERR
 MT_GenericBlockCipher_TLS11::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
@@ -5547,7 +5546,7 @@ SymmetricCipherer::SetCipherInfo(
     const CipherInfo* pCipherInfo
 )
 {
-    UNREFERENCED_PARAMETER(pvbKey);
+    MT_UNREFERENCED_PARAMETER(pvbKey);
 
     *Cipher() = *pCipherInfo;
 
@@ -5569,7 +5568,7 @@ SymmetricCipherer::EncryptBuffer(
     ByteVector* pvbEncrypted
 )
 {
-    UNREFERENCED_PARAMETER(pvbIV);
+    MT_UNREFERENCED_PARAMETER(pvbIV);
 
     if (Cipher()->alg == CipherAlg_NULL)
     {
@@ -5588,7 +5587,7 @@ SymmetricCipherer::DecryptBuffer(
     ByteVector* pvbDecrypted
 )
 {
-    UNREFERENCED_PARAMETER(pvbIV);
+    MT_UNREFERENCED_PARAMETER(pvbIV);
 
     if (Cipher()->alg == CipherAlg_NULL)
     {
@@ -5609,7 +5608,7 @@ Hasher::Hash(
     const ByteVector* pvbText,
     ByteVector* pvbHash)
 {
-    UNREFERENCED_PARAMETER(pvbText);
+    MT_UNREFERENCED_PARAMETER(pvbText);
 
     if (pHashInfo->alg == HashAlg_NULL)
     {
@@ -5629,8 +5628,8 @@ Hasher::HMAC(
     const ByteVector* pvbText,
     ByteVector* pvbHMAC)
 {
-    UNREFERENCED_PARAMETER(pvbKey);
-    UNREFERENCED_PARAMETER(pvbText);
+    MT_UNREFERENCED_PARAMETER(pvbKey);
+    MT_UNREFERENCED_PARAMETER(pvbText);
 
     if (pHashInfo->alg == HashAlg_NULL)
     {
@@ -5654,19 +5653,19 @@ MT_Alert::MT_Alert()
 
 MTERR
 MT_Alert::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
     MTERR mr = MT_S_OK;
     size_t cbField = c_cbAlertLevel_Length;
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Level())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Level())));
 
     ADVANCE_PARSE();
 
     cbField = c_cbAlertDescription_Length;
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<ULONG*>(Description())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Description())));
 
     ADVANCE_PARSE();
 
@@ -5679,19 +5678,19 @@ error:
 
 MTERR
 MT_Alert::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {
     MTERR mr = MT_S_OK;
     size_t cbField = c_cbAlertLevel_Length;
 
-    CHKOK(WriteNetworkLong(static_cast<BYTE>(*Level()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_BYTE>(*Level()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = c_cbAlertDescription_Length;
-    CHKOK(WriteNetworkLong(static_cast<BYTE>(*Description()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_BYTE>(*Description()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -5705,8 +5704,8 @@ error:
 wstring
 MT_Alert::ToString() const
 {
-    PCWSTR wszLevel = nullptr;
-    PCWSTR wszDescription = nullptr;
+    const wchar_t* wszLevel = nullptr;
+    const wchar_t* wszDescription = nullptr;
 
     switch (*Level())
     {
@@ -5848,7 +5847,7 @@ MT_RenegotiationInfoExtension::MT_RenegotiationInfoExtension()
 // see notes for SetRenegotiatedConnection
 MTERR
 MT_RenegotiationInfoExtension::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -5956,7 +5955,7 @@ MT_Thingy::MT_Thingy()
 
 MTERR
 MT_Thingy::ParseFromPriv(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb
 )
 {
@@ -5981,7 +5980,7 @@ MT_Thingy::Length() const
 
 MTERR
 MT_Thingy::SerializePriv(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 ) const
 {

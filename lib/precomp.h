@@ -1,6 +1,5 @@
 #ifndef MTLS_LIB_PRECOMP_H
 #define MTLS_LIB_PRECOMP_H
-#include <windows.h>
 #include <assert.h>
 #include <vector>
 #include <algorithm>

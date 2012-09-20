@@ -1,9 +1,9 @@
 #ifndef MTLS_INC_MUNGETLS_H
 #define MTLS_INC_MUNGETLS_H
-#include <windows.h>
 #include <assert.h>
 #include <vector>
 #include <memory>
+#include <string>
 #include "mtls_defs.h"
 #include "MungeCrypto.h"
 
@@ -55,8 +55,8 @@ const MTERR MT_S_LISTENER_HANDLED                         = 0x00230002;
 const MTERR MT_S_LISTENER_IGNORED                         = 0x00230003;
 
 // flags for ITLSListener::OnCreatingHandshakeMessage's pfFlags
-const DWORD MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE         = 0x00000000;
-const DWORD MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE          = 0x00000001;
+const MT_UINT32 MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE         = 0x00000000;
+const MT_UINT32 MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE          = 0x00000001;
 
 
 /************************** Protocol Constants **********************/
@@ -77,7 +77,7 @@ const size_t c_cbMasterSecret_Length = 48;
 const size_t c_cbSequenceNumber_Length = 8;
 
 // TLS 1.0: master_secret = PRF(pre_master_secret, "master secret", ...
-const PCSTR c_szMasterSecret_PRFLabel = "master secret";
+const char* const c_szMasterSecret_PRFLabel = "master secret";
 
 /*
 ** TLS 1.0: key_block = PRF(
@@ -85,19 +85,19 @@ const PCSTR c_szMasterSecret_PRFLabel = "master secret";
 **                          "key expansion",
 **                          ...
 */
-const PCSTR c_szKeyExpansion_PRFLabel = "key expansion";
+const char* const c_szKeyExpansion_PRFLabel = "key expansion";
 
 /*
 ** TLS 1.0: "For Finished messages sent by the server, the string
 ** 'server finished'."
 */
-const PCSTR c_szServerFinished_PRFLabel = "server finished";
+const char* const c_szServerFinished_PRFLabel = "server finished";
 
 /*
 ** TLS 1.0: "For Finished messages sent by the client, the string
 ** 'client finished'."
 */
-const PCSTR c_szClientFinished_PRFLabel = "client finished";
+const char* const c_szClientFinished_PRFLabel = "client finished";
 
 /************************** End Protocol Constants **********************/
 
@@ -144,27 +144,27 @@ class MT_Structure
     MT_Structure() { }
     virtual ~MT_Structure() { }
 
-    MTERR ParseFrom(const BYTE* pv, size_t cb);
+    MTERR ParseFrom(const MT_BYTE* pv, size_t cb);
     MTERR ParseFromVect(const ByteVector* pvb);
-    MTERR Serialize(BYTE* pv, size_t cb) const;
+    MTERR Serialize(MT_BYTE* pv, size_t cb) const;
     MTERR SerializeToVect(ByteVector* pvb) const;
     MTERR SerializeAppendToVect(ByteVector* pvb) const;
     virtual size_t Length() const = 0;
 
     private:
     // not making these two pure virtual just for convenience
-    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb)
+    virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb)
     {
-        UNREFERENCED_PARAMETER(pv);
-        UNREFERENCED_PARAMETER(cb);
+        MT_UNREFERENCED_PARAMETER(pv);
+        MT_UNREFERENCED_PARAMETER(cb);
         assert(false);
         return MT_E_NOTIMPL;
     }
 
-    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const
+    virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const
     {
-        UNREFERENCED_PARAMETER(pv);
-        UNREFERENCED_PARAMETER(cb);
+        MT_UNREFERENCED_PARAMETER(pv);
+        MT_UNREFERENCED_PARAMETER(cb);
         assert(false);
         return MT_E_NOTIMPL;
     }
@@ -204,8 +204,8 @@ class MT_VariableLengthFieldBase : public MT_Structure
     size_t MaxLength() const { return MaxSize; }
 
     private:
-    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb) = 0;
-    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const = 0;
+    virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb) = 0;
+    virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const = 0;
 
     std::vector<F> m_vData;
 };
@@ -225,8 +225,8 @@ class MT_VariableLengthField : public MT_VariableLengthFieldBase
     virtual size_t DataLength() const;
 
     private:
-    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 };
 
 // specializes MT_VariableLengthFieldBase for the common byte vector
@@ -234,7 +234,7 @@ template <size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
 class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
-                                              <BYTE,
+                                              <MT_BYTE,
                                                LengthFieldSize,
                                                MinSize,
                                                MaxSize>
@@ -243,8 +243,8 @@ class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
     virtual size_t DataLength() const;
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 };
 
 /*
@@ -268,8 +268,8 @@ class MT_FixedLengthStructureBase : public MT_Structure
     F* at(typename std::vector<F>::size_type pos);
 
     private:
-    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb) = 0;
-    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const = 0;
+    virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb) = 0;
+    virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const = 0;
 
     std::vector<F> m_vData;
 };
@@ -282,22 +282,22 @@ class MT_FixedLengthStructure : public MT_FixedLengthStructureBase<F, Size>
     virtual size_t Length() const;
 
     private:
-    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 };
 
 // a specialization of MT_FixedLengthStructureBase for the common byte array
 template <size_t Size>
 class MT_FixedLengthByteStructure : public MT_FixedLengthStructureBase
-                                               <BYTE,
+                                               <MT_BYTE,
                                                Size>
 {
     public:
     virtual size_t Length() const;
 
     private:
-    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 };
 
 /*
@@ -311,7 +311,7 @@ const size_t c_cbProtocolVersion_Length = 2;
 class MT_ProtocolVersion : public MT_Structure
 {
     public:
-    enum MTPV_Version
+    enum MTPV_Version : MT_UINT16
     {
         MTPV_Unknown = 0,
         MTPV_TLS10 = 0x0301,
@@ -331,8 +331,8 @@ class MT_ProtocolVersion : public MT_Structure
     static bool IsKnownVersion(MTPV_Version eVersion);
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     MTPV_Version m_eVersion;
 };
@@ -363,8 +363,8 @@ class MT_Random : public MT_Structure
     MTERR PopulateNow();
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     MT_UINT32 m_timestamp;
     MT_RandomBytes m_randomBytes;
@@ -384,7 +384,7 @@ class MT_SessionID : public MT_VariableLengthByteField<
 };
 
 // TLS 1.2: taken basically verbatim.
-enum MT_CipherSuiteValue
+enum MT_CipherSuiteValue : MT_UINT16
 {
     MTCS_UNKNOWN                               = 0xFFFF,
     MTCS_TLS_RSA_WITH_NULL_NULL                = 0x0000,
@@ -406,7 +406,7 @@ enum MT_CipherSuiteValue
 **       //  may be extended, e.g., for ECDH -- see [TLSECC]
 **      } KeyExchangeAlgorithm;
 */
-enum MT_KeyExchangeAlgorithm
+enum MT_KeyExchangeAlgorithm : MT_UINT8
 {
     MTKEA_dhe_dss,
     MTKEA_dhe_rsa,
@@ -459,7 +459,7 @@ const size_t c_cbCompressionMethod_Length = 1;
 class MT_CompressionMethod : public MT_Structure
 {
     public:
-    enum MTCM_Method
+    enum MTCM_Method : MT_UINT8
     {
         MTCM_Null = 0,
         MTCM_Unknown = 255,
@@ -473,8 +473,8 @@ class MT_CompressionMethod : public MT_Structure
     ACCESSORS(MTCM_Method*, Method, &m_eMethod);
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     MTCM_Method m_eMethod;
 };
@@ -519,7 +519,7 @@ typedef MT_VariableLengthByteField<
 class MT_Extension : public MT_Structure
 {
     public:
-    enum MTE_ExtensionType
+    enum MTE_ExtensionType : MT_UINT16
     {
         MTEE_RenegotiationInfo = 0xff01,
         MTEE_Unknown = 65535
@@ -534,8 +534,8 @@ class MT_Extension : public MT_Structure
     ACCESSORS(MT_ExtensionData*, ExtensionData, &m_extensionData);
 
     protected:
-    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     private:
     MTE_ExtensionType m_extensionType;
@@ -607,7 +607,7 @@ class MT_RenegotiationInfoExtension : public MT_Extension
     MTERR SetRenegotiatedConnection(const MT_RenegotiatedConnection* pRenegotiatedConnection);
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
     MTERR CheckExtensionDataIntegrity() const;
 
     MT_RenegotiatedConnection m_renegotiatedConnection;
@@ -645,7 +645,7 @@ class MT_ClientHello : public MT_Structure
     size_t Length() const;
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
 
     MT_ProtocolVersion m_clientVersion;
     MT_Random m_random;
@@ -775,7 +775,7 @@ class ConnectionParameters
     MTERR
     ComputePRF(
         const ByteVector* pvbSecret,
-        PCSTR szLabel,
+        const char* szLabel,
         const ByteVector* pvbSeed,
         size_t cbMinimumLengthDesired,
         ByteVector* pvbPRF);
@@ -811,7 +811,7 @@ const size_t c_cbContentType_Length = 1;
 class MT_ContentType : public MT_Structure
 {
     public:
-    enum MTCT_Type
+    enum MTCT_Type : MT_UINT8
     {
         MTCT_Type_ChangeCipherSpec = 20,
         MTCT_Type_Alert = 21,
@@ -829,8 +829,8 @@ class MT_ContentType : public MT_Structure
     std::wstring ToString() const;
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     MTCT_Type m_eType;
 };
@@ -977,7 +977,7 @@ class ITLSListener
     ** choice is whether consecutive handshake messages should be combined into
     ** a single record layer message or separate ones
     */
-    virtual MTERR OnCreatingHandshakeMessage(MT_Handshake* pHandshake, DWORD* pfFlags) = 0;
+    virtual MTERR OnCreatingHandshakeMessage(MT_Handshake* pHandshake, MT_UINT32* pfFlags) = 0;
 
     /*
     ** tells the app that the handshake is complete, and they can start sending
@@ -1077,8 +1077,8 @@ class MT_RecordLayerMessage : public MT_Structure, public MT_ConnectionAware
     MT_UINT16 PayloadLength() const;
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     MT_ContentType m_contentType;
     MT_ProtocolVersion m_protocolVersion;
@@ -1170,7 +1170,7 @@ class MT_Handshake : public MT_Structure
     **     finished(20), (255)
     ** } HandshakeType;
     */
-    enum MTH_HandshakeType
+    enum MTH_HandshakeType : MT_UINT8
     {
         MTH_HelloRequest = 0,
         MTH_ClientHello = 1,
@@ -1201,8 +1201,8 @@ class MT_Handshake : public MT_Structure
     private:
     static const MTH_HandshakeType c_rgeKnownTypes[];
 
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     MTH_HandshakeType m_eType;
     ByteVector m_vbBody;
@@ -1243,7 +1243,7 @@ class MT_ServerHello : public MT_Structure
     ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions);
 
     private:
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     MT_ProtocolVersion m_serverVersion;
     MT_Random m_random;
@@ -1265,10 +1265,10 @@ class MT_Certificate : public MT_Structure
     MT_Certificate();
     ~MT_Certificate() { }
 
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
     size_t Length() const { return CertificateList()->Length(); }
 
-    MTERR AddCertificateFromMemory(const BYTE* pvCert, size_t cbCert);
+    MTERR AddCertificateFromMemory(const MT_BYTE* pvCert, size_t cbCert);
 
     ACCESSORS(MT_CertificateList*, CertificateList, &m_certificateList);
 
@@ -1299,8 +1299,8 @@ class MT_ClientKeyExchange : public MT_Structure
     ACCESSORS(KeyType*, ExchangeKeys, m_spExchangeKeys.get());
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    // MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    // MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     std::shared_ptr<KeyType> m_spExchangeKeys;
 };
@@ -1328,7 +1328,7 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
     ACCESSORS(ByteVector*, EncryptedStructure, &m_vbEncryptedStructure);
 
     private:
-    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
     ACCESSORS(ByteVector*, PlaintextStructure, &m_vbPlaintextStructure);
 
     T m_structure;
@@ -1359,8 +1359,8 @@ class MT_PreMasterSecret : public MT_Structure
 
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     MT_ProtocolVersion m_clientVersion;
     OpaqueRandom m_random;
@@ -1384,7 +1384,7 @@ const size_t c_cbChangeCipherSpec_Length = 1;
 class MT_ChangeCipherSpec : public MT_Structure
 {
     public:
-    enum MTCCS_Type
+    enum MTCCS_Type : MT_UINT8
     {
         MTCCS_ChangeCipherSpec = 1,
         MTCCS_Unknown = 255
@@ -1398,8 +1398,8 @@ class MT_ChangeCipherSpec : public MT_Structure
     ACCESSORS(MTCCS_Type*, Type, &m_eType);
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     MTCCS_Type m_eType;
 };
@@ -1420,14 +1420,14 @@ class MT_Finished : public MT_Structure, public MT_Securable
 
     ACCESSORS(MT_FinishedVerifyData*, VerifyData, &m_verifyData);
 
-    MTERR ComputeVerifyData(PCSTR szLabel, ByteVector* pvbVerifyData);
+    MTERR ComputeVerifyData(const char* szLabel, ByteVector* pvbVerifyData);
     MTERR SetConnectionParameters(ConnectionParameters* pConnectionParams) { m_pConnectionParams = pConnectionParams; return MT_S_OK; }
 
     private:
     ACCESSORS(ConnectionParameters*, ConnParams, m_pConnectionParams);
 
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
     MTERR CheckSecurityPriv();
 
     ConnectionParameters* m_pConnectionParams;
@@ -1468,8 +1468,8 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
 
     protected:
     MT_TLSCiphertext* Ciphertext() { return m_pCiphertext; }
-    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    virtual MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     private:
     ByteVector m_vbContent;
@@ -1495,7 +1495,7 @@ class MT_GenericStreamCipher : public MT_CipherFragment
     ACCESSORS(ByteVector*, MAC, &m_vbMAC);
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
     MTERR CheckSecurityPriv();
 
     MTERR
@@ -1524,7 +1524,7 @@ class MT_GenericBlockCipher : public MT_CipherFragment
     virtual MTERR UpdateWriteSecurity();
 
     protected:
-    virtual MTERR ParseFromPriv(const BYTE* pv, size_t cb);
+    virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
 
     private:
     virtual MTERR CheckSecurityPriv();
@@ -1601,8 +1601,8 @@ class MT_GenericBlockCipher_TLS11 : public MT_GenericBlockCipher
     MTERR UpdateWriteSecurity();
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     ByteVector m_vbIV;
 };
@@ -1632,7 +1632,7 @@ typedef MT_GenericBlockCipher_TLS11 MT_GenericBlockCipher_TLS12;
 ** enum { warning(1), fatal(2), (255) } AlertLevel;
 */
 const size_t c_cbAlertLevel_Length = 1;
-enum MT_AlertLevel
+enum MT_AlertLevel : MT_UINT8
 {
     MTAL_Warning = 1,
     MTAL_Fatal = 2,
@@ -1671,7 +1671,7 @@ enum MT_AlertLevel
 ** } AlertDescription;
 */
 const size_t c_cbAlertDescription_Length = 1;
-enum MT_AlertDescription
+enum MT_AlertDescription : MT_UINT8
 {
     MTAD_CloseNotify = 0,
     MTAD_UnexpectedMessage = 10,
@@ -1726,8 +1726,8 @@ class MT_Alert : public MT_Structure
     std::wstring ToString() const;
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     MT_AlertLevel m_eLevel;
     MT_AlertDescription m_eDescription;
@@ -1747,8 +1747,8 @@ class MT_ServerHelloDone : public MT_Structure
     size_t Length() const { return c_cbServerHelloDone_Length; }
 
     private:
-    // MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    // MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 };
 
 /*
@@ -1765,8 +1765,8 @@ class MT_HelloRequest : public MT_Structure
     size_t Length() const { return c_cbHelloRequest_Length; }
 
     private:
-    // MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    // MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 };
 
 /* boilerplate for defining new structures
@@ -1781,8 +1781,8 @@ class MT_Thingy : public MT_Structure
     ACCESSORS(ThingyType*, Thingy, &m_thingy);
 
     private:
-    MTERR ParseFromPriv(const BYTE* pv, size_t cb);
-    // MTERR SerializePriv(BYTE* pv, size_t cb) const;
+    MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
+    // MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
     ThingyType m_thingy;
 };
@@ -1791,7 +1791,7 @@ class MT_Thingy : public MT_Structure
 template <typename N>
 MTERR
 ReadNetworkLong(
-    const BYTE* pv,
+    const MT_BYTE* pv,
     size_t cb,
     size_t cbToRead,
     N* pResult
@@ -1802,13 +1802,13 @@ MTERR
 WriteNetworkLong(
     I toWrite,
     size_t cbToWrite,
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 );
 
 MTERR
 WriteRandomBytes(
-    BYTE* pv,
+    MT_BYTE* pv,
     size_t cb
 );
 

@@ -5,12 +5,7 @@ BUGS:
 WORK:
 - TLS CLIENT
   - if we have our own client impl, we can also implement some wonky compression scheme
-- change up goto style of main loop
 - support cached sessions with SessionIDs
-- move a bunch of code into a platform-specific lib
-  - potentially templatize safe conversion and subsitution?
-  - CHKWIN should be renamed
-  - remove #include windows.h when possible
 - move all templated code into -inl.h files
 - move resizevector and other non-TLSey things into mtls_helper.h, extern in other libs
 

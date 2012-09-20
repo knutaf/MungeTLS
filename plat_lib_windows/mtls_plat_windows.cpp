@@ -110,7 +110,7 @@ MR2HR(
 MTERR
 MT_SizeTToByte(
     size_t s,
-    BYTE* pb
+    MT_BYTE* pb
 )
 {
     return HR2MR(SizeTToByte(s, pb));
