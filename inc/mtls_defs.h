@@ -64,16 +64,5 @@ bool MT_Failed(MTERR mr);
     }                                                       \
 }                                                           \
 
-// TODO: need to be moved
-#define CHKWIN_OLD(stmt)                                    \
-{                                                           \
-    if (!(stmt))                                            \
-    {                                                       \
-        mr = HRESULT_FROM_WIN32(GetLastError());            \
-        LOGFAIL(L"FALSE", (stmt), mr);                      \
-        goto error;                                         \
-    }                                                       \
-}                                                           \
-
 }
 #endif

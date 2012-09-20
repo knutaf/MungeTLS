@@ -1604,61 +1604,6 @@ WriteRandomBytes(
     return mr;
 } // end function WriteRandomBytes
 
-// TODO: move
-/*
-** translates a SYSTEMTIME object into a 64-bit time value representing seconds
-** since midnight on Jan 1 1970 GMT, which is suitable for inclusion in the
-** "gmt_unix_time" field in the TLS RFC.
-*/
-MTERR
-EpochTimeFromSystemTime(
-    const SYSTEMTIME* pST,
-    ULARGE_INTEGER* pLI
-)
-{
-    MTERR mr = MT_S_OK;
-
-    const SYSTEMTIME st1Jan1970 =
-    {
-        1970, // year
-        1,    // month
-        0,    // day of week
-        1,    // day
-        0,    // hour
-        0,    // min
-        0,    // sec
-        0     // ms
-    };
-
-    FILETIME ft = {0};
-    FILETIME ft1Jan1970 = {0};
-    ULARGE_INTEGER li1Jan1970 = {0};
-
-    // convert system time object into a large integer
-    CHKWIN_OLD(SystemTimeToFileTime(pST, &ft));
-
-    pLI->LowPart = ft.dwLowDateTime;
-    pLI->HighPart = ft.dwHighDateTime;
-
-    // convert Jan 1 1970 into a large integer
-    CHKWIN_OLD(SystemTimeToFileTime(&st1Jan1970, &ft1Jan1970));
-
-    li1Jan1970.LowPart = ft1Jan1970.dwLowDateTime;
-    li1Jan1970.HighPart = ft1Jan1970.dwHighDateTime;
-
-    // subtract specified time object from Jan 1 1970 to get elapsed time
-    CHKOK(ULongLongSub(pLI->QuadPart, li1Jan1970.QuadPart, &pLI->QuadPart));
-
-    // convert from 100 ns to ms
-    pLI->QuadPart /= 10000000ULL;
-
-done:
-    return mr;
-
-error:
-    goto done;
-} // end function EpochTimeFromSystemTime
-
 /*
 ** Serializes a number of structures to a vector, contiguously. "T" here should
 ** typically be a subclass of MT_Structure.
@@ -4022,17 +3967,7 @@ MTERR
 MT_Random::PopulateNow()
 {
     MTERR mr = MT_S_OK;
-
-    SYSTEMTIME st = {0};
-    GetSystemTime(&st);
-
-    ULARGE_INTEGER li = {0};
-    CHKOK(EpochTimeFromSystemTime(&st, &li));
-
-    MT_UINT32 t = 0;
-    CHKOK(ULongLongToULong(li.QuadPart, &t));
-
-    *GMTUnixTime() = t;
+    CHKOK(GetCurrentGMTTime(GMTUnixTime()));
 
     // ResizeVector fills with a fixed value, for easier debugging
     ResizeVector(RandomBytes()->Data(), c_cbRandomBytes_Length);

@@ -1812,12 +1812,8 @@ WriteRandomBytes(
     size_t cb
 );
 
-// TODO: needs to be moved
-MTERR
-EpochTimeFromSystemTime(
-    const SYSTEMTIME* pST,
-    ULARGE_INTEGER* pLI
-);
+// PLATFORM: needs to be implemented
+MTERR GetCurrentGMTTime(MT_UINT32* pTime);
 
 template <typename T>
 MTERR
