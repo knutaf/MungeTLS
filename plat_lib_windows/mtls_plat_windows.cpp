@@ -24,8 +24,7 @@ GetCurrentGMTTime(
 
     CHKWINOKM(EpochTimeFromSystemTime(&st, &t));
 
-    // TODO: replace cast with function
-    *pTime = static_cast<MT_UINT32>(t);
+    *pTime = t;
 
 done:
     return mr;
