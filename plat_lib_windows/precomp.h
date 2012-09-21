@@ -12,4 +12,5 @@
 #include "MungeTLS.h"
 #include "MungeCrypto.h"
 #include "mtls_plat_windows.h"
+#include "mtls_helper.h"
 #endif

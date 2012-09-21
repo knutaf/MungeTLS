@@ -6,6 +6,7 @@
 
 #include "MungeTLS.h"
 #include "MungeCrypto.h"
+#include "mtls_helper.h"
 #include "mtls_plat_windows.h"
 
 /*
@@ -33,7 +34,6 @@ struct PlaintextKey
 };
 
 ByteVector ReverseByteOrder(const ByteVector* pvb);
-extern MTERR PrintByteVector(const ByteVector* pvb);
 
 
 /*********** KeyAndProv *****************/

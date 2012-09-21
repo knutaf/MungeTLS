@@ -11,6 +11,7 @@
 #include "main.h"
 #include "mtls_plat_windows.h"
 #include "MungeTLS.h"
+#include "mtls_helper.h"
 
 
 using namespace std;

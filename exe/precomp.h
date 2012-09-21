@@ -14,5 +14,6 @@
 
 #include "MungeTLS.h"
 #include "mtls_plat_windows.h"
+#include "mtls_helper.h"
 #include "main.h"
 #endif
