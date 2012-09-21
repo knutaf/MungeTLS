@@ -10,7 +10,6 @@ namespace MungeTLS
 #define MT_UNREFERENCED_PARAMETER(P)          (P)
 
 // PLATFORM: may need to fix these typedefs for another platform
-// see mtls_helper.h for C_ASSERTs about sizeof
 typedef unsigned char MT_BYTE;
 typedef unsigned char MT_UINT8;
 typedef unsigned short MT_UINT16;
