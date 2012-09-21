@@ -8,7 +8,6 @@ O_FILES=\
 
 H_FILES=\
     $(H_FILES) \
-    mtls_helper.h  \
     precomp.h  \
 
 SOURCES=$(C_FILES) $(H_FILES)

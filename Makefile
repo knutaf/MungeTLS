@@ -7,6 +7,7 @@ H_FILES=\
     ..\inc\mtls_defs.h \
     ..\inc\MungeTLS.h \
     ..\inc\MungeCrypto.h \
+    ..\inc\mtls_helper.h \
 
 INCLUDES=\
     -I..\inc \
