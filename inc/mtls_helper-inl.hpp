@@ -1,5 +1,5 @@
-#ifndef MTLS_INC_MTLS_HELPER_INL_H
-#define MTLS_INC_MTLS_HELPER_INL_H
+#ifndef MTLS_INC_MTLS_HELPER_INL_HPP
+#define MTLS_INC_MTLS_HELPER_INL_HPP
 #include <vector>
 #include "MungeTLS.h"
 

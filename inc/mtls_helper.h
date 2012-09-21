@@ -44,6 +44,55 @@ void ResizeVector(std::vector<T>* pVect, typename std::vector<T>::size_type siz)
 template <>
 void ResizeVector(ByteVector* pv, typename ByteVector::size_type siz);
 
+
+/**************** Serializing helper functions and macros ****************/
+
+MTERR ParseByteVector(size_t cbField, const MT_BYTE* pv, size_t cb, ByteVector* pvb);
+MTERR SerializeByteVector(const ByteVector* pvb, MT_BYTE* pv, size_t cb);
+
+// catches underflow errors in a MTERR
+#define SAFE_SUB(m, l, r)                                          \
+{                                                                  \
+    (m) = MT_SizeTSub((l), (r), &(l));                             \
+    if ((m) != MT_S_OK) { goto error; }                            \
+}                                                                  \
+
+#define ADVANCE_PARSE()                                            \
+{                                                                  \
+    pv += cbField;                                                 \
+    SAFE_SUB(mr, cb, cbField);                                     \
+}                                                                  \
+
+#define PARSEVB(len, vect)                                         \
+{                                                                  \
+    cbField = (len);                                               \
+    CHKOK(ParseByteVector(cbField, pv, cb, (vect)));               \
+    ADVANCE_PARSE();                                               \
+}                                                                  \
+
+#define SERIALIZEPVB(vect)                                         \
+{                                                                  \
+    cbField = (vect)->size();                                      \
+    CHKOK(SerializeByteVector((vect), pv, cb));                    \
+    ADVANCE_PARSE();                                               \
+}                                                                  \
+
+#define PARSEPSTRUCT(s)                                            \
+{                                                                  \
+    CHKOK((s)->ParseFrom(pv, cb));                                 \
+    cbField = (s)->Length();                                       \
+    ADVANCE_PARSE();                                               \
+}                                                                  \
+
+#define PARSESTRUCT(s) PARSEPSTRUCT(&(s))
+
+#define SERIALIZEPSTRUCT(s)                                        \
+{                                                                  \
+    cbField = (s)->Length();                                       \
+    CHKOK((s)->Serialize(pv, cb));                                 \
+    ADVANCE_PARSE();                                               \
+}                                                                  \
+
 }
 
 #include "mtls_helper-inl.hpp"

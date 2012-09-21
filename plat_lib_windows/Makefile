@@ -21,7 +21,7 @@ $(TARGET).lib: $(O_FILES)
 $(O_FILES): $(H_FILES) $(C_FILES)
 
 .cpp.obj:
-	cl /c $(C_DEFINES) $(INCLUDES) /EHsc /Zi /W4 /Ycprecomp.h $<
+	cl /c $(C_FLAGS) $(C_DEFINES) $(INCLUDES) /EHsc /Zi /W4 /Ycprecomp.h $<
 
 clean:
 	del *.exe *.obj *.pdb *.ilk *.pch *.lib

@@ -1818,4 +1818,6 @@ CryptoInfoFromCipherSuite(
     HashInfo* pHashInfo);
 
 }
+
+#include "MungeTLS-inl.hpp"
 #endif

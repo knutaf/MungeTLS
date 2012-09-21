@@ -26,7 +26,7 @@ INCLUDES=\
 SOURCES=$(C_FILES) $(H_FILES)
 
 $(TARGET).exe: $(SOURCES) $(MY_LIBS)
-	cl /Fe$(TARGET).exe $(C_DEFINES) $(INCLUDES) /EHsc /Zi /W4 /Ycprecomp.h $(C_FILES) /link $(LIBS)
+	cl /Fe$(TARGET).exe $(C_FLAGS) $(C_DEFINES) $(INCLUDES) /EHsc /Zi /W4 /Ycprecomp.h $(C_FILES) /link $(LIBS)
 
 clean:
 	del *.exe *.obj *.pdb *.ilk *.pch
