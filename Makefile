@@ -8,6 +8,7 @@ H_FILES=\
     ..\inc\MungeTLS.h \
     ..\inc\MungeCrypto.h \
     ..\inc\mtls_helper.h \
+    ..\inc\mtls_helper-inl.hpp \
 
 INCLUDES=\
     -I..\inc \

@@ -1,5 +1,6 @@
 #ifndef MTLS_LIB_MTLS_HELPER_H
 #define MTLS_LIB_MTLS_HELPER_H
+#include <vector>
 #include "MungeTLS.h"
 
 namespace MungeTLS
@@ -39,9 +40,11 @@ WriteRandomBytes(
 template <typename T>
 void ResizeVector(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
 
-// specialized for byte vector
+// totally specialized for byte vector
 template <>
 void ResizeVector(ByteVector* pv, typename ByteVector::size_type siz);
 
 }
+
+#include "mtls_helper-inl.hpp"
 #endif
