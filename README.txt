@@ -25,5 +25,9 @@ open a visual studio 2010 or 2012 command prompt and just type nmake in the top-
 
 
 Code review suggestions:
+Read the RFCs:
+TLS 1.0 - http://www.ietf.org/rfc/rfc2246.txt
+TLS 1.2 - http://www.ietf.org/rfc/rfc5246.txt
+
 start with inc\MungeTLS.h, then do lib\MungeTLS.cpp
 entrypoint is in exe\main.cpp

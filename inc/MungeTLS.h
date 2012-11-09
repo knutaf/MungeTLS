@@ -65,6 +65,10 @@ const MT_UINT32 MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE          = 0x00000001;
 ** these are all constants used in the protocol implementation. all are taken
 ** straight from some RFC. there are more protocol constants spread out through
 ** this file near the classes that reference them.
+**
+** TLS 1.0 - http://www.ietf.org/rfc/rfc2246.txt
+** TLS 1.1 - http://www.ietf.org/rfc/rfc4346.txt
+** TLS 1.2 - http://www.ietf.org/rfc/rfc5246.txt
 */
 
 // TLS 1.0: uint8 padding_length;
