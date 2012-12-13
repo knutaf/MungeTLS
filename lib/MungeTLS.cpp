@@ -163,7 +163,8 @@ TLSConnection::HandleMessage(
     ** connection. the message primarily uses this to invoke ITLSListener
     ** functions to get more data from the app
     */
-    *ciphertext.Conn() = this;
+    ciphertext.SetConnection(this);
+    ciphertext.SetListener(Listener());
 
     /*
     ** this first step just parses the record layer portion out of it. at this
@@ -1058,8 +1059,7 @@ TLSConnection::CreatePlaintext(
 
     *pPlaintext->Fragment() = *pvbFragment;
 
-    assert(*pPlaintext->Conn() == nullptr);
-    *pPlaintext->Conn() = this;
+    pPlaintext->SetConnection(this);
 
     return MT_S_OK;
 } // end function CreatePlaintext
@@ -1102,8 +1102,8 @@ TLSConnection::CreateCiphertext(
     MT_ContentType contentType;
     MT_ProtocolVersion protocolVersion;
 
-    assert(*pCiphertext->Conn() == nullptr);
-    *pCiphertext->Conn() = this;
+    pCiphertext->SetConnection(this);
+    pCiphertext->SetListener(Listener());
 
     CHKOK(pCiphertext->SetSecurityParameters(pEndParams));
 
@@ -1279,7 +1279,7 @@ TLSConnection::EnqueueMessage(
              &spCiphertext));
 
     /*
-    ** after the ciphetext is created, update the IV to be used on the next
+    ** after the ciphertext is created, update the IV to be used on the next
     ** ciphertext. in practice, this is either the last block of the ciphertext
     ** or a new, "random" value.
     */
@@ -2461,6 +2461,17 @@ MT_Securable::CheckSecurity()
     return CheckSecurityPriv();
 } // end function CheckSecurity
 
+
+/*********** MT_RecordLayerMessage *****************/
+
+void
+MT_ConnectionAware::SetConnection(
+    TLSConnection* pConnection
+)
+{
+    assert(m_pConnection == nullptr);
+    m_pConnection = pConnection;
+} // end function SetConnection
 
 /*********** MT_RecordLayerMessage *****************/
 
@@ -3746,6 +3757,7 @@ MT_HelloRequest::SerializePriv(
 MT_TLSCiphertext::MT_TLSCiphertext()
     : MT_RecordLayerMessage(),
       MT_Securable(),
+      m_pListener(nullptr),
       m_spCipherFragment()
 {
 } // end ctor MT_TLSCiphertext
@@ -3850,11 +3862,8 @@ MT_TLSCiphertext::ToTLSPlaintext(
     MT_TLSPlaintext* pPlaintext
 )
 {
-    // catch if the plaintext we're copying into isn't blank. that's dangerous
-    assert(*pPlaintext->Conn() == nullptr);
-
     // plaintext becomes associated with the same connection as this ciphertext
-    *pPlaintext->Conn() = *Conn();
+    pPlaintext->SetConnection(Conn());
 
     *(pPlaintext->ContentType()) = *ContentType();
     *(pPlaintext->ProtocolVersion()) = *ProtocolVersion();
@@ -3876,7 +3885,7 @@ MT_TLSCiphertext::FromTLSPlaintext(
 
     pspCiphertext->reset(new MT_TLSCiphertext());
 
-    CHKOK((*pPlaintext->Conn())->CreateCiphertext(
+    CHKOK(pPlaintext->Conn()->CreateCiphertext(
              *pPlaintext->ContentType()->Type(),
              *pPlaintext->ProtocolVersion()->Version(),
              pPlaintext->Fragment(),
@@ -3937,7 +3946,7 @@ MT_TLSCiphertext::GetProtocolVersionForSecurity(
 
         wprintf(L"reconciling version mismatch between conn:%04LX and record:%04LX\n", *EndParams()->Version(), *hashVersion.Version());
 
-        mr = (*Conn())->Listener()->OnReconcileSecurityVersion(
+        mr = Listener()->OnReconcileSecurityVersion(
                  this,
                  *EndParams()->Version(),
                  *hashVersion.Version(),

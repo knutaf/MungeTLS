@@ -139,12 +139,12 @@ error:
 
 /*********** MT_VariableLengthFieldBase *****************/
 
-template <typename F,
+template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
 MT_VariableLengthFieldBase
-<F, LengthFieldSize, MinSize, MaxSize>
+<T, LengthFieldSize, MinSize, MaxSize>
 ::MT_VariableLengthFieldBase()
     : MT_Structure()
 {
@@ -153,27 +153,27 @@ MT_VariableLengthFieldBase
     MT_C_ASSERT(MaxSize >= MinSize);
 } // end ctor MT_VariableLengthFieldBase
 
-template <typename F,
+template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
 size_t
 MT_VariableLengthFieldBase
-<F, LengthFieldSize, MinSize, MaxSize>
+<T, LengthFieldSize, MinSize, MaxSize>
 ::Length() const
 {
     return LengthFieldSize + DataLength();
 } // end function Length
 
-template <typename F,
+template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
-F*
+T*
 MT_VariableLengthFieldBase
-<F, LengthFieldSize, MinSize, MaxSize>
+<T, LengthFieldSize, MinSize, MaxSize>
 ::at(
-    typename vector<F>::size_type pos
+    typename vector<T>::size_type pos
 )
 {
     // adds auto-resizing. risky!
@@ -189,16 +189,16 @@ MT_VariableLengthFieldBase
 /*********** MT_VariableLengthField *****************/
 
 /*
-** parse a number of structures of type F out of a chunk of bytes. essentially,
-** F needs to be a subclass of MT_Structure
+** parse a number of structures of type T out of a chunk of bytes. essentially,
+** T needs to be a subclass of MT_Structure
 */
-template <typename F,
+template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
 MTERR
 MT_VariableLengthField
-<F, LengthFieldSize, MinSize, MaxSize>
+<T, LengthFieldSize, MinSize, MaxSize>
 ::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -232,7 +232,7 @@ MT_VariableLengthField
 
     while (cbTotalElementsSize > 0)
     {
-        F elem;
+        T elem;
 
         /*
         ** the overall vector declares that it's only taking up
@@ -256,13 +256,13 @@ error:
 } // end function ParseFromPriv
 
 
-template <typename F,
+template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
 size_t
 MT_VariableLengthField
-<F, LengthFieldSize, MinSize, MaxSize>
+<T, LengthFieldSize, MinSize, MaxSize>
 ::DataLength() const
 {
     // count the byte length of all the elements
@@ -270,7 +270,7 @@ MT_VariableLengthField
         Data()->begin(),
         Data()->end(),
         static_cast<size_t>(0),
-        [](size_t sofar, const F& next)
+        [](size_t sofar, const T& next)
         {
             return sofar + next.Length();
         });
@@ -281,13 +281,13 @@ MT_VariableLengthField
     return cbTotalDataLength;
 } // end function DataLength
 
-template <typename F,
+template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
 MTERR
 MT_VariableLengthField
-<F, LengthFieldSize, MinSize, MaxSize>
+<T, LengthFieldSize, MinSize, MaxSize>
 ::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -400,19 +400,19 @@ error:
 
 /*********** MT_FixedLengthStructureBase *****************/
 
-template <typename F, size_t Size>
-MT_FixedLengthStructureBase<F, Size>::MT_FixedLengthStructureBase()
+template <typename T, size_t Size>
+MT_FixedLengthStructureBase<T, Size>::MT_FixedLengthStructureBase()
     : MT_Structure(),
       m_vData()
 {
     MT_C_ASSERT(Size > 0);
 } // end ctor MT_FixedLengthStructureBase
 
-template <typename F,
+template <typename T,
           size_t Size>
-F*
-MT_FixedLengthStructureBase<F, Size>::at(
-    typename vector<F>::size_type pos
+T*
+MT_FixedLengthStructureBase<T, Size>::at(
+    typename vector<T>::size_type pos
 )
 {
     // automatic vector resizing, oh my!
@@ -427,9 +427,9 @@ MT_FixedLengthStructureBase<F, Size>::at(
 
 /*********** MT_FixedLengthStructure *****************/
 
-template <typename F, size_t Size>
+template <typename T, size_t Size>
 MTERR
-MT_FixedLengthStructure<F, Size>::ParseFromPriv(
+MT_FixedLengthStructure<T, Size>::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
 )
@@ -446,7 +446,7 @@ MT_FixedLengthStructure<F, Size>::ParseFromPriv(
     // don't consume more than the declared cbTotalElementsSize
     while (cbTotalElementsSize > 0)
     {
-        F elem;
+        T elem;
         CHKOK(elem.ParseFrom(pv, cbTotalElementsSize));
 
         Data()->push_back(elem);
@@ -467,9 +467,9 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-template <typename F, size_t Size>
+template <typename T, size_t Size>
 MTERR
-MT_FixedLengthStructure<F, Size>::SerializePriv(
+MT_FixedLengthStructure<T, Size>::SerializePriv(
     MT_BYTE* pv,
     size_t cb
 ) const
@@ -489,16 +489,16 @@ error:
     goto done;
 } // end function SerializePriv
 
-template <typename F, size_t Size>
+template <typename T, size_t Size>
 size_t
-MT_FixedLengthStructure<F, Size>::Length() const
+MT_FixedLengthStructure<T, Size>::Length() const
 {
     // count up the size of the elements in this vector
     size_t cbTotalDataLength = accumulate(
         Data()->begin(),
         Data()->end(),
         static_cast<size_t>(0),
-        [](size_t sofar, const F& next)
+        [](size_t sofar, const T& next)
         {
             return sofar + next.Length();
         });

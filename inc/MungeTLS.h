@@ -181,11 +181,11 @@ class MT_Structure
 **
 ** T T'<floor..ceiling>;
 **
-** where T is the type of the vector (which might be "byte"), and the floor and
-** ceiling are given in BYTES, NOT ELEMENTS. There are asserts elsewhere to
-** ensure that the templated sizes are properly in range.
+** where T is the type of the vector (which might be "byte"), T' is the field's
+** name, and the floor and ceiling are given in BYTES, NOT ELEMENTS. There are
+** asserts elsewhere to ensure that the templated sizes are properly in range.
 */
-template <typename F,
+template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
@@ -198,11 +198,11 @@ class MT_VariableLengthFieldBase : public MT_Structure
     virtual size_t DataLength() const = 0;
 
     size_t Length() const;
-    ACCESSORS(std::vector<F>*, Data, &m_vData);
+    ACCESSORS(std::vector<T>*, Data, &m_vData);
     size_t Count() const { return Data()->size(); }
 
-    const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
-    F* at(typename std::vector<F>::size_type pos);
+    const T* at(typename std::vector<T>::size_type pos) const { return &(Data()->at(pos)); }
+    T* at(typename std::vector<T>::size_type pos);
 
     size_t MinLength() const { return MinSize; }
     size_t MaxLength() const { return MaxSize; }
@@ -211,16 +211,16 @@ class MT_VariableLengthFieldBase : public MT_Structure
     virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb) = 0;
     virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const = 0;
 
-    std::vector<F> m_vData;
+    std::vector<T> m_vData;
 };
 
 // a thin wrapper on MT_VariableLengthFieldBase
-template <typename F,
+template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
 class MT_VariableLengthField : public MT_VariableLengthFieldBase
-                                          <F,
+                                          <T,
                                            LengthFieldSize,
                                            MinSize,
                                            MaxSize>
@@ -256,31 +256,32 @@ class MT_VariableLengthByteField : public MT_VariableLengthFieldBase
 **
 ** T T'[n];
 **
-** where T is some type and n is given in BYTES, NOT ELEMENTS.
+** where T is some type, T' is the name of the field being declared, and n is
+** given in BYTES, NOT ELEMENTS.
 */
-template <typename F, size_t Size>
+template <typename T, size_t Size>
 class MT_FixedLengthStructureBase : public MT_Structure
 {
     public:
     MT_FixedLengthStructureBase();
     virtual ~MT_FixedLengthStructureBase() { }
 
-    ACCESSORS(std::vector<F>*, Data, &m_vData);
+    ACCESSORS(std::vector<T>*, Data, &m_vData);
     size_t Count() const { return Data()->size(); }
 
-    const F* at(typename std::vector<F>::size_type pos) const { return &(Data()->at(pos)); }
-    F* at(typename std::vector<F>::size_type pos);
+    const T* at(typename std::vector<T>::size_type pos) const { return &(Data()->at(pos)); }
+    T* at(typename std::vector<T>::size_type pos);
 
     private:
     virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb) = 0;
     virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const = 0;
 
-    std::vector<F> m_vData;
+    std::vector<T> m_vData;
 };
 
 // a thin generic wrapper on MT_FixedLengthStructureBase
-template <typename F, size_t Size>
-class MT_FixedLengthStructure : public MT_FixedLengthStructureBase<F, Size>
+template <typename T, size_t Size>
+class MT_FixedLengthStructure : public MT_FixedLengthStructureBase<T, Size>
 {
     public:
     virtual size_t Length() const;
@@ -702,9 +703,11 @@ class EndpointParameters
 {
     public:
     EndpointParameters();
-    ~EndpointParameters() { }
+    virtual ~EndpointParameters() { }
 
-    MTERR Initialize(
+    virtual
+    MTERR
+    Initialize(
         std::shared_ptr<SymmetricCipherer> spSymCipherer,
         std::shared_ptr<Hasher> spHasher);
 
@@ -717,9 +720,9 @@ class EndpointParameters
     ACCESSORS(ByteVector*, MACKey, &m_vbMACKey);
     ACCESSORS(ByteVector*, IV, &m_vbIV);
 
-    const CipherInfo* Cipher() const;
-    const HashInfo* Hash() const;
-    bool IsEncrypted() const;
+    virtual const CipherInfo* Cipher() const;
+    virtual const HashInfo* Hash() const;
+    virtual bool IsEncrypted() const;
 
     private:
     std::shared_ptr<Hasher> m_spHasher;
@@ -742,9 +745,11 @@ class ConnectionParameters
 {
     public:
     ConnectionParameters();
-    ~ConnectionParameters() { }
+    virtual ~ConnectionParameters() { }
 
-    MTERR Initialize(
+    virtual
+    MTERR
+    Initialize(
         const MT_CertificateList* pCertChain,
         std::shared_ptr<PublicKeyCipherer> spPubKeyCipherer,
         std::shared_ptr<SymmetricCipherer> spClientSymCipherer,
@@ -770,12 +775,13 @@ class ConnectionParameters
     ** the endpoint-specific parameters can be copied easily using the
     ** accessors for ReadParams and WriteParams. This copies the rest of them.
     */
-    MTERR CopyCommonParamsTo(ConnectionParameters* pDest);
+    virtual MTERR CopyCommonParamsTo(ConnectionParameters* pDest);
 
-    bool IsHandshakeInProgress() const;
+    virtual bool IsHandshakeInProgress() const;
 
-    MTERR GenerateKeyMaterial(const MT_PreMasterSecret* pPreMasterSecret);
+    virtual MTERR GenerateKeyMaterial(const MT_PreMasterSecret* pPreMasterSecret);
 
+    virtual
     MTERR
     ComputePRF(
         const ByteVector* pvbSecret,
@@ -785,7 +791,7 @@ class ConnectionParameters
         ByteVector* pvbPRF);
 
     private:
-    MTERR ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
+    virtual MTERR ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
 
     MT_CertificateList m_certChain;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;
@@ -873,7 +879,6 @@ class TLSConnection
     MTERR SendQueuedMessages();
 
     ACCESSORS(MessageList*, PendingSends, &m_pendingSends);
-    ITLSListener* Listener() { return m_pListener; }
 
     MTERR
     CreatePlaintext(
@@ -910,6 +915,7 @@ class TLSConnection
     MTERR StartNextHandshake(MT_ClientHello* pClientHello);
     MTERR FinishNextHandshake();
     MTERR HandleHandshakeMessage(const MT_Handshake* pHandshake);
+    ITLSListener* Listener() { return m_pListener; }
 
     MTERR RespondToClientHello();
     MTERR RespondToFinished();
@@ -959,8 +965,8 @@ class ITLSListener
 
     /*
     ** called during the handshake when filling in ServerHello.server_version
-    ** app should modify pProtocolVersion to set the version they want, or say
-    ** "ignored" to use ClientHello.client_version
+    ** app should modify pProtocolVersion to set the version they want, or
+    ** return MT_S_LISTENER_IGNORED to use ClientHello.client_version
     */
     virtual MTERR OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion) = 0;
 
@@ -971,8 +977,8 @@ class ITLSListener
     ** available options. Of course, it can pick something out of the list for
     ** testing if it wants
     **
-    ** if the app says "ignore", MTLS chooses from a built-in list
-    ** (c_rgeCipherSuitePreference)
+    ** if the app returns MT_S_LISTENER_IGNORED, MTLS chooses from a built-in
+    ** list (c_rgeCipherSuitePreference)
     */
     virtual MTERR OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite) = 0;
 
@@ -1031,7 +1037,7 @@ class MT_Securable
 
     // same idiom as ACCESSORS macro
     const EndpointParameters* EndParams() const { return m_pEndParams; }
-    EndpointParameters* EndParams() { return const_cast<EndpointParameters*>(static_cast<const MT_Securable*>(this)->EndParams()); }
+    EndpointParameters* EndParams() { return m_pEndParams; }
 
     virtual MTERR SetSecurityParameters(EndpointParameters* pEndParams) { m_pEndParams = pEndParams; return MT_S_OK; }
 
@@ -1052,8 +1058,9 @@ class MT_ConnectionAware
     MT_ConnectionAware() : m_pConnection(nullptr) { }
     virtual ~MT_ConnectionAware() { }
 
-    const TLSConnection* const* Conn() const { return &m_pConnection; }
-    TLSConnection** Conn() { return const_cast<TLSConnection**>(static_cast<const MT_ConnectionAware*>(this)->Conn()); }
+    virtual const TLSConnection* Conn() const { return m_pConnection; }
+    virtual TLSConnection* Conn() { return m_pConnection; }
+    virtual void SetConnection(TLSConnection* pConnection);
 
     private:
     TLSConnection* m_pConnection;
@@ -1129,10 +1136,14 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
 
     MTERR GenerateNextIV(ByteVector* pvbIV);
 
+    void SetListener(ITLSListener* pListener) { m_pListener = pListener; }
+
     private:
     MTERR CheckSecurityPriv();
     bool HasKnownCipherFragmentType();
+    ITLSListener* Listener() { return m_pListener; }
 
+    ITLSListener* m_pListener;
     std::shared_ptr<MT_CipherFragment> m_spCipherFragment;
 };
 
@@ -1751,6 +1762,7 @@ class MT_ServerHelloDone : public MT_Structure
     size_t Length() const { return c_cbServerHelloDone_Length; }
 
     private:
+    // no need to implement unless we implement a TLS *client*
     // MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
     MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 };

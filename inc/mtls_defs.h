@@ -68,10 +68,10 @@ bool MT_Failed(MTERR mr);
 ** you want to see some cool trickery
 */
 #define ACCESSOR_RO(returnType, name, member)                    \
-    virtual const returnType name() const { return member; }     \
+    virtual const returnType name() const { return (member); }   \
 
 #define ACCESSOR_RW(returnType, name, member)                    \
-    virtual returnType name() { return member; }                 \
+    virtual returnType name() { return (member); }               \
 
 #define ACCESSORS(returnType, name, member)                      \
     ACCESSOR_RO(returnType, name, member)                        \
