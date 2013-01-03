@@ -177,12 +177,12 @@ MT_VariableLengthFieldBase
 )
 {
     // adds auto-resizing. risky!
-    if (pos >= Data()->size())
+    if (pos >= GetData()->size())
     {
-        ResizeVector(Data(), pos + 1);
+        ResizeVector(GetData(), pos + 1);
     }
 
-    return &(Data()->at(pos));
+    return &(GetData()->at(pos));
 } // end function at
 
 
@@ -240,7 +240,7 @@ MT_VariableLengthField
         */
         CHKOK(elem.ParseFrom(pv, cbTotalElementsSize));
 
-        Data()->push_back(elem);
+        GetData()->push_back(elem);
 
         // deduct from both cb and cbTotalElementsSize
         cbField = elem.Length();
@@ -267,8 +267,8 @@ MT_VariableLengthField
 {
     // count the byte length of all the elements
     size_t cbTotalDataLength = accumulate(
-        Data()->begin(),
-        Data()->end(),
+        GetData()->begin(),
+        GetData()->end(),
         static_cast<size_t>(0),
         [](size_t sofar, const T& next)
         {
@@ -300,7 +300,7 @@ MT_VariableLengthField
 
     ADVANCE_PARSE();
 
-    for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
+    for (auto iter = GetData()->begin(); iter != GetData()->end(); iter++)
     {
         SERIALIZEPSTRUCT(iter);
     }
@@ -346,7 +346,7 @@ MT_VariableLengthByteField
         goto error;
     }
 
-    PARSEVB(cbDataLength, Data());
+    PARSEVB(cbDataLength, GetData());
 
 done:
     return mr;
@@ -388,7 +388,7 @@ MT_VariableLengthByteField
 
     ADVANCE_PARSE();
 
-    SERIALIZEPVB(Data());
+    SERIALIZEPVB(GetData());
 
 done:
     return mr;
@@ -416,12 +416,12 @@ MT_FixedLengthStructureBase<T, Size>::at(
 )
 {
     // automatic vector resizing, oh my!
-    if (pos >= Data()->size())
+    if (pos >= GetData()->size())
     {
-        ResizeVector(Data(), pos + 1);
+        ResizeVector(GetData(), pos + 1);
     }
 
-    return &(Data()->at(pos));
+    return &(GetData()->at(pos));
 } // end function at
 
 
@@ -449,7 +449,7 @@ MT_FixedLengthStructure<T, Size>::ParseFromPriv(
         T elem;
         CHKOK(elem.ParseFrom(pv, cbTotalElementsSize));
 
-        Data()->push_back(elem);
+        GetData()->push_back(elem);
 
         // advance both cb and cbTotalElementsSize
         size_t cbField = elem.Length();
@@ -476,7 +476,7 @@ MT_FixedLengthStructure<T, Size>::SerializePriv(
 {
     MTERR mr = MT_S_OK;
 
-    for (auto iter = Data()->begin(); iter != Data()->end(); iter++)
+    for (auto iter = GetData()->begin(); iter != GetData()->end(); iter++)
     {
         size_t cbField = 0;
         SERIALIZEPSTRUCT(iter);
@@ -495,8 +495,8 @@ MT_FixedLengthStructure<T, Size>::Length() const
 {
     // count up the size of the elements in this vector
     size_t cbTotalDataLength = accumulate(
-        Data()->begin(),
-        Data()->end(),
+        GetData()->begin(),
+        GetData()->end(),
         static_cast<size_t>(0),
         [](size_t sofar, const T& next)
         {
@@ -521,7 +521,7 @@ MT_FixedLengthByteStructure<Size>::ParseFromPriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    PARSEVB(Size, Data());
+    PARSEVB(Size, GetData());
 
 done:
     return mr;
@@ -542,7 +542,7 @@ MT_FixedLengthByteStructure<Size>::SerializePriv(
 
     assert(Length() <= cb);
 
-    SERIALIZEPVB(Data());
+    SERIALIZEPVB(GetData());
 
 done:
     return mr;
@@ -555,7 +555,7 @@ template <size_t Size>
 size_t
 MT_FixedLengthByteStructure<Size>::Length() const
 {
-    assert(Size == Data()->size());
+    assert(Size == GetData()->size());
     return Size;
 } // end function Length
 
@@ -586,7 +586,7 @@ MT_PublicKeyEncryptedStructure<T>::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    PARSEVB(cbStructureLength, EncryptedStructure());
+    PARSEVB(cbStructureLength, GetEncryptedStructure());
 
 done:
     return mr;
@@ -599,7 +599,7 @@ template <typename T>
 size_t
 MT_PublicKeyEncryptedStructure<T>::Length() const
 {
-    return EncryptedStructure()->size();
+    return GetEncryptedStructure()->size();
 } // end function Length
 
 template <typename T>
@@ -609,13 +609,13 @@ MT_PublicKeyEncryptedStructure<T>::DecryptStructure(
 )
 {
     MTERR mr = MT_S_OK;
-    PlaintextStructure()->clear();
+    GetPlaintextStructure()->clear();
 
     CHKOK(pCipherer->DecryptBufferWithPrivateKey(
-             EncryptedStructure(),
-             PlaintextStructure()));
+             GetEncryptedStructure(),
+             GetPlaintextStructure()));
 
-    CHKOK(Structure()->ParseFromVect(PlaintextStructure()));
+    CHKOK(GetStructure()->ParseFromVect(GetPlaintextStructure()));
 
 done:
     return mr;
@@ -643,11 +643,11 @@ MT_ClientKeyExchange<KeyType>::ParseFromPriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    assert(ExchangeKeys() == nullptr);
+    assert(GetExchangeKeys() == nullptr);
 
     m_spExchangeKeys = shared_ptr<KeyType>(new KeyType());
 
-    PARSEPSTRUCT(ExchangeKeys());
+    PARSEPSTRUCT(GetExchangeKeys());
 
 done:
     return mr;

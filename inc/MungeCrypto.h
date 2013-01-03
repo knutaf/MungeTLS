@@ -197,7 +197,7 @@ class SymmetricCipherer
         const ByteVector* pvbIV,
         ByteVector* pvbDecrypted);
 
-    ACCESSORS(CipherInfo*, Cipher, &m_cipherInfo);
+    ACCESSORS(CipherInfo, Cipher, m_cipherInfo);
 
     private:
     CipherInfo m_cipherInfo;

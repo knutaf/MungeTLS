@@ -53,19 +53,19 @@ class SimpleHTTPServer : public ITLSListener
         MT_ProtocolVersion::MTPV_Version recordVersion,
         MT_ProtocolVersion::MTPV_Version* pOverrideVersion);
 
-    ACCESSORS(std::vector<ByteVector>*, PendingSends, &m_vPendingSends);
-    ACCESSORS(ByteVector*, PendingResponse, &m_vbPendingAppData);
+    ACCESSORS(std::vector<ByteVector>, PendingSends, m_vPendingSends);
+    ACCESSORS(ByteVector, PendingResponse, m_vbPendingAppData);
 
     private:
-    ACCESSORS(TLSConnection*, Connection, &m_con);
-    ACCESSORS(std::string*, PendingRequest, &m_sPendingRequest);
-    ACCESSORS(PCCERT_CHAIN_CONTEXT*, CertChain, &m_pCertChain);
-    ACCESSORS(SOCKET*, SockClient, &m_sockClient);
+    ACCESSORS(TLSConnection, Connection, m_con);
+    ACCESSORS(std::string, PendingRequest, m_sPendingRequest);
+    ACCESSORS(PCCERT_CHAIN_CONTEXT, CertChain, m_pCertChain);
+    ACCESSORS(SOCKET, SockClient, m_sockClient);
 
-    ACCESSORS(std::shared_ptr<WindowsPublicKeyCipherer>*, PubKeyCipherer, &m_spPubKeyCipherer);
-    ACCESSORS(std::shared_ptr<WindowsSymmetricCipherer>*, ClientSymCipherer, &m_spClientSymCipherer);
-    ACCESSORS(std::shared_ptr<WindowsSymmetricCipherer>*, ServerSymCipherer, &m_spServerSymCipherer);
-    ACCESSORS(std::shared_ptr<WindowsHasher>*, HashInst, &m_spHasher);
+    ACCESSORS_SP(WindowsPublicKeyCipherer, PubKeyCipherer, m_spPubKeyCipherer);
+    ACCESSORS_SP(WindowsSymmetricCipherer, ClientSymCipherer, m_spClientSymCipherer);
+    ACCESSORS_SP(WindowsSymmetricCipherer, ServerSymCipherer, m_spServerSymCipherer);
+    ACCESSORS_SP(WindowsHasher, HashInst, m_spHasher);
 
     std::vector<ByteVector> m_vPendingSends;
     TLSConnection m_con;

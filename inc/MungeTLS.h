@@ -20,9 +20,6 @@
 namespace MungeTLS
 {
 
-const MTERR MT_S_OK                                       = 0x00000000;
-const MTERR MT_S_FALSE                                    = 0x00000001;
-const MTERR MT_E_FAIL                                     = 0x80230000;
 const MTERR MT_E_INCOMPLETE_MESSAGE                       = 0x80230001;
 const MTERR MT_E_UNKNOWN_CONTENT_TYPE                     = 0x80230002;
 const MTERR MT_E_UNKNOWN_PROTOCOL_VERSION                 = 0x80230003;
@@ -39,10 +36,6 @@ const MTERR MT_E_BAD_FINISHED_HASH                        = 0x8023000d;
 const MTERR MT_E_BAD_RECORD_MAC                           = 0x8023000e;
 const MTERR MT_E_BAD_RECORD_PADDING                       = 0x8023000f;
 const MTERR MT_E_NO_PREFERRED_CIPHER_SUITE                = 0x80230010;
-const MTERR MT_E_INSUFFICIENT_BUFFER                      = 0x80230011;
-
-const MTERR MT_E_NOTIMPL                                  = 0x80234001;
-const MTERR MT_E_INVALIDARG                               = 0x80230057;
 
 /*
 ** used in the ITLSListener callbacks
@@ -198,10 +191,10 @@ class MT_VariableLengthFieldBase : public MT_Structure
     virtual size_t DataLength() const = 0;
 
     size_t Length() const;
-    ACCESSORS(std::vector<T>*, Data, &m_vData);
-    size_t Count() const { return Data()->size(); }
+    ACCESSORS(std::vector<T>, Data, m_vData);
+    size_t Count() const { return GetData()->size(); }
 
-    const T* at(typename std::vector<T>::size_type pos) const { return &(Data()->at(pos)); }
+    const T* at(typename std::vector<T>::size_type pos) const { return &(GetData()->at(pos)); }
     T* at(typename std::vector<T>::size_type pos);
 
     size_t MinLength() const { return MinSize; }
@@ -266,10 +259,10 @@ class MT_FixedLengthStructureBase : public MT_Structure
     MT_FixedLengthStructureBase();
     virtual ~MT_FixedLengthStructureBase() { }
 
-    ACCESSORS(std::vector<T>*, Data, &m_vData);
-    size_t Count() const { return Data()->size(); }
+    ACCESSORS(std::vector<T>, Data, m_vData);
+    size_t Count() const { return GetData()->size(); }
 
-    const T* at(typename std::vector<T>::size_type pos) const { return &(Data()->at(pos)); }
+    const T* at(typename std::vector<T>::size_type pos) const { return &(GetData()->at(pos)); }
     T* at(typename std::vector<T>::size_type pos);
 
     private:
@@ -327,10 +320,10 @@ class MT_ProtocolVersion : public MT_Structure
     MT_ProtocolVersion();
     ~MT_ProtocolVersion() {};
 
-    ACCESSORS(MTPV_Version*, Version, &m_eVersion);
+    ACCESSORS(MTPV_Version, Version, m_eVersion);
 
     size_t Length() const { return c_cbProtocolVersion_Length; }
-    bool operator==(const MT_ProtocolVersion& rOther) const { return *Version() == *rOther.Version(); }
+    bool operator==(const MT_ProtocolVersion& rOther) const { return *GetVersion() == *rOther.GetVersion(); }
     bool operator!=(const MT_ProtocolVersion& rOther) const { return !(*this == rOther); }
 
     static bool IsKnownVersion(MTPV_Version eVersion);
@@ -359,10 +352,10 @@ class MT_Random : public MT_Structure
     MT_Random();
     ~MT_Random() { }
 
-    size_t Length() const { return c_cbRandomTime_Length + RandomBytes()->Length(); }
+    size_t Length() const { return c_cbRandomTime_Length + GetRandomBytes()->Length(); }
 
-    ACCESSORS(MT_UINT32*, GMTUnixTime, &m_timestamp);
-    ACCESSORS(MT_RandomBytes*, RandomBytes, &m_randomBytes);
+    ACCESSORS(MT_UINT32, GMTUnixTime, m_timestamp);
+    ACCESSORS(MT_RandomBytes, RandomBytes, m_randomBytes);
 
     // fills with the current timestamp, and some random numbers
     MTERR PopulateNow();
@@ -433,7 +426,7 @@ class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length
     MT_CipherSuite(MT_CipherSuiteValue eValue);
 
     MTERR KeyExchangeAlgorithm(MT_KeyExchangeAlgorithm* pAlg) const;
-    MTERR Value(MT_CipherSuiteValue* peValue) const;
+    MTERR GetValue(MT_CipherSuiteValue* peValue) const;
     MTERR SetValue(MT_CipherSuiteValue eValue);
 
     bool operator==(const MT_CipherSuite& rOther) const;
@@ -475,7 +468,7 @@ class MT_CompressionMethod : public MT_Structure
 
     size_t Length() const { return c_cbCompressionMethod_Length; }
 
-    ACCESSORS(MTCM_Method*, Method, &m_eMethod);
+    ACCESSORS(MTCM_Method, Method, m_eMethod);
 
     private:
     MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
@@ -535,8 +528,8 @@ class MT_Extension : public MT_Structure
 
     size_t Length() const;
 
-    ACCESSORS(MTE_ExtensionType*, ExtensionType, &m_extensionType);
-    ACCESSORS(MT_ExtensionData*, ExtensionData, &m_extensionData);
+    ACCESSORS(MTE_ExtensionType, ExtensionType, m_extensionType);
+    ACCESSORS(MT_ExtensionData, ExtensionData, m_extensionData);
 
     protected:
     virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
@@ -572,20 +565,15 @@ typedef MT_VariableLengthField<
 **     opaque renegotiated_connection<0..255>;
 ** } RenegotiationInfo;
 **
-** there is some real mess going on here with RenegotiatedConnection(), since
-** we have a duplication of data. in this class, we have a
+** there is some tricky stuff going on here with GetRenegotiatedConnection(),
+** since we have a duplication of data. in this class, we have a
 ** MT_RenegotiatedConnection member that represents the renegotiation info in
 ** the form that the RFC specifies it. but in the superclass, we also have
-** ExtensionData(), which is used to access the data when we're inserting this
-** extension into its containing structure
+** GetExtensionData(), which is used to access the data when we're inserting
+** this extension into its containing structure
 **
-** we're overriding ExtensionData() and RenegotiatedConnection() here to check
-** to make sure they're not accessed when the two are out of sync, and we've
-** omitted the non-const accessor for RenegotiatedConnection() in favor of a
-** real setter that pushes the new value into ExtensionData, itself.
-**
-** this shortcoming here makes me wonder if I should have gone with all real
-** getters and setters instead. may reconsider in the future.
+** We override GetExtensionData and SetExtension data to make sure these two
+** values are kept in sync.
 */
 const size_t c_cbRenegotiatedConnection_LFL = 1;
 const size_t c_cbRenegotiatedConnection_MinLength = 0;
@@ -603,13 +591,20 @@ class MT_RenegotiationInfoExtension : public MT_Extension
     ~MT_RenegotiationInfoExtension() { }
 
     // overriding from superclass for integrity check
-    const MT_ExtensionData* ExtensionData() const;
+    const MT_ExtensionData* GetExtensionData() const;
+    MT_ExtensionData* GetExtensionData() { return const_cast<MT_ExtensionData*>(static_cast<const MT_RenegotiationInfoExtension*>(this)->GetExtensionData()); }
 
-    // needed to implement by hand for integrity check
-    const MT_RenegotiatedConnection* RenegotiatedConnection() const;
+    /*
+    ** needed to implement by hand for integrity check. deliberately no
+    ** non-const getter
+    */
+    const MT_RenegotiatedConnection* GetRenegotiatedConnection() const;
 
-    // not a normal accessor, so we can push the new value into ExtensionData
+    // not a normal accessor, in order to push the new value into ExtensionData
     MTERR SetRenegotiatedConnection(const MT_RenegotiatedConnection* pRenegotiatedConnection);
+
+    // also parses into m_renegotiatedConnection when called
+    MTERR SetExtensionData(MT_ExtensionData* pExtensionData);
 
     private:
     MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
@@ -640,12 +635,12 @@ class MT_ClientHello : public MT_Structure
     MT_ClientHello();
     ~MT_ClientHello() { }
 
-    ACCESSORS(MT_ProtocolVersion*, ClientVersion, &m_clientVersion);
-    ACCESSORS(MT_Random*, Random, &m_random);
-    ACCESSORS(MT_SessionID*, SessionID, &m_sessionID);
-    ACCESSORS(MT_CipherSuites*, CipherSuites, &m_cipherSuites);
-    ACCESSORS(MT_CompressionMethods*, CompressionMethods, &m_compressionMethods);
-    ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions);
+    ACCESSORS(MT_ProtocolVersion, ClientVersion, m_clientVersion);
+    ACCESSORS(MT_Random, Random, m_random);
+    ACCESSORS(MT_SessionID, SessionID, m_sessionID);
+    ACCESSORS(MT_CipherSuites, CipherSuites, m_cipherSuites);
+    ACCESSORS(MT_CompressionMethods, CompressionMethods, m_compressionMethods);
+    ACCESSORS(MT_HelloExtensions, Extensions, m_extensions);
 
     size_t Length() const;
 
@@ -711,17 +706,17 @@ class EndpointParameters
         std::shared_ptr<SymmetricCipherer> spSymCipherer,
         std::shared_ptr<Hasher> spHasher);
 
-    ACCESSORS(std::shared_ptr<SymmetricCipherer>*, SymCipherer, &m_spSymCipherer);
-    ACCESSORS(std::shared_ptr<Hasher>*, HashInst, &m_spHasher);
-    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
-    ACCESSORS(MT_ProtocolVersion::MTPV_Version*, Version, &m_eVersion);
-    ACCESSORS(MT_UINT64*, SequenceNumber, &m_seqNum);
-    ACCESSORS(ByteVector*, Key, &m_vbKey);
-    ACCESSORS(ByteVector*, MACKey, &m_vbMACKey);
-    ACCESSORS(ByteVector*, IV, &m_vbIV);
+    ACCESSORS_SP(SymmetricCipherer, SymCipherer, m_spSymCipherer);
+    ACCESSORS_SP(Hasher, Hasher, m_spHasher);
+    ACCESSORS(MT_CipherSuite, CipherSuite, m_cipherSuite);
+    ACCESSORS(MT_ProtocolVersion::MTPV_Version, Version, m_eVersion);
+    ACCESSORS(MT_UINT64, SequenceNumber, m_seqNum);
+    ACCESSORS(ByteVector, Key, m_vbKey);
+    ACCESSORS(ByteVector, MACKey, m_vbMACKey);
+    ACCESSORS(ByteVector, IV, m_vbIV);
 
-    virtual const CipherInfo* Cipher() const;
-    virtual const HashInfo* Hash() const;
+    virtual const CipherInfo* GetCipher() const;
+    virtual const HashInfo* GetHash() const;
     virtual bool IsEncrypted() const;
 
     private:
@@ -757,19 +752,22 @@ class ConnectionParameters
         std::shared_ptr<Hasher> spClientHasher,
         std::shared_ptr<Hasher> spServerHasher);
 
-    ACCESSORS(MT_CertificateList*, CertChain, &m_certChain);
-    ACCESSORS(std::shared_ptr<PublicKeyCipherer>*, PubKeyCipherer, &m_spPubKeyCipherer);
-    ACCESSORS(MT_ClientHello*, ClientHello, &m_clientHello);
-    ACCESSORS(MT_Random*, ClientRandom, &m_clientRandom);
-    ACCESSORS(MT_Random*, ServerRandom, &m_serverRandom);
-    ACCESSORS(MT_FinishedVerifyData*, ClientVerifyData, &m_clientVerifyData);
-    ACCESSORS(MT_FinishedVerifyData*, ServerVerifyData, &m_serverVerifyData);
+    ACCESSORS(MT_CertificateList, CertChain, m_certChain);
+    ACCESSORS_SP(PublicKeyCipherer, PubKeyCipherer, m_spPubKeyCipherer);
+    ACCESSORS(MT_ClientHello, ClientHello, m_clientHello);
+    ACCESSORS(MT_Random, ClientRandom, m_clientRandom);
+    ACCESSORS(MT_Random, ServerRandom, m_serverRandom);
+    ACCESSORS(MT_FinishedVerifyData, ClientVerifyData, m_clientVerifyData);
+    ACCESSORS(MT_FinishedVerifyData, ServerVerifyData, m_serverVerifyData);
 
-    ACCESSORS(EndpointParameters*, ReadParams, &m_readParams);
-    ACCESSORS(EndpointParameters*, WriteParams, &m_writeParams);
+    ACCESSORS(EndpointParameters, ReadParams, m_readParams);
+    ACCESSORS(EndpointParameters, WriteParams, m_writeParams);
 
-    ACCESSORS(std::vector<std::shared_ptr<MT_Structure>>*, HandshakeMessages, &m_vHandshakeMessages);
-    ACCESSORS(ByteVector*, MasterSecret, &m_vbMasterSecret);
+    // can't use ACCESSORS for this due to constness
+    virtual std::vector<std::shared_ptr<MT_Structure>>* GetHandshakeMessages() { return &m_vHandshakeMessages; }
+    virtual MTERR SetHandshakeMessages(std::vector<std::shared_ptr<MT_Structure>>* pHandshakeMessages) { m_vHandshakeMessages = *pHandshakeMessages; return MT_S_OK; }
+
+    ACCESSORS(ByteVector, MasterSecret, m_vbMasterSecret);
 
     /*
     ** the endpoint-specific parameters can be copied easily using the
@@ -791,6 +789,9 @@ class ConnectionParameters
         ByteVector* pvbPRF);
 
     private:
+    // private due to non-const access to shared ptrs
+    virtual const std::vector<std::shared_ptr<MT_Structure>>* GetHandshakeMessages() const { return &m_vHandshakeMessages; }
+
     virtual MTERR ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
 
     MT_CertificateList m_certChain;
@@ -834,7 +835,7 @@ class MT_ContentType : public MT_Structure
     ~MT_ContentType() {};
 
     size_t Length() const { return c_cbContentType_Length; }
-    ACCESSORS(MTCT_Type*, Type, &m_eType);
+    ACCESSORS(MTCT_Type, Type, m_eType);
 
     std::wstring ToString() const;
 
@@ -878,7 +879,7 @@ class TLSConnection
     MTERR EnqueueMessage(std::shared_ptr<MT_TLSPlaintext> spMessage);
     MTERR SendQueuedMessages();
 
-    ACCESSORS(MessageList*, PendingSends, &m_pendingSends);
+    ACCESSORS(MessageList, PendingSends, m_pendingSends);
 
     MTERR
     CreatePlaintext(
@@ -915,7 +916,7 @@ class TLSConnection
     MTERR StartNextHandshake(MT_ClientHello* pClientHello);
     MTERR FinishNextHandshake();
     MTERR HandleHandshakeMessage(const MT_Handshake* pHandshake);
-    ITLSListener* Listener() { return m_pListener; }
+    ITLSListener* GetListener() { return m_pListener; }
 
     MTERR RespondToClientHello();
     MTERR RespondToFinished();
@@ -926,8 +927,8 @@ class TLSConnection
         MT_ProtocolVersion::MTPV_Version version,
         MT_TLSPlaintext** ppPlaintext);
 
-    ACCESSORS(ConnectionParameters*, CurrConn, &m_currentConnection);
-    ACCESSORS(ConnectionParameters*, NextConn, &m_nextConnection);
+    ACCESSORS(ConnectionParameters, CurrConn, m_currentConnection);
+    ACCESSORS(ConnectionParameters, NextConn, m_nextConnection);
     ConnectionParameters m_currentConnection;
     ConnectionParameters m_nextConnection;
     MessageList m_pendingSends;
@@ -1025,8 +1026,9 @@ class ITLSListener
 ** an interface that allows a piece of data to be associated with an endpoint
 ** in a connection. for instance, something that's tied to the current crypto
 ** algorithms in use or the protocol version currently negotiated. Really, most
-** of what this does is provide the EndParams member. I don't think this is
-** actually used as a polymorphism tool currently (i.e. no MT_Securable* used)
+** of what this does is provide the EndpointParams member. I don't think this
+** is actually used as a polymorphism tool currently (i.e. no MT_Securable*
+** used)
 */
 class MT_Securable
 {
@@ -1035,17 +1037,13 @@ class MT_Securable
     virtual ~MT_Securable() { }
     MTERR CheckSecurity();
 
-    // same idiom as ACCESSORS macro
-    const EndpointParameters* EndParams() const { return m_pEndParams; }
-    EndpointParameters* EndParams() { return m_pEndParams; }
-
-    virtual MTERR SetSecurityParameters(EndpointParameters* pEndParams) { m_pEndParams = pEndParams; return MT_S_OK; }
+    ACCESSORS_PTR(EndpointParameters, EndpointParams, m_pEndpointParams);
 
     private:
     // check the security aspects of this structure, e.g. MAC or something
     virtual MTERR CheckSecurityPriv() = 0;
 
-    EndpointParameters* m_pEndParams;
+    EndpointParameters* m_pEndpointParams;
 };
 
 /*
@@ -1058,9 +1056,8 @@ class MT_ConnectionAware
     MT_ConnectionAware() : m_pConnection(nullptr) { }
     virtual ~MT_ConnectionAware() { }
 
-    virtual const TLSConnection* Conn() const { return m_pConnection; }
-    virtual TLSConnection* Conn() { return m_pConnection; }
-    virtual void SetConnection(TLSConnection* pConnection);
+    ACCESSOR_PTR_GETTERS(TLSConnection, Connection, m_pConnection);
+    virtual MTERR SetConnection(TLSConnection* pConnection);
 
     private:
     TLSConnection* m_pConnection;
@@ -1081,9 +1078,9 @@ class MT_RecordLayerMessage : public MT_Structure, public MT_ConnectionAware
 
     size_t Length() const;
 
-    ACCESSORS(MT_ContentType*, ContentType, &m_contentType);
-    ACCESSORS(MT_ProtocolVersion*, ProtocolVersion, &m_protocolVersion);
-    ACCESSORS(ByteVector*, Fragment, &m_vbFragment);
+    ACCESSORS(MT_ContentType, ContentType, m_contentType);
+    ACCESSORS(MT_ProtocolVersion, ProtocolVersion, m_protocolVersion);
+    ACCESSORS(ByteVector, Fragment, m_vbFragment);
 
     MT_UINT16 PayloadLength() const;
 
@@ -1106,7 +1103,7 @@ class MT_TLSPlaintext : public MT_RecordLayerMessage
 ** current endpoint parameters. the cipher fragment keeps track of both the
 ** encrypted and plaintext data
 **
-** interestingly, SetSecurityParameters and UpdateFragmentSecurity are the
+** interestingly, SetEndpointParams and UpdateFragmentSecurity are the
 ** two crucial functions here that lead to decryping and encrypting,
 ** respectively
 */
@@ -1116,7 +1113,7 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     MT_TLSCiphertext();
     ~MT_TLSCiphertext() {};
 
-    ACCESSORS(MT_CipherFragment*, CipherFragment, m_spCipherFragment.get());
+    ACCESSORS_SP(MT_CipherFragment, CipherFragment, m_spCipherFragment);
 
     MTERR ToTLSPlaintext(MT_TLSPlaintext* pPlaintext);
 
@@ -1127,7 +1124,7 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
         EndpointParameters* pEndParams,
         std::shared_ptr<MT_TLSCiphertext>* pspCiphertext);
 
-    MTERR SetSecurityParameters(EndpointParameters* pEndParams);
+    MTERR SetEndpointParams(EndpointParameters* pEndParams);
     MTERR Decrypt();
 
     MTERR Protect();
@@ -1141,7 +1138,7 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     private:
     MTERR CheckSecurityPriv();
     bool HasKnownCipherFragmentType();
-    ITLSListener* Listener() { return m_pListener; }
+    ITLSListener* GetListener() { return m_pListener; }
 
     ITLSListener* m_pListener;
     std::shared_ptr<MT_CipherFragment> m_spCipherFragment;
@@ -1203,11 +1200,11 @@ class MT_Handshake : public MT_Structure
     MT_Handshake();
     ~MT_Handshake() {}
 
-    size_t PayloadLength() const { return Body()->size(); }
+    size_t PayloadLength() const { return GetBody()->size(); }
     size_t Length() const;
 
-    ACCESSORS(MTH_HandshakeType*, Type, &m_eType);
-    ACCESSORS(ByteVector*, Body, &m_vbBody);
+    ACCESSORS(MTH_HandshakeType, Type, m_eType);
+    ACCESSORS(ByteVector, Body, m_vbBody);
 
     static bool IsKnownType(MTH_HandshakeType eType);
 
@@ -1250,12 +1247,12 @@ class MT_ServerHello : public MT_Structure
 
     size_t Length() const;
 
-    ACCESSORS(MT_ProtocolVersion*, ServerVersion, &m_serverVersion);
-    ACCESSORS(MT_Random*, Random, &m_random);
-    ACCESSORS(MT_SessionID*, SessionID, &m_sessionID);
-    ACCESSORS(MT_CipherSuite*, CipherSuite, &m_cipherSuite);
-    ACCESSORS(MT_CompressionMethod*, CompressionMethod, &m_compressionMethod);
-    ACCESSORS(MT_HelloExtensions*, Extensions, &m_extensions);
+    ACCESSORS(MT_ProtocolVersion, ServerVersion, m_serverVersion);
+    ACCESSORS(MT_Random, Random, m_random);
+    ACCESSORS(MT_SessionID, SessionID, m_sessionID);
+    ACCESSORS(MT_CipherSuite, CipherSuite, m_cipherSuite);
+    ACCESSORS(MT_CompressionMethod, CompressionMethod, m_compressionMethod);
+    ACCESSORS(MT_HelloExtensions, Extensions, m_extensions);
 
     private:
     MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
@@ -1281,11 +1278,11 @@ class MT_Certificate : public MT_Structure
     ~MT_Certificate() { }
 
     MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
-    size_t Length() const { return CertificateList()->Length(); }
+    size_t Length() const { return GetCertificateList()->Length(); }
 
     MTERR AddCertificateFromMemory(const MT_BYTE* pvCert, size_t cbCert);
 
-    ACCESSORS(MT_CertificateList*, CertificateList, &m_certificateList);
+    ACCESSORS(MT_CertificateList, CertificateList, m_certificateList);
 
     private:
     MT_CertificateList m_certificateList;
@@ -1309,9 +1306,9 @@ class MT_ClientKeyExchange : public MT_Structure
     MT_ClientKeyExchange();
     virtual ~MT_ClientKeyExchange() { }
 
-    size_t Length() const { return ExchangeKeys()->Length(); }
+    size_t Length() const { return GetExchangeKeys()->Length(); }
 
-    ACCESSORS(KeyType*, ExchangeKeys, m_spExchangeKeys.get());
+    ACCESSORS_SP(KeyType, ExchangeKeys, m_spExchangeKeys);
 
     private:
     MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
@@ -1339,12 +1336,12 @@ class MT_PublicKeyEncryptedStructure : public MT_Structure
 
     MTERR DecryptStructure(PublicKeyCipherer* pCipherer);
 
-    ACCESSORS(T*, Structure, &m_structure);
-    ACCESSORS(ByteVector*, EncryptedStructure, &m_vbEncryptedStructure);
+    ACCESSORS(T, Structure, m_structure);
+    ACCESSORS(ByteVector, EncryptedStructure, m_vbEncryptedStructure);
 
     private:
     virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
-    ACCESSORS(ByteVector*, PlaintextStructure, &m_vbPlaintextStructure);
+    ACCESSORS(ByteVector, PlaintextStructure, m_vbPlaintextStructure);
 
     T m_structure;
     ByteVector m_vbPlaintextStructure;
@@ -1369,8 +1366,8 @@ class MT_PreMasterSecret : public MT_Structure
 
     size_t Length() const;
 
-    ACCESSORS(MT_ProtocolVersion*, ClientVersion, &m_clientVersion);
-    ACCESSORS(OpaqueRandom*, Random, &m_random);
+    ACCESSORS(MT_ProtocolVersion, ClientVersion, m_clientVersion);
+    ACCESSORS(OpaqueRandom, Random, m_random);
 
 
     private:
@@ -1410,7 +1407,7 @@ class MT_ChangeCipherSpec : public MT_Structure
 
     size_t Length() const { return c_cbChangeCipherSpec_Length; }
 
-    ACCESSORS(MTCCS_Type*, Type, &m_eType);
+    ACCESSORS(MTCCS_Type, Type, m_eType);
 
     private:
     MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
@@ -1431,15 +1428,15 @@ class MT_Finished : public MT_Structure, public MT_Securable
     MT_Finished();
     ~MT_Finished() { }
 
-    size_t Length() const { return VerifyData()->Length(); }
+    size_t Length() const { return GetVerifyData()->Length(); }
 
-    ACCESSORS(MT_FinishedVerifyData*, VerifyData, &m_verifyData);
+    ACCESSORS(MT_FinishedVerifyData, VerifyData, m_verifyData);
+    ACCESSOR_PTR_SETTER(ConnectionParameters, ConnParams, m_pConnectionParams);
 
     MTERR ComputeVerifyData(const char* szLabel, ByteVector* pvbVerifyData);
-    MTERR SetConnectionParameters(ConnectionParameters* pConnectionParams) { m_pConnectionParams = pConnectionParams; return MT_S_OK; }
 
     private:
-    ACCESSORS(ConnectionParameters*, ConnParams, m_pConnectionParams);
+    ACCESSOR_PTR_GETTERS(ConnectionParameters, ConnParams, m_pConnectionParams);
 
     MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
     MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
@@ -1478,11 +1475,11 @@ class MT_CipherFragment : public MT_Structure, public MT_Securable
         const MT_ProtocolVersion* pProtocolVersion,
         ByteVector* pvbMAC);
 
-    ACCESSORS(ByteVector*, Content, &m_vbContent);
-    ACCESSORS(ByteVector*, EncryptedContent, &m_vbEncryptedContent);
+    ACCESSORS(ByteVector, Content, m_vbContent);
+    ACCESSORS(ByteVector, EncryptedContent, m_vbEncryptedContent);
 
     protected:
-    MT_TLSCiphertext* Ciphertext() { return m_pCiphertext; }
+    MT_TLSCiphertext* GetCiphertext() { return m_pCiphertext; }
     virtual MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
     virtual MTERR SerializePriv(MT_BYTE* pv, size_t cb) const;
 
@@ -1507,7 +1504,7 @@ class MT_GenericStreamCipher : public MT_CipherFragment
 
     MTERR UpdateWriteSecurity();
 
-    ACCESSORS(ByteVector*, MAC, &m_vbMAC);
+    ACCESSORS(ByteVector, MAC, m_vbMAC);
 
     private:
     MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);
@@ -1530,11 +1527,14 @@ class MT_GenericBlockCipher : public MT_CipherFragment
     MT_GenericBlockCipher(MT_TLSCiphertext* pCiphertext);
     virtual ~MT_GenericBlockCipher() { }
 
-    ACCESSORS(ByteVector*, MAC, &m_vbMAC);
-    ACCESSORS(ByteVector*, Padding, &m_vbPadding);
+    ACCESSORS(ByteVector, MAC, m_vbMAC);
+    ACCESSORS(ByteVector, Padding, m_vbPadding);
     MT_UINT8 PaddingLength() const;
 
-    virtual const ByteVector* IV() const = 0;
+    virtual const ByteVector* GetIV() const = 0;
+
+    // Effective C++ item 3. reuses const subclass's impl. for non-const
+    virtual ByteVector* GetIV() { return const_cast<ByteVector*>(static_cast<const MT_GenericBlockCipher*>(this)->GetIV()); }
 
     virtual MTERR UpdateWriteSecurity();
 
@@ -1575,7 +1575,7 @@ class MT_GenericBlockCipher_TLS10 : public MT_GenericBlockCipher
 
     ~MT_GenericBlockCipher_TLS10() { }
 
-    const ByteVector* IV() const;
+    const ByteVector* GetIV() const;
 };
 
 /*
@@ -1611,7 +1611,7 @@ class MT_GenericBlockCipher_TLS11 : public MT_GenericBlockCipher
     ~MT_GenericBlockCipher_TLS11() { }
     size_t Length() const;
 
-    ACCESSORS(ByteVector*, IV, &m_vbIV);
+    ACCESSORS(ByteVector, IV, m_vbIV);
 
     MTERR UpdateWriteSecurity();
 
@@ -1735,8 +1735,8 @@ class MT_Alert : public MT_Structure
                c_cbAlertDescription_Length;
     }
 
-    ACCESSORS(MT_AlertLevel*, Level, &m_eLevel);
-    ACCESSORS(MT_AlertDescription*, Description, &m_eDescription);
+    ACCESSORS(MT_AlertLevel, Level, m_eLevel);
+    ACCESSORS(MT_AlertDescription, Description, m_eDescription);
 
     std::wstring ToString() const;
 
@@ -1794,7 +1794,7 @@ class MT_Thingy : public MT_Structure
 
     size_t Length() const { return Thingy()->Length(); }
 
-    ACCESSORS(ThingyType*, Thingy, &m_thingy);
+    ACCESSORS(ThingyType, Thingy, m_thingy);
 
     private:
     MTERR ParseFromPriv(const MT_BYTE* pv, size_t cb);

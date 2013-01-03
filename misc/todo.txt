@@ -3,8 +3,8 @@ BUGS:
 - tls 1.2 openssl doesn't renegotiate properly, but only when using MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
 
 WORK:
-- unsafe shared_ptr usage. need to make the writable version return shared_ptr*, and non-writable version return shared_ptr<const> (no raw pointer)
 - Compute* functions have side effects. need better names
+- need to CHK on setters
 
 - TLS CLIENT
   - if we have our own client impl, we can also implement some wonky compression scheme

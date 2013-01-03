@@ -716,7 +716,7 @@ MTCertChainFromWinChain(
     assert(pWinChain->cChain == 1);
 
     // might relax this restriction later, but for now make sure we don't
-    assert(pMTChain->Data()->empty());
+    assert(pMTChain->GetData()->empty());
 
     PCERT_SIMPLE_CHAIN pSimpleChain = pWinChain->rgpChain[0];
 
@@ -725,12 +725,12 @@ MTCertChainFromWinChain(
         MT_ASN1Cert cert;
 
         // copy out the value of each cert in the chain
-        cert.Data()->assign(
+        cert.GetData()->assign(
                  pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded,
                  pSimpleChain->rgpElement[i]->pCertContext->pbCertEncoded +
                    pSimpleChain->rgpElement[i]->pCertContext->cbCertEncoded);
 
-        pMTChain->Data()->push_back(cert);
+        pMTChain->GetData()->push_back(cert);
     }
 
     return S_OK;
@@ -997,8 +997,8 @@ WindowsSymmetricCipherer::EncryptBuffer(
 
     CHKWINOKM(MungeTLS::EncryptBuffer(
                   pvbCleartext,
-                  (*Key())->GetKey(),
-                  Cipher(),
+                  GetKey()->GetKey(),
+                  GetCipher(),
                   pvbIV,
                   pvbEncrypted));
 
@@ -1036,8 +1036,8 @@ WindowsSymmetricCipherer::DecryptBuffer(
 
     CHKWINOKM(MungeTLS::DecryptBuffer(
                   pvbEncrypted,
-                  (*Key())->GetKey(),
-                  Cipher(),
+                  GetKey()->GetKey(),
+                  GetCipher(),
                   pvbIV,
                   pvbDecrypted));
 

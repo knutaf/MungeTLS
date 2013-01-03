@@ -239,7 +239,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
     MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
 
-    CHKOK(Connection()->Initialize());
+    CHKOK(GetConnection()->Initialize());
 
     vbData.reserve(c_cbReadBuffer);
     ResizeVector(&vbData, c_cbReadBuffer);
@@ -254,7 +254,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
 
     // start reading at the next valid spot in the buffer
     cb = recv(
-             *SockClient(),
+             *GetSockClient(),
              reinterpret_cast<char*>(&vbData.front() + cbConsumedBuffer),
              cbAvailable,
              0);
@@ -270,7 +270,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
         ResizeVector(&vbData, cbConsumedBuffer);
 
         // keep processing messages until we can't anymore
-        hr = Connection()->HandleMessage(&vbData);
+        hr = GetConnection()->HandleMessage(&vbData);
         while (hr == S_OK)
         {
             /*
@@ -278,12 +278,12 @@ HRESULT SimpleHTTPServer::ProcessConnection()
             ** result in queuing up traffic to send. check right now and
             ** send any pending traffic
             */
-            while (!PendingSends()->empty())
+            while (!GetPendingSends()->empty())
             {
-                ByteVector vb(PendingSends()->front());
+                ByteVector vb(GetPendingSends()->front());
                 size_t cbPayload = vb.size();
 
-                PendingSends()->erase(PendingSends()->begin());
+                GetPendingSends()->erase(GetPendingSends()->begin());
 
                 wprintf(L"responding with %d bytes\n", cbPayload);
 
@@ -294,7 +294,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
 
                     assert(cbPayload <= INT_MAX);
 
-                    cb = send(*SockClient(),
+                    cb = send(*GetSockClient(),
                               reinterpret_cast<char*>(&vb.front()),
                               static_cast<int>(cbPayload),
                               0);
@@ -328,7 +328,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
                 }
             }
 
-            hr = Connection()->HandleMessage(&vbData);
+            hr = GetConnection()->HandleMessage(&vbData);
         }
 
         wprintf(L"failed HandleMessage (possibly expected): %08LX\n", hr);
@@ -368,7 +368,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
 
         // again, start reading at latest unused spot in buffer
         cb = recv(
-                 *SockClient(),
+                 *GetSockClient(),
                  reinterpret_cast<char*>(&vbData.front() + cbConsumedBuffer),
                  cbAvailable,
                  0);
@@ -410,7 +410,7 @@ HRESULT SimpleHTTPServer::EnqueueSendApplicationData(const ByteVector* pvb)
         assert(vbChunk.size() <= cbRemaining);
         assert(vbChunk.size() > 0);
 
-        CHKOK(Connection()->EnqueueSendApplicationData(&vbChunk));
+        CHKOK(GetConnection()->EnqueueSendApplicationData(&vbChunk));
 
         // ensure we make progress
         assert(cbNextChunk > 0);
@@ -429,7 +429,7 @@ error:
 MTERR SimpleHTTPServer::OnSend(const ByteVector* pvb)
 {
     wprintf(L"queueing up %d bytes of data to send\n", pvb->size());
-    PendingSends()->push_back(*pvb);
+    GetPendingSends()->push_back(*pvb);
     return MT_S_OK;
 } // end function OnSend
 
@@ -445,8 +445,8 @@ MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
     if (!pvb->empty())
     {
         // first just append the new data to the pending incoming HTTP request
-        PendingRequest()->insert(
-            PendingRequest()->end(),
+        GetPendingRequest()->insert(
+            GetPendingRequest()->end(),
             pvb->begin(),
             pvb->end());
 
@@ -465,12 +465,12 @@ MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
         */
 
         // iterator to search for end of request headers
-        string::iterator itEndRequest(PendingRequest()->begin());
+        string::iterator itEndRequest(GetPendingRequest()->begin());
 
         for (ULONG i = 0; i < ARRAYSIZE(c_rgszHTTPHeadersTerminators); i++)
         {
             // find the end terminator
-            string::size_type posEndRequest = PendingRequest()->find(c_rgszHTTPHeadersTerminators[i]);
+            string::size_type posEndRequest = GetPendingRequest()->find(c_rgszHTTPHeadersTerminators[i]);
 
             /*
             ** found terminator. posEndRequest is the index of the first char
@@ -482,7 +482,7 @@ MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
                 ** if it's found, set an iterator for the spot 1 past the end
                 ** of the terminating string.
                 */
-                itEndRequest = PendingRequest()->begin() + posEndRequest + strlen(c_rgszHTTPHeadersTerminators[i]);
+                itEndRequest = GetPendingRequest()->begin() + posEndRequest + strlen(c_rgszHTTPHeadersTerminators[i]);
                 break;
             }
         }
@@ -493,7 +493,7 @@ MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
         ** i.e. the previous search for a terminator succeeded--construct and
         ** send the response now.
         */
-        if (itEndRequest - PendingRequest()->begin() > 0)
+        if (itEndRequest - GetPendingRequest()->begin() > 0)
         {
             ByteVector vbApplicationData;
 
@@ -514,7 +514,7 @@ MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             */
             vbApplicationData.reserve(
                 ARRAYSIZE(szApplicationDataTemplate) * 2 +
-                (itEndRequest - PendingRequest()->begin()));
+                (itEndRequest - GetPendingRequest()->begin()));
 
             // first get enough space for just the template part
             ResizeVector(&vbApplicationData, ARRAYSIZE(szApplicationDataTemplate) * 2);
@@ -524,7 +524,7 @@ MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
                           reinterpret_cast<PSTR>(&vbApplicationData.front()),
                           vbApplicationData.size(),
                           szApplicationDataTemplate,
-                          itEndRequest - PendingRequest()->begin()));
+                          itEndRequest - GetPendingRequest()->begin()));
 
             // trim to just the part we sprintf'd. excludes null terminator
             ResizeVector(&vbApplicationData, strlen(reinterpret_cast<PSTR>(&vbApplicationData.front())));
@@ -532,12 +532,12 @@ MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             // append the request
             vbApplicationData.insert(
                 vbApplicationData.end(),
-                PendingRequest()->begin(),
+                GetPendingRequest()->begin(),
                 itEndRequest);
 
             // erase just the portion we inserted
-            PendingRequest()->erase(
-                PendingRequest()->begin(),
+            GetPendingRequest()->erase(
+                GetPendingRequest()->begin(),
                 itEndRequest);
 
             m_cRequestsReceived++;
@@ -554,9 +554,9 @@ MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             */
             if (m_cRequestsReceived > 1)
             {
-                CHKOK(Connection()->EnqueueStartRenegotiation());
+                CHKOK(GetConnection()->EnqueueStartRenegotiation());
 
-                *PendingResponse() = vbApplicationData;
+                SetPendingResponse(vbApplicationData);
             }
 
             // on first response, just send it now. no fancy tricks
@@ -566,15 +566,15 @@ MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             }
 
             // this would send any appdata OR renegotiation request
-            CHKOK(Connection()->SendQueuedMessages());
+            CHKOK(GetConnection()->SendQueuedMessages());
         }
         else
         {
             // if this ever fails, need to hoist the above SendQueuedMessages
-            assert(Connection()->PendingSends()->empty());
+            assert(GetConnection()->GetPendingSends()->empty());
         }
 
-        printf("pending request is: %s\n", PendingRequest()->c_str());
+        printf("pending request is: %s\n", GetPendingRequest()->c_str());
     }
 
 done:
@@ -783,11 +783,11 @@ MTERR SimpleHTTPServer::OnHandshakeComplete()
 {
     MTERR mr = MT_S_OK;
 
-    if (!PendingResponse()->empty())
+    if (!GetPendingResponse()->empty())
     {
-        CHKOK(EnqueueSendApplicationData(PendingResponse()));
+        CHKOK(EnqueueSendApplicationData(GetPendingResponse()));
 
-        PendingResponse()->clear();
+        GetPendingResponse()->clear();
     }
 
     mr = MT_S_LISTENER_HANDLED;

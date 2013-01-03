@@ -202,7 +202,7 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
         ALG_ID* pAlgID);
 
     private:
-    ACCESSORS(std::shared_ptr<KeyAndProv>*, Key, &m_spKey);
+    ACCESSORS_SP(KeyAndProv, Key, m_spKey);
 
     std::shared_ptr<KeyAndProv> m_spKey;
 };

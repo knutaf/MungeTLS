@@ -113,7 +113,7 @@ TLSConnection::Initialize()
     MTERR mr = MT_S_OK;
 
     // ensure we don't try to initialize more than once
-    if (CurrConn()->PubKeyCipherer()->get() != nullptr)
+    if (GetCurrConn()->GetPubKeyCipherer().get() != nullptr)
     {
         assert(false);
         mr = MT_E_FAIL;
@@ -121,7 +121,7 @@ TLSConnection::Initialize()
     }
 
     // the current connection is used for parsing incoming records
-    CHKOK(InitializeConnection(CurrConn()));
+    CHKOK(InitializeConnection(GetCurrConn()));
 
 done:
     return mr;
@@ -164,7 +164,7 @@ TLSConnection::HandleMessage(
     ** functions to get more data from the app
     */
     ciphertext.SetConnection(this);
-    ciphertext.SetListener(Listener());
+    ciphertext.SetListener(GetListener());
 
     /*
     ** this first step just parses the record layer portion out of it. at this
@@ -174,17 +174,17 @@ TLSConnection::HandleMessage(
     */
     CHKOK(ciphertext.ParseFromVect(pvb));
 
-    wprintf(L"successfully parsed TLSCiphertext. CT=%d\n", *ciphertext.ContentType()->Type());
+    wprintf(L"successfully parsed TLSCiphertext. CT=%d\n", *ciphertext.GetContentType()->GetType());
 
     // this supplies the necessary information to decrypt the message
-    CHKOK(ciphertext.SetSecurityParameters(CurrConn()->ReadParams()));
+    CHKOK(ciphertext.SetEndpointParams(GetCurrConn()->GetReadParams()));
 
     CHKOK(ciphertext.Decrypt());
 
     { // just logging
         ByteVector vbDecryptedFragment;
         wprintf(L"decrypted fragment:\n");
-        PrintByteVector(ciphertext.CipherFragment()->Content());
+        PrintByteVector(ciphertext.GetCipherFragment()->GetContent());
     }
 
     /*
@@ -203,9 +203,9 @@ TLSConnection::HandleMessage(
     ** allow the app to know about the plaintext reciept, and whether it was
     ** actually encrypted, as opposed to null-encrypted.
     */
-    CHKSUC(Listener()->OnReceivingPlaintext(
+    CHKSUC(GetListener()->OnReceivingPlaintext(
              &plaintext,
-             ciphertext.EndParams()->IsEncrypted()));
+             ciphertext.GetEndpointParams()->IsEncrypted()));
 
     // app could return "handled" or "ignored" or something non-fail
     mr = MT_S_OK;
@@ -217,15 +217,15 @@ TLSConnection::HandleMessage(
     ** because TLS 1.1 and later block ciphers have their IV packaged in
     ** plaintext along with the payload.
     */
-    if (CurrConn()->ReadParams()->Cipher()->type == CipherType_Block)
+    if (GetCurrConn()->GetReadParams()->GetCipher()->type == CipherType_Block)
     {
-        switch (*CurrConn()->ReadParams()->Version())
+        switch (*GetCurrConn()->GetReadParams()->GetVersion())
         {
             // for TLS 1.0 next IV is the last block of the previous ciphertext
             case MT_ProtocolVersion::MTPV_TLS10:
             {
-                MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(ciphertext.CipherFragment());
-                CurrConn()->ReadParams()->IV()->assign(pBlockCipher->EncryptedContent()->end() - CurrConn()->ReadParams()->Cipher()->cbIVSize, pBlockCipher->EncryptedContent()->end());
+                MT_GenericBlockCipher_TLS10* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS10*>(ciphertext.GetCipherFragment().get());
+                GetCurrConn()->GetReadParams()->GetIV()->assign(pBlockCipher->GetEncryptedContent()->end() - GetCurrConn()->GetReadParams()->GetCipher()->cbIVSize, pBlockCipher->GetEncryptedContent()->end());
             }
             break;
 
@@ -235,15 +235,15 @@ TLSConnection::HandleMessage(
             */
             case MT_ProtocolVersion::MTPV_TLS11:
             {
-                MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(ciphertext.CipherFragment());
-                *CurrConn()->ReadParams()->IV() = *pBlockCipher->IV();
+                MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(ciphertext.GetCipherFragment().get());
+                GetCurrConn()->GetReadParams()->SetIV(pBlockCipher->GetIV());
             }
             break;
 
             case MT_ProtocolVersion::MTPV_TLS12:
             {
-                MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(ciphertext.CipherFragment());
-                *CurrConn()->ReadParams()->IV() = *pBlockCipher->IV();
+                MT_GenericBlockCipher_TLS12* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS12*>(ciphertext.GetCipherFragment().get());
+                GetCurrConn()->GetReadParams()->SetIV(pBlockCipher->GetIV());
             }
             break;
 
@@ -256,14 +256,14 @@ TLSConnection::HandleMessage(
     }
 
     // make sure that whatever IV was assigned is correct for the cipher suite
-    assert(CurrConn()->ReadParams()->IV()->size() == CurrConn()->ReadParams()->Cipher()->cbIVSize);
+    assert(GetCurrConn()->GetReadParams()->GetIV()->size() == GetCurrConn()->GetReadParams()->GetCipher()->cbIVSize);
 
     /*
     ** with plaintext in hand, we do content-type specific handling. Most
     ** important for us are Handshake messages and ChangeCipherSpec messages,
     ** which drive the handshake process forward.
     */
-    switch (*plaintext.ContentType()->Type())
+    switch (*plaintext.GetContentType()->GetType())
     {
         case MT_ContentType::MTCT_Type_Handshake:
         {
@@ -277,7 +277,7 @@ TLSConnection::HandleMessage(
             ** MT_Handshake
             */
             vector<MT_Handshake> vStructures;
-            CHKOK(ParseStructures(plaintext.Fragment(), &vStructures));
+            CHKOK(ParseStructures(plaintext.GetFragment(), &vStructures));
 
             for (auto it = vStructures.begin(); it != vStructures.end(); it++)
             {
@@ -285,7 +285,7 @@ TLSConnection::HandleMessage(
             }
 
             // sequence number is incremented AFTER processing a record
-            (*CurrConn()->ReadParams()->SequenceNumber())++;
+            GetCurrConn()->GetReadParams()->SetSequenceNumber(*GetCurrConn()->GetReadParams()->GetSequenceNumber() + 1);
         }
         break;
 
@@ -301,7 +301,7 @@ TLSConnection::HandleMessage(
         {
             // see note on first ParseStructures call about multiple structures
             vector<MT_ChangeCipherSpec> vStructures;
-            CHKOK(ParseStructures(plaintext.Fragment(), &vStructures));
+            CHKOK(ParseStructures(plaintext.GetFragment(), &vStructures));
 
             /*
             ** though we repeat this action for all the CCS messages, it's
@@ -315,8 +315,8 @@ TLSConnection::HandleMessage(
 
             for (auto it = vStructures.begin(); it != vStructures.end(); it++)
             {
-                wprintf(L"change cipher spec found: %d\n", *it->Type());
-                *CurrConn()->ReadParams() = *NextConn()->ReadParams();
+                wprintf(L"change cipher spec found: %d\n", *it->GetType());
+                GetCurrConn()->SetReadParams(GetNextConn()->GetReadParams());
             }
 
             /*
@@ -324,7 +324,7 @@ TLSConnection::HandleMessage(
             ** touched, its sequence number should already be 0 without having
             ** to reset it
             */
-            assert(*CurrConn()->ReadParams()->SequenceNumber() == 0);
+            assert(*GetCurrConn()->GetReadParams()->GetSequenceNumber() == 0);
         }
         break;
 
@@ -336,7 +336,7 @@ TLSConnection::HandleMessage(
         {
             // see note on first ParseStructures call about multiple structures
             vector<MT_Alert> vStructures;
-            CHKOK(ParseStructures(plaintext.Fragment(), &vStructures));
+            CHKOK(ParseStructures(plaintext.GetFragment(), &vStructures));
 
             for (auto it = vStructures.begin(); it != vStructures.end(); it++)
             {
@@ -344,7 +344,7 @@ TLSConnection::HandleMessage(
             }
 
             // sequence number is incremented AFTER processing a record
-            (*CurrConn()->ReadParams()->SequenceNumber())++;
+            GetCurrConn()->GetReadParams()->SetSequenceNumber(*GetCurrConn()->GetReadParams()->GetSequenceNumber() + 1);
         }
         break;
 
@@ -355,19 +355,19 @@ TLSConnection::HandleMessage(
         case MT_ContentType::MTCT_Type_ApplicationData:
         {
             wprintf(L"application data:\n");
-            PrintByteVector(plaintext.Fragment());
+            PrintByteVector(plaintext.GetFragment());
 
-            CHKSUC(Listener()->OnReceivedApplicationData(plaintext.Fragment()));
+            CHKSUC(GetListener()->OnReceivedApplicationData(plaintext.GetFragment()));
             mr = MT_S_OK;
 
             // sequence number is incremented AFTER processing a record
-            (*CurrConn()->ReadParams()->SequenceNumber())++;
+            GetCurrConn()->GetReadParams()->SetSequenceNumber(*GetCurrConn()->GetReadParams()->GetSequenceNumber() + 1);
         }
         break;
 
         default:
         {
-            wprintf(L"unknown content type %02LX\n", *plaintext.ContentType()->Type());
+            wprintf(L"unknown content type %02LX\n", *plaintext.GetContentType()->GetType());
             mr = MT_E_UNKNOWN_CONTENT_TYPE;
             goto error;
         }
@@ -412,10 +412,10 @@ TLSConnection::HandleHandshakeMessage(
     shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
     *spHandshakeMessage = *pHandshakeMessage;
 
-    wprintf(L"handling Handshake of type=%d\n", *spHandshakeMessage->Type());
+    wprintf(L"handling Handshake of type=%d\n", *spHandshakeMessage->GetType());
 
     // handshake messages have their own inner "content type"
-    switch (*spHandshakeMessage->Type())
+    switch (*spHandshakeMessage->GetType())
     {
         /*
         ** initial contact from the client that starts a new handshake. we
@@ -426,38 +426,38 @@ TLSConnection::HandleHandshakeMessage(
         {
             MT_ClientHello clientHello;
 
-            CHKOK(clientHello.ParseFromVect(spHandshakeMessage->Body()));
+            CHKOK(clientHello.ParseFromVect(spHandshakeMessage->GetBody()));
 
             { // all logging stuff
                 wprintf(L"parsed client hello message:\n");
-                wprintf(L"version %04LX\n", *clientHello.ClientVersion()->Version());
-                if (clientHello.SessionID()->Count() > 0)
+                wprintf(L"version %04LX\n", *clientHello.GetClientVersion()->GetVersion());
+                if (clientHello.GetSessionID()->Count() > 0)
                 {
-                    wprintf(L"session ID %d (%d)\n", clientHello.SessionID()->Data()[0]);
+                    wprintf(L"session ID %d (%d)\n", clientHello.GetSessionID()->GetData()[0]);
                 }
                 else
                 {
                     wprintf(L"no session ID specified\n");
                 }
 
-                wprintf(L"%d crypto suites\n", clientHello.CipherSuites()->Count());
+                wprintf(L"%d crypto suites\n", clientHello.GetCipherSuites()->Count());
 
                 wprintf(L"crypto suite 0: %02X %02X\n",
-                       *clientHello.CipherSuites()->at(0)->at(0),
-                       *clientHello.CipherSuites()->at(0)->at(1));
+                       *clientHello.GetCipherSuites()->at(0)->at(0),
+                       *clientHello.GetCipherSuites()->at(0)->at(1));
 
                 wprintf(L"%d compression methods: %d\n",
-                       clientHello.CompressionMethods()->Count(),
-                       *clientHello.CompressionMethods()->at(0)->Method());
+                       clientHello.GetCompressionMethods()->Count(),
+                       *clientHello.GetCompressionMethods()->at(0)->GetMethod());
 
-                wprintf(L"%d extensions, taking %d bytes\n", clientHello.Extensions()->Count(), clientHello.Extensions()->Length());
+                wprintf(L"%d extensions, taking %d bytes\n", clientHello.GetExtensions()->Count(), clientHello.GetExtensions()->Length());
 
-                for (auto it = clientHello.Extensions()->Data()->begin(); it != clientHello.Extensions()->Data()->end(); it++)
+                for (auto it = clientHello.GetExtensions()->GetData()->begin(); it != clientHello.GetExtensions()->GetData()->end(); it++)
                 {
-                    if (*it->ExtensionType() == MT_Extension::MTEE_RenegotiationInfo)
+                    if (*it->GetExtensionType() == MT_Extension::MTEE_RenegotiationInfo)
                     {
                         wprintf(L"found renegotiation info:\n");
-                        PrintByteVector(it->ExtensionData()->Data());
+                        PrintByteVector(it->GetExtensionData()->GetData());
                     }
                 }
             } // end logging
@@ -465,7 +465,7 @@ TLSConnection::HandleHandshakeMessage(
             CHKOK(StartNextHandshake(&clientHello));
 
             // archive the message for the Finished hash later
-            NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
+            GetNextConn()->GetHandshakeMessages()->push_back(spHandshakeMessage);
 
             /*
             ** allow the app to select what protocol version to send in
@@ -473,16 +473,16 @@ TLSConnection::HandleHandshakeMessage(
             ** particular version already
             */
             {
-                MT_ProtocolVersion protocolVersion = *clientHello.ClientVersion();
+                MT_ProtocolVersion protocolVersion = *clientHello.GetClientVersion();
 
-                CHKSUC(Listener()->OnSelectProtocolVersion(&protocolVersion));
+                CHKSUC(GetListener()->OnSelectProtocolVersion(&protocolVersion));
                 mr = MT_S_OK;
 
-                *NextConn()->ReadParams()->Version() = *protocolVersion.Version();
-                *NextConn()->WriteParams()->Version() = *protocolVersion.Version();
+                GetNextConn()->GetReadParams()->SetVersion(*protocolVersion.GetVersion());
+                GetNextConn()->GetWriteParams()->SetVersion(*protocolVersion.GetVersion());
             }
 
-            *NextConn()->ClientRandom() = *(clientHello.Random());
+            GetNextConn()->SetClientRandom(clientHello.GetRandom());
 
             /*
             ** A particularly important block: allow the app to select the
@@ -493,25 +493,25 @@ TLSConnection::HandleHandshakeMessage(
             {
                 MT_CipherSuite cipherSuite;
 
-                CHKSUC(Listener()->OnSelectCipherSuite(&clientHello, &cipherSuite));
+                CHKSUC(GetListener()->OnSelectCipherSuite(&clientHello, &cipherSuite));
 
                 // pick the library's preference out of the client list
                 if (mr == MT_S_LISTENER_IGNORED)
                 {
                     MT_CipherSuiteValue ePreferred;
-                    vector<MT_CipherSuiteValue> vValues(NextConn()->ClientHello()->CipherSuites()->Count());
+                    vector<MT_CipherSuiteValue> vValues(GetNextConn()->GetClientHello()->GetCipherSuites()->Count());
 
                     // just extracting the enum value from the raw data
                     transform(
-                        NextConn()->ClientHello()->CipherSuites()->Data()->begin(),
-                        NextConn()->ClientHello()->CipherSuites()->Data()->end(),
+                        GetNextConn()->GetClientHello()->GetCipherSuites()->GetData()->begin(),
+                        GetNextConn()->GetClientHello()->GetCipherSuites()->GetData()->end(),
                         vValues.begin(),
                         [&mr](const MT_CipherSuite& rSuite)
                         {
                             if (mr == MT_S_OK)
                             {
                                 MT_CipherSuiteValue eValue;
-                                mr = rSuite.Value(&eValue);
+                                mr = rSuite.GetValue(&eValue);
                                 return eValue;
                             }
                             else
@@ -548,12 +548,12 @@ TLSConnection::HandleHandshakeMessage(
                 ** *pending* state until we receive and send ChangeCipherSpec
                 ** messages.
                 */
-                *NextConn()->ReadParams()->CipherSuite() = cipherSuite;
-                *NextConn()->WriteParams()->CipherSuite() = cipherSuite;
+                GetNextConn()->GetReadParams()->SetCipherSuite(cipherSuite);
+                GetNextConn()->GetWriteParams()->SetCipherSuite(cipherSuite);
 
                 { // logging
                     MT_CipherSuiteValue eValue;
-                    MTERR mrTemp = cipherSuite.Value(&eValue);
+                    MTERR mrTemp = cipherSuite.GetValue(&eValue);
                     assert(mrTemp == MT_S_OK);
 
                     wprintf(L"chosen cipher suite %04LX\n", eValue);
@@ -585,7 +585,7 @@ TLSConnection::HandleHandshakeMessage(
         {
             MT_KeyExchangeAlgorithm keyExchangeAlg;
             MT_ClientKeyExchange<MT_EncryptedPreMasterSecret> keyExchange;
-            MT_EncryptedPreMasterSecret* pExchangeKeys = nullptr;
+            shared_ptr<MT_EncryptedPreMasterSecret> spExchangeKeys;
             MT_PreMasterSecret* pSecret = nullptr;
 
             /*
@@ -594,9 +594,9 @@ TLSConnection::HandleHandshakeMessage(
             ** get the key exchange algorithm can use either read or write
             ** params
             */
-            assert(*NextConn()->ReadParams()->CipherSuite() == *NextConn()->WriteParams()->CipherSuite());
+            assert(*GetNextConn()->GetReadParams()->GetCipherSuite() == *GetNextConn()->GetWriteParams()->GetCipherSuite());
 
-            CHKOK(NextConn()->ReadParams()->CipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg));
+            CHKOK(GetNextConn()->GetReadParams()->GetCipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg));
 
             if (keyExchangeAlg != MTKEA_rsa)
             {
@@ -605,7 +605,7 @@ TLSConnection::HandleHandshakeMessage(
                 goto error;
             }
 
-            CHKOK(keyExchange.ParseFromVect(spHandshakeMessage->Body()));
+            CHKOK(keyExchange.ParseFromVect(spHandshakeMessage->GetBody()));
 
             /*
             ** actually decrypt the structure using our public key
@@ -615,21 +615,21 @@ TLSConnection::HandleHandshakeMessage(
             ** potentially a new certificate (and consequently a new key
             ** pair)
             */
-            pExchangeKeys = keyExchange.ExchangeKeys();
-            CHKOK(pExchangeKeys->DecryptStructure(NextConn()->PubKeyCipherer()->get()));
+            spExchangeKeys = keyExchange.GetExchangeKeys();
+            CHKOK(spExchangeKeys->DecryptStructure(GetNextConn()->GetPubKeyCipherer().get()));
 
             // archive the message since it's good, for the Finished hash
-            NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
+            GetNextConn()->GetHandshakeMessages()->push_back(spHandshakeMessage);
 
             // got the decrypted premaster secret
-            pSecret = pExchangeKeys->Structure();
-            wprintf(L"version %04LX\n", *pSecret->ClientVersion()->Version());
+            pSecret = spExchangeKeys->GetStructure();
+            wprintf(L"version %04LX\n", *pSecret->GetClientVersion()->GetVersion());
 
             // generate a bunch of crypto material from this
-            CHKOK(NextConn()->GenerateKeyMaterial(pSecret));
+            CHKOK(GetNextConn()->GenerateKeyMaterial(pSecret));
 
             wprintf(L"computed master secret and key material:\n");
-            PrintByteVector(NextConn()->MasterSecret());
+            PrintByteVector(GetNextConn()->GetMasterSecret());
         }
         break;
 
@@ -648,13 +648,13 @@ TLSConnection::HandleHandshakeMessage(
         case MT_Handshake::MTH_Finished:
         {
             MT_Finished finishedMessage;
-            CHKOK(finishedMessage.ParseFromVect(spHandshakeMessage->Body()));
+            CHKOK(finishedMessage.ParseFromVect(spHandshakeMessage->GetBody()));
 
-            // used to access HandshakeMessages() for the hash calculation
-            CHKOK(finishedMessage.SetConnectionParameters(NextConn()));
+            // used to access GetHandshakeMessages() for the hash calculation
+            CHKOK(finishedMessage.SetConnParams(GetNextConn()));
 
             // used to decrypt the message
-            CHKOK(finishedMessage.SetSecurityParameters(NextConn()->ReadParams()));
+            CHKOK(finishedMessage.SetEndpointParams(GetNextConn()->GetReadParams()));
 
             // do the actual hash check
             CHKOK(finishedMessage.CheckSecurity());
@@ -663,7 +663,7 @@ TLSConnection::HandleHandshakeMessage(
             ** we have to store the verify data we received here to include
             ** in a renegotiation, if one comes up
             */
-            *NextConn()->ClientVerifyData() = *finishedMessage.VerifyData();
+            GetNextConn()->SetClientVerifyData(finishedMessage.GetVerifyData());
 
             /*
             ** yes, we archive this message, too. when the server sends its
@@ -671,7 +671,7 @@ TLSConnection::HandleHandshakeMessage(
             ** handshake messages received so far, including the client
             ** finished message
             */
-            NextConn()->HandshakeMessages()->push_back(spHandshakeMessage);
+            GetNextConn()->GetHandshakeMessages()->push_back(spHandshakeMessage);
 
             // go ahead and do that response right now
             CHKOK(RespondToFinished());
@@ -680,7 +680,7 @@ TLSConnection::HandleHandshakeMessage(
 
         default:
         {
-            wprintf(L"not yet supporting handshake type %d\n", *spHandshakeMessage->Type());
+            wprintf(L"not yet supporting handshake type %d\n", *spHandshakeMessage->GetType());
             mr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
             goto error;
         }
@@ -709,7 +709,7 @@ MTERR
 TLSConnection::RespondToClientHello()
 {
     MTERR mr = MT_S_OK;
-    MT_ClientHello* pClientHello = NextConn()->ClientHello();
+    MT_ClientHello* pClientHello = GetNextConn()->GetClientHello();
     shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
     // ServerHello
@@ -723,12 +723,12 @@ TLSConnection::RespondToClientHello()
         shared_ptr<MT_Handshake> spHandshake(new MT_Handshake());
 
         // this was previously chosen by calling back to the app
-        *protocolVersion.Version() = *NextConn()->ReadParams()->Version();
+        protocolVersion.SetVersion(*GetNextConn()->GetReadParams()->GetVersion());
 
         CHKOK(random.PopulateNow());
 
         // no compression support for now
-        *compressionMethod.Method() = MT_CompressionMethod::MTCM_Null;
+        compressionMethod.SetMethod(MT_CompressionMethod::MTCM_Null);
 
         /*
         ** prepare the renegotiation extension information. if we're doing a
@@ -743,52 +743,52 @@ TLSConnection::RespondToClientHello()
             MT_RenegotiationInfoExtension renegotiationExtension;
             MT_RenegotiationInfoExtension::MT_RenegotiatedConnection rc;
 
-            *renegotiationExtension.ExtensionType() = MT_Extension::MTEE_RenegotiationInfo;
+            renegotiationExtension.SetExtensionType(MT_Extension::MTEE_RenegotiationInfo);
 
             // we have previous verify data, so we're renegotiating
-            if (!CurrConn()->ServerVerifyData()->Data()->empty())
+            if (!GetCurrConn()->GetServerVerifyData()->GetData()->empty())
             {
                 // also need client verify data
-                assert(!CurrConn()->ClientVerifyData()->Data()->empty());
+                assert(!GetCurrConn()->GetClientVerifyData()->GetData()->empty());
 
-                rc.Data()->insert(
-                    rc.Data()->end(),
-                    CurrConn()->ClientVerifyData()->Data()->begin(),
-                    CurrConn()->ClientVerifyData()->Data()->end());
+                rc.GetData()->insert(
+                    rc.GetData()->end(),
+                    GetCurrConn()->GetClientVerifyData()->GetData()->begin(),
+                    GetCurrConn()->GetClientVerifyData()->GetData()->end());
 
-                rc.Data()->insert(
-                    rc.Data()->end(),
-                    CurrConn()->ServerVerifyData()->Data()->begin(),
-                    CurrConn()->ServerVerifyData()->Data()->end());
+                rc.GetData()->insert(
+                    rc.GetData()->end(),
+                    GetCurrConn()->GetServerVerifyData()->GetData()->begin(),
+                    GetCurrConn()->GetServerVerifyData()->GetData()->end());
 
-                if (rc.Data()->size() != c_cbFinishedVerifyData_Length * 2)
+                if (rc.GetData()->size() != c_cbFinishedVerifyData_Length * 2)
                 {
-                    wprintf(L"warning: renegotiation verify data is odd length. expected: %u, actual: %u\n", c_cbFinishedVerifyData_Length * 2, rc.Data()->size());
+                    wprintf(L"warning: renegotiation verify data is odd length. expected: %u, actual: %u\n", c_cbFinishedVerifyData_Length * 2, rc.GetData()->size());
                 }
 
                 wprintf(L"adding renegotation binding information:\n");
-                PrintByteVector(rc.Data());
+                PrintByteVector(rc.GetData());
             }
             // else, empty renegotiated info
 
             CHKOK(renegotiationExtension.SetRenegotiatedConnection(&rc));
 
-            extensions.Data()->push_back(renegotiationExtension);
+            extensions.GetData()->push_back(renegotiationExtension);
         }
 
-        *serverHello.ServerVersion() = protocolVersion;
-        *serverHello.Random() = random;
-        *serverHello.SessionID() = sessionID;
+        serverHello.SetServerVersion(protocolVersion);
+        serverHello.SetRandom(random);
+        serverHello.SetSessionID(&sessionID);
 
         // just logging/warning
-        if (*NextConn()->ReadParams()->CipherSuite() != *NextConn()->WriteParams()->CipherSuite())
+        if (*GetNextConn()->GetReadParams()->GetCipherSuite() != *GetNextConn()->GetWriteParams()->GetCipherSuite())
         {
             MT_CipherSuiteValue csvRead;
-            mr = NextConn()->ReadParams()->CipherSuite()->Value(&csvRead);
+            mr = GetNextConn()->GetReadParams()->GetCipherSuite()->GetValue(&csvRead);
             if (mr == MT_S_OK)
             {
                 MT_CipherSuiteValue csvWrite;
-                mr = NextConn()->WriteParams()->CipherSuite()->Value(&csvWrite);
+                mr = GetNextConn()->GetWriteParams()->GetCipherSuite()->GetValue(&csvWrite);
                 if (mr == MT_S_OK)
                 {
                     wprintf(L"warning: choosing different read cipher suite (%04LX) and write cipher suite (%04LX)\n", csvRead, csvWrite);
@@ -798,22 +798,22 @@ TLSConnection::RespondToClientHello()
             mr = MT_S_OK;
         }
 
-        *serverHello.CipherSuite() = *NextConn()->ReadParams()->CipherSuite();
-        *serverHello.CompressionMethod() = compressionMethod;
-        *serverHello.Extensions() = extensions;
+        serverHello.SetCipherSuite(GetNextConn()->GetReadParams()->GetCipherSuite());
+        serverHello.SetCompressionMethod(compressionMethod);
+        serverHello.SetExtensions(&extensions);
 
-        *NextConn()->ServerRandom() = *(serverHello.Random());
+        GetNextConn()->SetServerRandom(serverHello.GetRandom());
 
-        *spHandshake->Type() = MT_Handshake::MTH_ServerHello;
-        CHKOK(serverHello.SerializeToVect(spHandshake->Body()));
+        spHandshake->SetType(MT_Handshake::MTH_ServerHello);
+        CHKOK(serverHello.SerializeToVect(spHandshake->GetBody()));
 
         CHKOK(CreatePlaintext(
                  MT_ContentType::MTCT_Type_Handshake,
-                 *protocolVersion.Version(),
+                 *protocolVersion.GetVersion(),
                  spHandshake.get(),
                  spPlaintext.get()));
 
-        NextConn()->HandshakeMessages()->push_back(spHandshake);
+        GetNextConn()->GetHandshakeMessages()->push_back(spHandshake);
 
         /*
         ** don't enqueue or increment sequence number just yet. we may choose
@@ -830,14 +830,14 @@ TLSConnection::RespondToClientHello()
         shared_ptr<MT_Handshake> spHandshake(new MT_Handshake());
         MT_TLSPlaintext* pPlaintextPass = spPlaintext.get();
 
-        *certificate.CertificateList() = *NextConn()->CertChain();
-        *spHandshake->Type() = MT_Handshake::MTH_Certificate;
+        certificate.SetCertificateList(GetNextConn()->GetCertChain());
+        spHandshake->SetType(MT_Handshake::MTH_Certificate);
 
-        CHKOK(certificate.SerializeToVect(spHandshake->Body()));
+        CHKOK(certificate.SerializeToVect(spHandshake->GetBody()));
 
         mr = AddHandshakeMessage(
                  spHandshake.get(),
-                 *pClientHello->ClientVersion()->Version(),
+                 *pClientHello->GetClientVersion()->GetVersion(),
                  &pPlaintextPass);
 
         /*
@@ -860,7 +860,7 @@ TLSConnection::RespondToClientHello()
             goto error;
         }
 
-        NextConn()->HandshakeMessages()->push_back(spHandshake);
+        GetNextConn()->GetHandshakeMessages()->push_back(spHandshake);
 
         // could be MT_S_FALSE, so reset
         mr = MT_S_OK;
@@ -874,13 +874,13 @@ TLSConnection::RespondToClientHello()
         shared_ptr<MT_Handshake> spHandshake(new MT_Handshake());
         MT_TLSPlaintext* pPlaintextPass = spPlaintext.get();
 
-        *spHandshake->Type() = MT_Handshake::MTH_ServerHelloDone;
+        spHandshake->SetType(MT_Handshake::MTH_ServerHelloDone);
 
-        CHKOK(serverHelloDone.SerializeToVect(spHandshake->Body()));
+        CHKOK(serverHelloDone.SerializeToVect(spHandshake->GetBody()));
 
         mr = AddHandshakeMessage(
                  spHandshake.get(),
-                 *pClientHello->ClientVersion()->Version(),
+                 *pClientHello->GetClientVersion()->GetVersion(),
                  &pPlaintextPass);
 
         // see above for comments at call to AddHandshakeMessage
@@ -897,7 +897,7 @@ TLSConnection::RespondToClientHello()
 
         CHKOK(EnqueueMessage(spPlaintext));
 
-        NextConn()->HandshakeMessages()->push_back(spHandshake);
+        GetNextConn()->GetHandshakeMessages()->push_back(spHandshake);
     }
 
     assert(mr == MT_S_OK);
@@ -928,7 +928,7 @@ TLSConnection::AddHandshakeMessage(
     MTERR mr = MT_S_OK;
     MT_UINT32 fCreateFlags = 0;
 
-    mr = Listener()->OnCreatingHandshakeMessage(pHandshake, &fCreateFlags);
+    mr = GetListener()->OnCreatingHandshakeMessage(pHandshake, &fCreateFlags);
     if (mr == MT_S_LISTENER_IGNORED)
     {
         fCreateFlags = MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE;
@@ -940,7 +940,7 @@ TLSConnection::AddHandshakeMessage(
 
     if (fCreateFlags & MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE)
     {
-        CHKOK(pHandshake->SerializeAppendToVect((*ppPlaintext)->Fragment()));
+        CHKOK(pHandshake->SerializeAppendToVect((*ppPlaintext)->GetFragment()));
 
         // indicates that we reused the existing plaintext message
         mr = MT_S_FALSE;
@@ -979,25 +979,25 @@ TLSConnection::RespondToFinished()
         MT_ChangeCipherSpec changeCipherSpec;
         shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
-        *(changeCipherSpec.Type()) = MT_ChangeCipherSpec::MTCCS_ChangeCipherSpec;
+        changeCipherSpec.SetType(MT_ChangeCipherSpec::MTCCS_ChangeCipherSpec);
 
-        assert(*NextConn()->ReadParams()->Version() == *NextConn()->WriteParams()->Version());
+        assert(*GetNextConn()->GetReadParams()->GetVersion() == *GetNextConn()->GetWriteParams()->GetVersion());
 
         CHKOK(CreatePlaintext(
                  MT_ContentType::MTCT_Type_ChangeCipherSpec,
-                 *NextConn()->ReadParams()->Version(),
+                 *GetNextConn()->GetReadParams()->GetVersion(),
                  &changeCipherSpec,
                  spPlaintext.get()));
 
         CHKOK(EnqueueMessage(spPlaintext));
 
-        *CurrConn()->WriteParams() = *NextConn()->WriteParams();
+        GetCurrConn()->SetWriteParams(GetNextConn()->GetWriteParams());
 
         /*
         ** newly copied new connection state should have its initial value of
         ** 0 for sequence number, since it hasn't been touched yet
         */
-        assert(*CurrConn()->WriteParams()->SequenceNumber() == 0);
+        assert(*GetCurrConn()->GetWriteParams()->GetSequenceNumber() == 0);
     }
 
     // Finished
@@ -1006,30 +1006,30 @@ TLSConnection::RespondToFinished()
         MT_Finished finished;
         shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
-        CHKOK(finished.SetConnectionParameters(NextConn()));
+        CHKOK(finished.SetConnParams(GetNextConn()));
 
-        CHKOK(finished.SetSecurityParameters(CurrConn()->WriteParams()));
+        CHKOK(finished.SetEndpointParams(GetCurrConn()->GetWriteParams()));
 
         // the payload is a hash of all of the handshake messages seen so far
-        CHKOK(finished.ComputeVerifyData(c_szServerFinished_PRFLabel, finished.VerifyData()->Data()));
+        CHKOK(finished.ComputeVerifyData(c_szServerFinished_PRFLabel, finished.GetVerifyData()->GetData()));
 
-        *spHandshake->Type() = MT_Handshake::MTH_Finished;
-        CHKOK(finished.SerializeToVect(spHandshake->Body()));
+        spHandshake->SetType(MT_Handshake::MTH_Finished);
+        CHKOK(finished.SerializeToVect(spHandshake->GetBody()));
 
-        assert(*CurrConn()->ReadParams()->Version() == *CurrConn()->WriteParams()->Version());
+        assert(*GetCurrConn()->GetReadParams()->GetVersion() == *GetCurrConn()->GetWriteParams()->GetVersion());
 
         CHKOK(CreatePlaintext(
                  MT_ContentType::MTCT_Type_Handshake,
-                 *CurrConn()->WriteParams()->Version(),
+                 *GetCurrConn()->GetWriteParams()->GetVersion(),
                  spHandshake.get(),
                  spPlaintext.get()));
 
         CHKOK(EnqueueMessage(spPlaintext));
 
         // we archive the handshake message just cause, though it won't be used
-        NextConn()->HandshakeMessages()->push_back(spHandshake);
+        GetNextConn()->GetHandshakeMessages()->push_back(spHandshake);
 
-        *NextConn()->ServerVerifyData() = *finished.VerifyData();
+        GetNextConn()->SetServerVerifyData(finished.GetVerifyData());
     }
 
     CHKOK(FinishNextHandshake());
@@ -1051,13 +1051,13 @@ TLSConnection::CreatePlaintext(
     MT_ContentType contentType;
     MT_ProtocolVersion protocolVersion;
 
-    *contentType.Type() = eContentType;
-    *pPlaintext->ContentType() = contentType;
+    contentType.SetType(&eContentType);
+    pPlaintext->SetContentType(&contentType);
 
-    *protocolVersion.Version() = eProtocolVersion;
-    *pPlaintext->ProtocolVersion() = protocolVersion;
+    protocolVersion.SetVersion(eProtocolVersion);
+    pPlaintext->SetProtocolVersion(protocolVersion);
 
-    *pPlaintext->Fragment() = *pvbFragment;
+    pPlaintext->SetFragment(pvbFragment);
 
     pPlaintext->SetConnection(this);
 
@@ -1103,16 +1103,16 @@ TLSConnection::CreateCiphertext(
     MT_ProtocolVersion protocolVersion;
 
     pCiphertext->SetConnection(this);
-    pCiphertext->SetListener(Listener());
+    pCiphertext->SetListener(GetListener());
 
-    CHKOK(pCiphertext->SetSecurityParameters(pEndParams));
+    CHKOK(pCiphertext->SetEndpointParams(pEndParams));
 
-    *contentType.Type() = eContentType;
-    *pCiphertext->ContentType() = contentType;
+    contentType.SetType(&eContentType);
+    pCiphertext->SetContentType(&contentType);
 
-    *protocolVersion.Version() = eProtocolVersion;
-    *pCiphertext->ProtocolVersion() = protocolVersion;
-    *pCiphertext->CipherFragment()->Content() = *pvbFragment;
+    protocolVersion.SetVersion(eProtocolVersion);
+    pCiphertext->SetProtocolVersion(protocolVersion);
+    pCiphertext->GetCipherFragment()->SetContent(*pvbFragment);
 
     CHKOK(pCiphertext->Protect());
 
@@ -1156,20 +1156,20 @@ TLSConnection::StartNextHandshake(MT_ClientHello* pClientHello)
 {
     MTERR mr = MT_S_OK;
 
-    if (NextConn()->IsHandshakeInProgress())
+    if (GetNextConn()->IsHandshakeInProgress())
     {
         // may lift this restriction if it's okay...
         assert(false);
     }
 
-    *NextConn()->ClientHello() = *pClientHello;
+    GetNextConn()->SetClientHello(pClientHello);
 
     /*
     ** the next connection will be used for collecting information about the
     ** pending security negotation, but is not used for parsing any incoming
     ** records; the current connection does that.
     */
-    CHKOK(InitializeConnection(NextConn()));
+    CHKOK(InitializeConnection(GetNextConn()));
 
 done:
     return mr;
@@ -1201,7 +1201,7 @@ TLSConnection::InitializeConnection(
     shared_ptr<Hasher> spClientHasher;
     shared_ptr<Hasher> spServerHasher;
 
-    CHKOK(Listener()->OnInitializeCrypto(
+    CHKOK(GetListener()->OnInitializeCrypto(
              &certChain,
              &spPubKeyCipherer,
              &spClientSymCipherer,
@@ -1235,17 +1235,17 @@ TLSConnection::FinishNextHandshake()
 {
     MTERR mr = MT_S_OK;
 
-    assert(NextConn()->IsHandshakeInProgress());
+    assert(GetNextConn()->IsHandshakeInProgress());
 
     // copy last bits of state
-    CHKOK(NextConn()->CopyCommonParamsTo(CurrConn()));
+    CHKOK(GetNextConn()->CopyCommonParamsTo(GetCurrConn()));
 
     // reset it to blank, ready for the next handshake to start whenever
-    *NextConn() = ConnectionParameters();
-    assert(!NextConn()->IsHandshakeInProgress());
+    SetNextConn(ConnectionParameters());
+    assert(!GetNextConn()->IsHandshakeInProgress());
 
     // lets the app know it can start sending app data
-    CHKSUC(Listener()->OnHandshakeComplete());
+    CHKSUC(GetListener()->OnHandshakeComplete());
     mr = MT_S_OK;
 
 done:
@@ -1275,7 +1275,7 @@ TLSConnection::EnqueueMessage(
 
     CHKOK(MT_TLSCiphertext::FromTLSPlaintext(
              spPlaintext.get(),
-             CurrConn()->WriteParams(),
+             GetCurrConn()->GetWriteParams(),
              &spCiphertext));
 
     /*
@@ -1283,24 +1283,24 @@ TLSConnection::EnqueueMessage(
     ** ciphertext. in practice, this is either the last block of the ciphertext
     ** or a new, "random" value.
     */
-    if (CurrConn()->WriteParams()->Cipher()->type == CipherType_Block)
+    if (GetCurrConn()->GetWriteParams()->GetCipher()->type == CipherType_Block)
     {
-        spCiphertext->GenerateNextIV(CurrConn()->WriteParams()->IV());
+        spCiphertext->GenerateNextIV(GetCurrConn()->GetWriteParams()->GetIV());
         wprintf(L"next IV for writing:\n");
-        PrintByteVector(CurrConn()->WriteParams()->IV());
+        PrintByteVector(GetCurrConn()->GetWriteParams()->GetIV());
     }
 
-    assert(CurrConn()->WriteParams()->IV()->size() == CurrConn()->WriteParams()->Cipher()->cbIVSize);
+    assert(GetCurrConn()->GetWriteParams()->GetIV()->size() == GetCurrConn()->GetWriteParams()->GetCipher()->cbIVSize);
 
-    PendingSends()->push_back(spCiphertext);
-    (*CurrConn()->WriteParams()->SequenceNumber())++;
+    GetPendingSends()->push_back(spCiphertext);
+    GetCurrConn()->GetWriteParams()->SetSequenceNumber(*GetCurrConn()->GetWriteParams()->GetSequenceNumber() + 1);
 
-    wprintf(L"write seq num is now %d\n", *CurrConn()->WriteParams()->SequenceNumber());
+    wprintf(L"write seq num is now %d\n", *GetCurrConn()->GetWriteParams()->GetSequenceNumber());
 
     // primarily used for logging by the app
-    CHKOK(Listener()->OnEnqueuePlaintext(
+    CHKOK(GetListener()->OnEnqueuePlaintext(
              spPlaintext.get(),
-             spCiphertext->EndParams()->IsEncrypted()));
+             spCiphertext->GetEndpointParams()->IsEncrypted()));
 
 done:
     return mr;
@@ -1315,19 +1315,19 @@ TLSConnection::SendQueuedMessages()
 {
     MTERR mr = MT_S_OK;
 
-    if (!PendingSends()->empty())
+    if (!GetPendingSends()->empty())
     {
         { // only logging
-            wprintf(L"sending %u messages\n", PendingSends()->size());
+            wprintf(L"sending %u messages\n", GetPendingSends()->size());
 
-            for_each(PendingSends()->begin(), PendingSends()->end(),
+            for_each(GetPendingSends()->begin(), GetPendingSends()->end(),
             [](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
             {
-                wprintf(L"    %s\n", rspStructure->ContentType()->ToString().c_str());
+                wprintf(L"    %s\n", rspStructure->GetContentType()->ToString().c_str());
             });
         }
 
-        for_each(PendingSends()->begin(), PendingSends()->end(),
+        for_each(GetPendingSends()->begin(), GetPendingSends()->end(),
         [&mr, this](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
         {
             if (mr == MT_S_OK)
@@ -1337,7 +1337,7 @@ TLSConnection::SendQueuedMessages()
                 mr = rspStructure->SerializeToVect(&vbRecord);
                 if (mr == MT_S_OK)
                 {
-                    mr = Listener()->OnSend(&vbRecord);
+                    mr = GetListener()->OnSend(&vbRecord);
                     if (MT_Failed(mr))
                     {
                         wprintf(L"warning: error in OnSend with listener: %08LX\n", mr);
@@ -1355,7 +1355,7 @@ TLSConnection::SendQueuedMessages()
             goto error;
         }
 
-        PendingSends()->clear();
+        GetPendingSends()->clear();
     }
 
 done:
@@ -1377,11 +1377,11 @@ TLSConnection::EnqueueSendApplicationData(
     MTERR mr = MT_S_OK;
     shared_ptr<MT_TLSPlaintext> spPlaintext(new MT_TLSPlaintext());
 
-    assert(*CurrConn()->ReadParams()->Version() == *CurrConn()->WriteParams()->Version());
+    assert(*GetCurrConn()->GetReadParams()->GetVersion() == *GetCurrConn()->GetWriteParams()->GetVersion());
 
     CHKOK(CreatePlaintext(
              MT_ContentType::MTCT_Type_ApplicationData,
-             *CurrConn()->WriteParams()->Version(),
+             *GetCurrConn()->GetWriteParams()->GetVersion(),
              pvb,
              spPlaintext.get()));
 
@@ -1410,14 +1410,14 @@ TLSConnection::EnqueueStartRenegotiation()
 
     wprintf(L"starting renegotiation\n");
 
-    *handshake.Type() = MT_Handshake::MTH_HelloRequest;
-    CHKOK(helloRequest.SerializeToVect(handshake.Body()));
+    handshake.SetType(MT_Handshake::MTH_HelloRequest);
+    CHKOK(helloRequest.SerializeToVect(handshake.GetBody()));
 
-    assert(*CurrConn()->ReadParams()->Version() == *CurrConn()->WriteParams()->Version());
+    assert(*GetCurrConn()->GetReadParams()->GetVersion() == *GetCurrConn()->GetWriteParams()->GetVersion());
 
     CHKOK(CreatePlaintext(
              MT_ContentType::MTCT_Type_Handshake,
-             *CurrConn()->WriteParams()->Version(),
+             *GetCurrConn()->GetWriteParams()->GetVersion(),
              &handshake,
              spPlaintext.get()));
 
@@ -1582,7 +1582,7 @@ EndpointParameters::Initialize(
 ** free it
 */
 const CipherInfo*
-EndpointParameters::Cipher() const
+EndpointParameters::GetCipher() const
 {
     static CipherInfo cipherInfo =
     {
@@ -1593,15 +1593,15 @@ EndpointParameters::Cipher() const
         0
     };
 
-    MTERR mr = CryptoInfoFromCipherSuite(CipherSuite(), &cipherInfo, nullptr);
+    MTERR mr = CryptoInfoFromCipherSuite(GetCipherSuite(), &cipherInfo, nullptr);
     assert(mr == MT_S_OK);
 
     return &cipherInfo;
-} // end function Cipher
+} // end function GetCipher
 
-// same comment as for Cipher()
+// same comment as for GetCipher()
 const HashInfo*
-EndpointParameters::Hash() const
+EndpointParameters::GetHash() const
 {
     static HashInfo hashInfo =
     {
@@ -1610,16 +1610,16 @@ EndpointParameters::Hash() const
         0
     };
 
-    MTERR mr = CryptoInfoFromCipherSuite(CipherSuite(), nullptr, &hashInfo);
+    MTERR mr = CryptoInfoFromCipherSuite(GetCipherSuite(), nullptr, &hashInfo);
     assert(mr == MT_S_OK);
 
     return &hashInfo;
-} // end function Hash
+} // end function GetHash
 
 bool
 EndpointParameters::IsEncrypted() const
 {
-    return (Cipher()->alg != CipherAlg_NULL);
+    return (GetCipher()->alg != CipherAlg_NULL);
 } // end function IsEncrypted
 
 
@@ -1662,34 +1662,34 @@ ConnectionParameters::Initialize(
 {
     MTERR mr = MT_S_OK;
 
-    if (!CertChain()->Data()->empty())
+    if (!GetCertChain()->GetData()->empty())
     {
         assert(false);
         mr = MT_E_FAIL;
         goto error;
     }
 
-    *CertChain() = *pCertChain;
+    SetCertChain(pCertChain);
     m_spPubKeyCipherer = spPubKeyCipherer;
 
 
-    assert(ReadParams()->Cipher()->alg == CipherAlg_NULL);
+    assert(GetReadParams()->GetCipher()->alg == CipherAlg_NULL);
 
     CHKOK(spClientSymCipherer->SetCipherInfo(
-             ReadParams()->Key(),
-             ReadParams()->Cipher()));
+             GetReadParams()->GetKey(),
+             GetReadParams()->GetCipher()));
 
 
-    assert(WriteParams()->Cipher()->alg == CipherAlg_NULL);
+    assert(GetWriteParams()->GetCipher()->alg == CipherAlg_NULL);
 
     CHKOK(spServerSymCipherer->SetCipherInfo(
-             WriteParams()->Key(),
-             WriteParams()->Cipher()));
+             GetWriteParams()->GetKey(),
+             GetWriteParams()->GetCipher()));
 
 
-    CHKOK(ReadParams()->Initialize(spClientSymCipherer, spClientHasher));
+    CHKOK(GetReadParams()->Initialize(spClientSymCipherer, spClientHasher));
 
-    CHKOK(WriteParams()->Initialize(spServerSymCipherer, spServerHasher));
+    CHKOK(GetWriteParams()->Initialize(spServerSymCipherer, spServerHasher));
 
 done:
     return mr;
@@ -1717,17 +1717,17 @@ ConnectionParameters::ComputePRF(
     ** PRF should only be called at times after the version and cipher suite
     ** are finalized
     */
-    assert(*ReadParams()->Version() == *WriteParams()->Version());
-    assert(*ReadParams()->Hash() == *WriteParams()->Hash());
+    assert(*GetReadParams()->GetVersion() == *GetWriteParams()->GetVersion());
+    assert(*GetReadParams()->GetHash() == *GetWriteParams()->GetHash());
 
-    wprintf(L"protocol version for PRF algorithm: %04LX\n", *ReadParams()->Version());
+    wprintf(L"protocol version for PRF algorithm: %04LX\n", *GetReadParams()->GetVersion());
 
-    switch (*ReadParams()->Version())
+    switch (*GetReadParams()->GetVersion())
     {
         case MT_ProtocolVersion::MTPV_TLS10:
         {
             mr = ComputePRF_TLS10(
-                     ReadParams()->HashInst()->get(),
+                     GetReadParams()->GetHasher().get(),
                      pvbSecret,
                      szLabel,
                      pvbSeed,
@@ -1739,7 +1739,7 @@ ConnectionParameters::ComputePRF(
         case MT_ProtocolVersion::MTPV_TLS11:
         {
             mr = ComputePRF_TLS11(
-                     ReadParams()->HashInst()->get(),
+                     GetReadParams()->GetHasher().get(),
                      pvbSecret,
                      szLabel,
                      pvbSeed,
@@ -1751,7 +1751,7 @@ ConnectionParameters::ComputePRF(
         case MT_ProtocolVersion::MTPV_TLS12:
         {
             mr = ComputePRF_TLS12(
-                     ReadParams()->HashInst()->get(),
+                     GetReadParams()->GetHasher().get(),
                      pvbSecret,
                      szLabel,
                      pvbSeed,
@@ -1804,22 +1804,22 @@ ConnectionParameters::ComputeMasterSecret(
     wprintf(L"premaster secret:\n");
     PrintByteVector(&vbPreMasterSecret);
 
-    CHKOK(ClientRandom()->SerializeToVect(&vbRandoms));
+    CHKOK(GetClientRandom()->SerializeToVect(&vbRandoms));
 
-    assert(vbRandoms.size() == ClientRandom()->Length());
+    assert(vbRandoms.size() == GetClientRandom()->Length());
 
-    CHKOK(ServerRandom()->SerializeAppendToVect(&vbRandoms));
+    CHKOK(GetServerRandom()->SerializeAppendToVect(&vbRandoms));
 
-    assert(vbRandoms.size() == ClientRandom()->Length() + ServerRandom()->Length());
+    assert(vbRandoms.size() == GetClientRandom()->Length() + GetServerRandom()->Length());
 
     CHKOK(ComputePRF(
              &vbPreMasterSecret,
              c_szMasterSecret_PRFLabel,
              &vbRandoms,
              c_cbMasterSecret_Length,
-             MasterSecret()));
+             GetMasterSecret()));
 
-    assert(MasterSecret()->size() == c_cbMasterSecret_Length);
+    assert(GetMasterSecret()->size() == c_cbMasterSecret_Length);
 
 done:
     return mr;
@@ -1866,33 +1866,33 @@ ConnectionParameters::GenerateKeyMaterial(
     CHKOK(ComputeMasterSecret(pPreMasterSecret));
 
     // should only be called when cipher and hash are finalized
-    assert(*ReadParams()->Cipher() == *WriteParams()->Cipher());
-    assert(*ReadParams()->Hash() == *WriteParams()->Hash());
+    assert(*GetReadParams()->GetCipher() == *GetWriteParams()->GetCipher());
+    assert(*GetReadParams()->GetHash() == *GetWriteParams()->GetHash());
 
     /*
     ** client and server hash keys
     ** client and server keys
     ** client and server IVs
     */
-    cbKeyBlock = (ReadParams()->Hash()->cbMACKeySize * 2) +
-                 (ReadParams()->Cipher()->cbKeyMaterialSize * 2) +
-                 (ReadParams()->Cipher()->cbIVSize * 2);
+    cbKeyBlock = (GetReadParams()->GetHash()->cbMACKeySize * 2) +
+                 (GetReadParams()->GetCipher()->cbKeyMaterialSize * 2) +
+                 (GetReadParams()->GetCipher()->cbIVSize * 2);
 
     wprintf(L"need %d bytes for key block (%d * 2) + (%d * 2) + (%d * 2)\n",
         cbKeyBlock,
-        ReadParams()->Hash()->cbMACKeySize,
-        ReadParams()->Cipher()->cbKeyMaterialSize,
-        ReadParams()->Cipher()->cbIVSize);
+        GetReadParams()->GetHash()->cbMACKeySize,
+        GetReadParams()->GetCipher()->cbKeyMaterialSize,
+        GetReadParams()->GetCipher()->cbIVSize);
 
-    CHKOK(ServerRandom()->SerializeToVect(&vbRandoms));
+    CHKOK(GetServerRandom()->SerializeToVect(&vbRandoms));
 
-    CHKOK(ClientRandom()->SerializeAppendToVect(&vbRandoms));
+    CHKOK(GetClientRandom()->SerializeAppendToVect(&vbRandoms));
 
     wprintf(L"randoms: (%d bytes)\n", vbRandoms.size());
     PrintByteVector(&vbRandoms);
 
     CHKOK(ComputePRF(
-             MasterSecret(),
+             GetMasterSecret(),
              c_szKeyExpansion_PRFLabel,
              &vbRandoms,
              cbKeyBlock,
@@ -1919,60 +1919,60 @@ ConnectionParameters::GenerateKeyMaterial(
             };
 
         fnPartitionBlock(
-            ReadParams()->MACKey(),
-            ReadParams()->Hash()->cbMACKeySize,
-            L"ReadParams()->MACKey()");
+            GetReadParams()->GetMACKey(),
+            GetReadParams()->GetHash()->cbMACKeySize,
+            L"GetReadParams()->GetMACKey()");
 
         fnPartitionBlock(
-            WriteParams()->MACKey(),
-            WriteParams()->Hash()->cbMACKeySize,
-            L"WriteParams()->MACKey()");
-
-
-        fnPartitionBlock(
-            ReadParams()->Key(),
-            ReadParams()->Cipher()->cbKeyMaterialSize,
-            L"ReadParams()->Key()");
-
-        fnPartitionBlock(
-            WriteParams()->Key(),
-            WriteParams()->Cipher()->cbKeyMaterialSize,
-            L"WriteParams()->Key()");
+            GetWriteParams()->GetMACKey(),
+            GetWriteParams()->GetHash()->cbMACKeySize,
+            L"GetWriteParams()->GetMACKey()");
 
 
         fnPartitionBlock(
-            ReadParams()->IV(),
-            ReadParams()->Cipher()->cbIVSize,
-            L"ReadParams()->IV()");
+            GetReadParams()->GetKey(),
+            GetReadParams()->GetCipher()->cbKeyMaterialSize,
+            L"GetReadParams()->GetKey()");
 
         fnPartitionBlock(
-            WriteParams()->IV(),
-            WriteParams()->Cipher()->cbIVSize,
-            L"WriteParams()->IV()");
+            GetWriteParams()->GetKey(),
+            GetWriteParams()->GetCipher()->cbKeyMaterialSize,
+            L"GetWriteParams()->GetKey()");
+
+
+        fnPartitionBlock(
+            GetReadParams()->GetIV(),
+            GetReadParams()->GetCipher()->cbIVSize,
+            L"GetReadParams()->GetIV()");
+
+        fnPartitionBlock(
+            GetWriteParams()->GetIV(),
+            GetWriteParams()->GetCipher()->cbIVSize,
+            L"GetWriteParams()->GetIV()");
 
         // we should have consumed all the data
         assert(itKeyBlock == vbKeyBlock.end());
 
 
-        CHKOK((*ReadParams()->SymCipherer())->SetCipherInfo(
-                 ReadParams()->Key(),
-                 ReadParams()->Cipher()));
+        CHKOK(GetReadParams()->GetSymCipherer()->SetCipherInfo(
+                 GetReadParams()->GetKey(),
+                 GetReadParams()->GetCipher()));
 
-        CHKOK((*WriteParams()->SymCipherer())->SetCipherInfo(
-                 WriteParams()->Key(),
-                 WriteParams()->Cipher()));
+        CHKOK(GetWriteParams()->GetSymCipherer()->SetCipherInfo(
+                 GetWriteParams()->GetKey(),
+                 GetWriteParams()->GetCipher()));
     }
 
 done:
     return mr;
 
 error:
-    ReadParams()->MACKey()->clear();
-    WriteParams()->MACKey()->clear();
-    ReadParams()->Key()->clear();
-    WriteParams()->Key()->clear();
-    ReadParams()->IV()->clear();
-    WriteParams()->IV()->clear();
+    GetReadParams()->GetMACKey()->clear();
+    GetWriteParams()->GetMACKey()->clear();
+    GetReadParams()->GetKey()->clear();
+    GetWriteParams()->GetKey()->clear();
+    GetReadParams()->GetIV()->clear();
+    GetWriteParams()->GetIV()->clear();
     goto done;
 } // end function GenerateKeyMaterial
 
@@ -1986,22 +1986,22 @@ ConnectionParameters::CopyCommonParamsTo(
     ConnectionParameters* pDest
 )
 {
-    *pDest->CertChain() = *CertChain();
-    *pDest->PubKeyCipherer() = *PubKeyCipherer();
-    *pDest->ClientHello() = *ClientHello();
-    *pDest->ClientRandom() = *ClientRandom();
-    *pDest->ServerRandom() = *ServerRandom();
-    *pDest->ClientVerifyData() = *ClientVerifyData();
-    *pDest->ServerVerifyData() = *ServerVerifyData();
-    *pDest->HandshakeMessages() = *HandshakeMessages();
-    *pDest->MasterSecret() = *MasterSecret();
+    pDest->SetCertChain(GetCertChain());
+    pDest->SetPubKeyCipherer(GetPubKeyCipherer());
+    pDest->SetClientHello(GetClientHello());
+    pDest->SetClientRandom(GetClientRandom());
+    pDest->SetServerRandom(GetServerRandom());
+    pDest->SetClientVerifyData(GetClientVerifyData());
+    pDest->SetServerVerifyData(GetServerVerifyData());
+    pDest->SetHandshakeMessages(GetHandshakeMessages());
+    pDest->SetMasterSecret(GetMasterSecret());
     return MT_S_OK;
 } // end function CopyCommonParamsTo
 
 bool
 ConnectionParameters::IsHandshakeInProgress() const
 {
-    return !HandshakeMessages()->empty();
+    return !GetHandshakeMessages()->empty();
 } // end function IsHandshakeInProgress
 
 
@@ -2300,7 +2300,7 @@ CryptoInfoFromCipherSuite(
         goto error;
     }
 
-    CHKOK(pCipherSuite->Value(&eCSV));
+    CHKOK(pCipherSuite->GetValue(&eCSV));
 
     if (pHashInfo != nullptr)
     {
@@ -2450,27 +2450,28 @@ MT_Structure::SerializeAppendToVect(
 /*********** MT_Securable *****************/
 
 MT_Securable::MT_Securable()
-    : m_pEndParams(nullptr)
+    : m_pEndpointParams(nullptr)
 {
 } // end ctor MT_Securable
 
 MTERR
 MT_Securable::CheckSecurity()
 {
-    assert(EndParams() != nullptr);
+    assert(GetEndpointParams() != nullptr);
     return CheckSecurityPriv();
 } // end function CheckSecurity
 
 
 /*********** MT_RecordLayerMessage *****************/
 
-void
+MTERR
 MT_ConnectionAware::SetConnection(
     TLSConnection* pConnection
 )
 {
     assert(m_pConnection == nullptr);
     m_pConnection = pConnection;
+    return MT_S_OK;
 } // end function SetConnection
 
 /*********** MT_RecordLayerMessage *****************/
@@ -2494,16 +2495,16 @@ MT_RecordLayerMessage::ParseFromPriv(
     size_t cbField = 0;
     size_t cbFragmentLength = 0;
 
-    PARSEPSTRUCT(ContentType());
+    PARSEPSTRUCT(GetContentType());
 
-    PARSEPSTRUCT(ProtocolVersion());
+    PARSEPSTRUCT(GetProtocolVersion());
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
     CHKOK(ReadNetworkLong(pv, cb, cbField, &cbFragmentLength));
 
     ADVANCE_PARSE();
 
-    PARSEVB(cbFragmentLength, Fragment());
+    PARSEVB(cbFragmentLength, GetFragment());
 
 done:
     return mr;
@@ -2515,7 +2516,7 @@ error:
 MT_UINT16
 MT_RecordLayerMessage::PayloadLength() const
 {
-    size_t cbLength = Fragment()->size();
+    size_t cbLength = GetFragment()->size();
     assert(cbLength <= UINT16_MAX);
     return static_cast<MT_UINT16>(cbLength);
 } // end function PayloadLength
@@ -2523,8 +2524,8 @@ MT_RecordLayerMessage::PayloadLength() const
 size_t
 MT_RecordLayerMessage::Length() const
 {
-    size_t cbLength = ContentType()->Length() +
-                      ProtocolVersion()->Length() +
+    size_t cbLength = GetContentType()->Length() +
+                      GetProtocolVersion()->Length() +
                       c_cbRecordLayerMessage_Fragment_LFL +
                       PayloadLength();
 
@@ -2540,17 +2541,17 @@ MT_RecordLayerMessage::SerializePriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    SERIALIZEPSTRUCT(ContentType());
+    SERIALIZEPSTRUCT(GetContentType());
 
-    SERIALIZEPSTRUCT(ProtocolVersion());
+    SERIALIZEPSTRUCT(GetProtocolVersion());
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
     CHKOK(WriteNetworkLong(PayloadLength(), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
-    assert(PayloadLength() == Fragment()->size());
-    SERIALIZEPVB(Fragment());
+    assert(PayloadLength() == GetFragment()->size());
+    SERIALIZEPVB(GetFragment());
 
 done:
     return mr;
@@ -2579,11 +2580,11 @@ MT_Handshake::ParseFromPriv(
     size_t cbField = c_cbHandshakeType_Length;
     size_t cbPayloadLength = 0;
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Type())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(GetType())));
 
-    if (!IsKnownType(*Type()))
+    if (!IsKnownType(*GetType()))
     {
-        wprintf(L"warning: unknown handshake type: %d\n", *Type());
+        wprintf(L"warning: unknown handshake type: %d\n", *GetType());
     }
 
     ADVANCE_PARSE();
@@ -2593,7 +2594,7 @@ MT_Handshake::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    PARSEVB(cbPayloadLength, Body());
+    PARSEVB(cbPayloadLength, GetBody());
 
 done:
     return mr;
@@ -2642,7 +2643,7 @@ MT_Handshake::SerializePriv(
     MTERR mr = MT_S_OK;
     size_t cbField = c_cbHandshakeType_Length;
 
-    CHKOK(WriteNetworkLong(static_cast<MT_UINT8>(*Type()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_UINT8>(*GetType()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -2651,8 +2652,8 @@ MT_Handshake::SerializePriv(
 
     ADVANCE_PARSE();
 
-    assert(PayloadLength() == Body()->size());
-    SERIALIZEPVB(Body());
+    assert(PayloadLength() == GetBody()->size());
+    SERIALIZEPVB(GetBody());
 
 done:
     return mr;
@@ -2666,7 +2667,7 @@ MT_Handshake::HandshakeTypeString() const
 {
     const wchar_t* wszType = nullptr;
 
-    switch (*Type())
+    switch (*GetType())
     {
         case MTH_HelloRequest:
         wszType = L"HelloRequest";
@@ -2739,17 +2740,17 @@ MT_ClientHello::ParseFromPriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    PARSEPSTRUCT(ClientVersion());
+    PARSEPSTRUCT(GetClientVersion());
 
-    PARSEPSTRUCT(Random());
+    PARSEPSTRUCT(GetRandom());
 
-    PARSEPSTRUCT(SessionID());
+    PARSEPSTRUCT(GetSessionID());
 
-    PARSEPSTRUCT(CipherSuites());
+    PARSEPSTRUCT(GetCipherSuites());
 
-    PARSEPSTRUCT(CompressionMethods());
+    PARSEPSTRUCT(GetCompressionMethods());
 
-    PARSEPSTRUCT(Extensions());
+    PARSEPSTRUCT(GetExtensions());
 
 done:
     return mr;
@@ -2761,12 +2762,12 @@ error:
 size_t
 MT_ClientHello::Length() const
 {
-    size_t cbLength = ClientVersion()->Length() +
-                      Random()->Length() +
-                      SessionID()->Length() +
-                      CipherSuites()->Length() +
-                      CompressionMethods()->Length() +
-                      Extensions()->Length();
+    size_t cbLength = GetClientVersion()->Length() +
+                      GetRandom()->Length() +
+                      GetSessionID()->Length() +
+                      GetCipherSuites()->Length() +
+                      GetCompressionMethods()->Length() +
+                      GetExtensions()->Length();
 
     return cbLength;
 } // end function Length
@@ -2788,15 +2789,15 @@ MT_ServerHello::MT_ServerHello()
 size_t
 MT_ServerHello::Length() const
 {
-    size_t cbLength = ServerVersion()->Length() +
-                      Random()->Length() +
-                      SessionID()->Length() +
-                      CipherSuite()->Length() +
-                      CompressionMethod()->Length();
+    size_t cbLength = GetServerVersion()->Length() +
+                      GetRandom()->Length() +
+                      GetSessionID()->Length() +
+                      GetCipherSuite()->Length() +
+                      GetCompressionMethod()->Length();
 
-    if (Extensions()->Count() > 0)
+    if (GetExtensions()->Count() > 0)
     {
-        cbLength += Extensions()->Length();
+        cbLength += GetExtensions()->Length();
     }
 
     return cbLength;
@@ -2811,19 +2812,19 @@ MT_ServerHello::SerializePriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    SERIALIZEPSTRUCT(ServerVersion());
+    SERIALIZEPSTRUCT(GetServerVersion());
 
-    SERIALIZEPSTRUCT(Random());
+    SERIALIZEPSTRUCT(GetRandom());
 
-    SERIALIZEPSTRUCT(SessionID());
+    SERIALIZEPSTRUCT(GetSessionID());
 
-    SERIALIZEPSTRUCT(CipherSuite());
+    SERIALIZEPSTRUCT(GetCipherSuite());
 
-    SERIALIZEPSTRUCT(CompressionMethod());
+    SERIALIZEPSTRUCT(GetCompressionMethod());
 
-    if (Extensions()->Count() > 0)
+    if (GetExtensions()->Count() > 0)
     {
-        SERIALIZEPSTRUCT(Extensions());
+        SERIALIZEPSTRUCT(GetExtensions());
     }
 
 done:
@@ -2853,20 +2854,20 @@ MT_ProtocolVersion::ParseFromPriv(
 
     assert(Length() == c_cbProtocolVersion_Length);
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT16*>(Version())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT16*>(GetVersion())));
 
     ADVANCE_PARSE();
 
-    if (!IsKnownVersion(*Version()))
+    if (!IsKnownVersion(*GetVersion()))
     {
-        wprintf(L"warning: unknown protocol version: %04X\n", *Version());
+        wprintf(L"warning: unknown protocol version: %04X\n", *GetVersion());
     }
 
 done:
     return mr;
 
 error:
-    *Version() = MTPV_Unknown;
+    SetVersion(MTPV_Unknown);
     goto done;
 } // end function ParseFromPriv
 
@@ -2880,7 +2881,7 @@ MT_ProtocolVersion::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbProtocolVersion_Length);
 
-    CHKOK(WriteNetworkLong(static_cast<MT_UINT16>(*Version()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_UINT16>(*GetVersion()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -2926,7 +2927,7 @@ MT_CipherSuite::KeyExchangeAlgorithm(
     MTERR mr = MT_S_OK;
     MT_CipherSuiteValue eCSV;
 
-    CHKOK(Value(&eCSV));
+    CHKOK(GetValue(&eCSV));
 
     switch (eCSV)
     {
@@ -2957,20 +2958,20 @@ error:
 } // end function KeyExchangeAlgorithm
 
 MTERR
-MT_CipherSuite::Value(
+MT_CipherSuite::GetValue(
     MT_CipherSuiteValue* peValue
 ) const
 {
     MTERR mr = MT_S_OK;
     MT_CipherSuiteValue cs;
 
-    assert(Data()->size() <= sizeof(cs));
-    assert(Data()->size() == c_cbCipherSuite_Length);
+    assert(GetData()->size() <= sizeof(cs));
+    assert(GetData()->size() == c_cbCipherSuite_Length);
 
     CHKOK(ReadNetworkLong(
-                     &Data()->front(),
-                     Data()->size(),
-                     Data()->size(),
+                     &GetData()->front(),
+                     GetData()->size(),
+                     GetData()->size(),
                      reinterpret_cast<MT_UINT16*>(&cs)));
 
     *peValue = cs;
@@ -2980,7 +2981,7 @@ done:
 
 error:
     goto done;
-} // end function Value
+} // end function GetValue
 
 MTERR
 MT_CipherSuite::SetValue(
@@ -2989,13 +2990,13 @@ MT_CipherSuite::SetValue(
 {
     MTERR mr = MT_S_OK;
 
-    ResizeVector(Data(), c_cbCipherSuite_Length);
+    ResizeVector(GetData(), c_cbCipherSuite_Length);
 
     CHKOK(WriteNetworkLong(
              static_cast<MT_UINT16>(eValue),
-             Data()->size(),
-             &Data()->front(),
-             Data()->size()));
+             GetData()->size(),
+             &GetData()->front(),
+             GetData()->size()));
 
 done:
     return mr;
@@ -3012,13 +3013,13 @@ MT_CipherSuite::operator==(
     MTERR mr = MT_S_OK;
     MT_CipherSuiteValue eValue;
     MT_CipherSuiteValue eOtherValue;
-    mr = Value(&eValue);
+    mr = GetValue(&eValue);
     if (mr != MT_S_OK)
     {
         return false;
     }
 
-    mr = rOther.Value(&eOtherValue);
+    mr = rOther.GetValue(&eOtherValue);
     if (mr != MT_S_OK)
     {
         return false;
@@ -3112,7 +3113,7 @@ MT_ContentType::ParseFromPriv(
 
     assert(Length() == c_cbContentType_Length);
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Type())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(GetType())));
 
     ADVANCE_PARSE();
 
@@ -3134,7 +3135,7 @@ MT_ContentType::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbContentType_Length);
 
-    CHKOK(WriteNetworkLong(static_cast<MT_UINT8>(*Type()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_UINT8>(*GetType()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -3148,7 +3149,7 @@ error:
 wstring
 MT_ContentType::ToString() const
 {
-    switch (*Type())
+    switch (*GetType())
     {
         case MTCT_Type_ChangeCipherSpec:
             return wstring(L"ChangeCipherSpec");
@@ -3195,7 +3196,7 @@ MT_Random::ParseFromPriv(
 
     ADVANCE_PARSE();
 
-    PARSEPSTRUCT(RandomBytes());
+    PARSEPSTRUCT(GetRandomBytes());
 
 done:
     return mr;
@@ -3213,11 +3214,11 @@ MT_Random::SerializePriv(
     MTERR mr = MT_S_OK;
     size_t cbField = c_cbRandomTime_Length;
 
-    CHKOK(WriteNetworkLong(*GMTUnixTime(), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(*GetGMTUnixTime(), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
-    SERIALIZEPSTRUCT(RandomBytes());
+    SERIALIZEPSTRUCT(GetRandomBytes());
 
 done:
     return mr;
@@ -3230,13 +3231,13 @@ MTERR
 MT_Random::PopulateNow()
 {
     MTERR mr = MT_S_OK;
-    CHKOK(GetCurrentGMTTime(GMTUnixTime()));
+    CHKOK(GetCurrentGMTTime(GetGMTUnixTime()));
 
     // ResizeVector fills with a fixed value, for easier debugging
-    ResizeVector(RandomBytes()->Data(), c_cbRandomBytes_Length);
+    ResizeVector(GetRandomBytes()->GetData(), c_cbRandomBytes_Length);
 
     /* or else could fill with actual random bytes
-    CHKOK(WriteRandomBytes(&RandomBytes()->front(), RandomBytes()->size()));
+    CHKOK(WriteRandomBytes(&GetRandomBytes()->front(), GetRandomBytes()->size()));
     */
 
 done:
@@ -3266,11 +3267,11 @@ MT_CompressionMethod::ParseFromPriv(
 
     assert(Length() == c_cbCompressionMethod_Length);
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Method())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(GetMethod())));
 
-    if (*Method() != MTCM_Null)
+    if (*GetMethod() != MTCM_Null)
     {
-        wprintf(L"warning: unknown compression method: %d\n", *Method());
+        wprintf(L"warning: unknown compression method: %d\n", *GetMethod());
     }
 
     ADVANCE_PARSE();
@@ -3292,7 +3293,7 @@ MT_CompressionMethod::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbCompressionMethod_Length);
 
-    CHKOK(WriteNetworkLong(static_cast<MT_UINT8>(*Method()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_UINT8>(*GetMethod()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -3321,7 +3322,7 @@ MT_Certificate::SerializePriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    SERIALIZEPSTRUCT(CertificateList());
+    SERIALIZEPSTRUCT(GetCertificateList());
 
 done:
     return mr;
@@ -3337,8 +3338,8 @@ MT_Certificate::AddCertificateFromMemory(
 )
 {
     MT_ASN1Cert cert;
-    cert.Data()->assign(pvCert, pvCert + cbCert);
-    CertificateList()->Data()->push_back(cert);
+    cert.GetData()->assign(pvCert, pvCert + cbCert);
+    GetCertificateList()->GetData()->push_back(cert);
     return MT_S_OK;
 } // end function AddCertificateFromMemory
 
@@ -3350,9 +3351,9 @@ MT_SessionID::PopulateWithRandom()
 {
     MTERR mr = MT_S_OK;
 
-    ResizeVector(Data(), MaxLength());
+    ResizeVector(GetData(), MaxLength());
 
-    CHKOK(WriteRandomBytes(&Data()->front(), Data()->size()));
+    CHKOK(WriteRandomBytes(&GetData()->front(), GetData()->size()));
 
 done:
     return mr;
@@ -3380,11 +3381,11 @@ MT_Extension::ParseFromPriv(
     MTERR mr = MT_S_OK;
     size_t cbField = c_cbExtensionType_Length;
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT16*>(ExtensionType())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT16*>(GetExtensionType())));
 
     ADVANCE_PARSE();
 
-    PARSEPSTRUCT(ExtensionData());
+    PARSEPSTRUCT(GetExtensionData());
 
 done:
     return mr;
@@ -3397,7 +3398,7 @@ size_t
 MT_Extension::Length() const
 {
     size_t cbLength = c_cbExtensionType_Length +
-                      ExtensionData()->Length();
+                      GetExtensionData()->Length();
     return cbLength;
 } // end function Length
 
@@ -3411,11 +3412,11 @@ MT_Extension::SerializePriv(
     size_t cbField = 0;
 
     cbField = c_cbExtensionType_Length;
-    CHKOK(WriteNetworkLong(static_cast<MT_UINT16>(*ExtensionType()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_UINT16>(*GetExtensionType()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
-    SERIALIZEPSTRUCT(ExtensionData());
+    SERIALIZEPSTRUCT(GetExtensionData());
 
 done:
     return mr;
@@ -3443,9 +3444,9 @@ MT_PreMasterSecret::ParseFromPriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    PARSEPSTRUCT(ClientVersion());
+    PARSEPSTRUCT(GetClientVersion());
 
-    PARSEPSTRUCT(Random());
+    PARSEPSTRUCT(GetRandom());
 
 done:
     return mr;
@@ -3463,9 +3464,9 @@ MT_PreMasterSecret::SerializePriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    SERIALIZEPSTRUCT(ClientVersion());
+    SERIALIZEPSTRUCT(GetClientVersion());
 
-    SERIALIZEPSTRUCT(Random());
+    SERIALIZEPSTRUCT(GetRandom());
 
 done:
     return mr;
@@ -3477,8 +3478,8 @@ error:
 size_t
 MT_PreMasterSecret::Length() const
 {
-    size_t cbLength = ClientVersion()->Length() +
-                      Random()->Length();
+    size_t cbLength = GetClientVersion()->Length() +
+                      GetRandom()->Length();
 
     return cbLength;
 } // end function Length
@@ -3503,11 +3504,11 @@ MT_ChangeCipherSpec::ParseFromPriv(
 
     assert(Length() == c_cbChangeCipherSpec_Length);
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Type())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(GetType())));
 
-    if (*Type() != MTCCS_ChangeCipherSpec)
+    if (*GetType() != MTCCS_ChangeCipherSpec)
     {
-        wprintf(L"warning: unrecognized change cipher spec type: %d\n", *Type());
+        wprintf(L"warning: unrecognized change cipher spec type: %d\n", *GetType());
     }
 
     ADVANCE_PARSE();
@@ -3529,7 +3530,7 @@ MT_ChangeCipherSpec::SerializePriv(
     size_t cbField = Length();
     assert(Length() == c_cbChangeCipherSpec_Length);
 
-    CHKOK(WriteNetworkLong(static_cast<MT_BYTE>(*Type()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_BYTE>(*GetType()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -3556,7 +3557,7 @@ MT_Finished::ParseFromPriv(
     size_t cb
 )
 {
-    return VerifyData()->ParseFrom(pv, cb);
+    return GetVerifyData()->ParseFrom(pv, cb);
 } // end function ParseFromPriv
 
 MTERR
@@ -3565,7 +3566,7 @@ MT_Finished::SerializePriv(
     size_t cb
 ) const
 {
-    return VerifyData()->Serialize(pv, cb);
+    return GetVerifyData()->Serialize(pv, cb);
 } // end function SerializePriv
 
 /*
@@ -3586,9 +3587,9 @@ MT_Finished::CheckSecurityPriv()
              &vbComputedVerifyData));
 
     wprintf(L"Received Finished hash:\n");
-    PrintByteVector(VerifyData()->Data());
+    PrintByteVector(GetVerifyData()->GetData());
 
-    if (vbComputedVerifyData != *VerifyData()->Data())
+    if (vbComputedVerifyData != *GetVerifyData()->GetData())
     {
         mr = MT_E_BAD_FINISHED_HASH;
         goto error;
@@ -3628,8 +3629,8 @@ MT_Finished::ComputeVerifyData(
     { // just logging
         wprintf(L"compute verify data: working on the following handshake messages:\n");
         for_each(
-            ConnParams()->HandshakeMessages()->begin(),
-            ConnParams()->HandshakeMessages()->end(),
+            GetConnParams()->GetHandshakeMessages()->begin(),
+            GetConnParams()->GetHandshakeMessages()->end(),
             [] (const shared_ptr<MT_Structure> spStructure)
             {
                 MT_Handshake* pHandshakeMessage = static_cast<MT_Handshake*>(spStructure.get());
@@ -3639,11 +3640,11 @@ MT_Finished::ComputeVerifyData(
     }
 
     CHKOK(SerializeMessagesToVector<MT_Structure>(
-             ConnParams()->HandshakeMessages()->begin(),
-             ConnParams()->HandshakeMessages()->end(),
+             GetConnParams()->GetHandshakeMessages()->begin(),
+             GetConnParams()->GetHandshakeMessages()->end(),
              &vbHandshakeMessages));
 
-    switch (*EndParams()->Version())
+    switch (*GetEndpointParams()->GetVersion())
     {
         case MT_ProtocolVersion::MTPV_TLS10:
         case MT_ProtocolVersion::MTPV_TLS11:
@@ -3653,13 +3654,13 @@ MT_Finished::ComputeVerifyData(
             ByteVector vbHandshakeHash;
 
             // MD5 hash
-            CHKOK((*EndParams()->HashInst())->Hash(
+            CHKOK(GetEndpointParams()->GetHasher()->Hash(
                      &c_HashInfo_MD5,
                      &vbHandshakeMessages,
                      &vbMD5HandshakeHash));
 
             // SHA1 hash
-            CHKOK((*EndParams()->HashInst())->Hash(
+            CHKOK(GetEndpointParams()->GetHasher()->Hash(
                      &c_HashInfo_SHA1,
                      &vbHandshakeMessages,
                      &vbSHA1HandshakeHash));
@@ -3676,7 +3677,7 @@ MT_Finished::ComputeVerifyData(
         // TLS 1.2 just uses a SHA-256 hash
         case MT_ProtocolVersion::MTPV_TLS12:
         {
-            CHKOK((*EndParams()->HashInst())->Hash(
+            CHKOK(GetEndpointParams()->GetHasher()->Hash(
                      &c_HashInfo_SHA256,
                      &vbHandshakeMessages,
                      &vbHashedHandshakeMessages));
@@ -3685,15 +3686,15 @@ MT_Finished::ComputeVerifyData(
 
         default:
         {
-            wprintf(L"unrecognized version: %04LX\n", *EndParams()->Version());
+            wprintf(L"unrecognized version: %04LX\n", *GetEndpointParams()->GetVersion());
             mr = MT_E_UNKNOWN_PROTOCOL_VERSION;
             goto error;
         }
         break;
     }
 
-    CHKOK(ConnParams()->ComputePRF(
-             ConnParams()->MasterSecret(),
+    CHKOK(GetConnParams()->ComputePRF(
+             GetConnParams()->GetMasterSecret(),
              szLabel,
              &vbHashedHandshakeMessages,
              c_cbFinishedVerifyData_Length,
@@ -3771,41 +3772,41 @@ MT_TLSCiphertext::MT_TLSCiphertext()
 ** up to us to get to the app for questions sometimes
 */
 MTERR
-MT_TLSCiphertext::SetSecurityParameters(
+MT_TLSCiphertext::SetEndpointParams(
     EndpointParameters* pEndParams
 )
 {
     MTERR mr = MT_S_OK;
 
-    CHKOK(MT_Securable::SetSecurityParameters(pEndParams));
+    CHKOK(MT_Securable::SetEndpointParams(pEndParams));
 
-    switch (EndParams()->Cipher()->type)
+    switch (GetEndpointParams()->GetCipher()->type)
     {
         case CipherType_Stream:
         {
-            m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericStreamCipher(this));
+            SetCipherFragment(shared_ptr<MT_CipherFragment>(new MT_GenericStreamCipher(this)));
         }
         break;
 
         case CipherType_Block:
         {
-            switch (*EndParams()->Version())
+            switch (*GetEndpointParams()->GetVersion())
             {
                 case MT_ProtocolVersion::MTPV_TLS10:
                 {
-                    m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS10(this));
+                    SetCipherFragment(shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS10(this)));
                 }
                 break;
 
                 case MT_ProtocolVersion::MTPV_TLS11:
                 {
-                    m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS11(this));
+                    SetCipherFragment(shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS11(this)));
                 }
                 break;
 
                 case MT_ProtocolVersion::MTPV_TLS12:
                 {
-                    m_spCipherFragment = shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS12(this));
+                    SetCipherFragment(shared_ptr<MT_CipherFragment>(new MT_GenericBlockCipher_TLS12(this)));
                 }
                 break;
 
@@ -3828,14 +3829,14 @@ MT_TLSCiphertext::SetSecurityParameters(
     }
 
     // propagate down the endpoint parameters to the fragment
-    CHKOK(CipherFragment()->SetSecurityParameters(EndParams()));
+    CHKOK(GetCipherFragment()->SetEndpointParams(GetEndpointParams()));
 
 done:
     return mr;
 
 error:
     goto done;
-} // end function SetSecurityParameters
+} // end function SetEndpointParams
 
 MTERR
 MT_TLSCiphertext::Decrypt()
@@ -3848,7 +3849,7 @@ MT_TLSCiphertext::Decrypt()
     ** TLSCiphertext--no more, no less--because CipherFragment itself has no
     ** way to validate the length. it just accepts everything it's given
     */
-    CHKOK(CipherFragment()->ParseFromVect(Fragment()));
+    CHKOK(GetCipherFragment()->ParseFromVect(GetFragment()));
 
 done:
     return mr;
@@ -3863,13 +3864,13 @@ MT_TLSCiphertext::ToTLSPlaintext(
 )
 {
     // plaintext becomes associated with the same connection as this ciphertext
-    pPlaintext->SetConnection(Conn());
+    pPlaintext->SetConnection(GetConnection());
 
-    *(pPlaintext->ContentType()) = *ContentType();
-    *(pPlaintext->ProtocolVersion()) = *ProtocolVersion();
+    pPlaintext->SetContentType(GetContentType());
+    pPlaintext->SetProtocolVersion(GetProtocolVersion());
 
     // assumes the ciphertext has already been decrypted
-    *(pPlaintext->Fragment()) = *(CipherFragment()->Content());
+    pPlaintext->SetFragment(GetCipherFragment()->GetContent());
 
     return MT_S_OK;
 } // end function ToTLSPlaintext
@@ -3885,10 +3886,10 @@ MT_TLSCiphertext::FromTLSPlaintext(
 
     pspCiphertext->reset(new MT_TLSCiphertext());
 
-    CHKOK(pPlaintext->Conn()->CreateCiphertext(
-             *pPlaintext->ContentType()->Type(),
-             *pPlaintext->ProtocolVersion()->Version(),
-             pPlaintext->Fragment(),
+    CHKOK(pPlaintext->GetConnection()->CreateCiphertext(
+             *pPlaintext->GetContentType()->GetType(),
+             *pPlaintext->GetProtocolVersion()->GetVersion(),
+             pPlaintext->GetFragment(),
              pEndParams,
              pspCiphertext->get()));
 
@@ -3905,15 +3906,15 @@ MT_TLSCiphertext::Protect()
 {
     MTERR mr = MT_S_OK;
 
-    assert(EndParams()->Cipher()->type == CipherType_Stream ||
-           (EndParams()->Cipher()->type == CipherType_Block &&
-            (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10 ||
-             *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11 ||
-             *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)));
+    assert(GetEndpointParams()->GetCipher()->type == CipherType_Stream ||
+           (GetEndpointParams()->GetCipher()->type == CipherType_Block &&
+            (*GetEndpointParams()->GetVersion() == MT_ProtocolVersion::MTPV_TLS10 ||
+             *GetEndpointParams()->GetVersion() == MT_ProtocolVersion::MTPV_TLS11 ||
+             *GetEndpointParams()->GetVersion() == MT_ProtocolVersion::MTPV_TLS12)));
 
-    CHKOK(CipherFragment()->UpdateWriteSecurity());
+    CHKOK(GetCipherFragment()->UpdateWriteSecurity());
 
-    CHKOK(CipherFragment()->SerializeToVect(Fragment()));
+    CHKOK(GetCipherFragment()->SerializeToVect(GetFragment()));
 
 done:
     return mr;
@@ -3929,7 +3930,7 @@ MT_TLSCiphertext::GetProtocolVersionForSecurity(
 {
     MTERR mr = MT_S_OK;
 
-    MT_ProtocolVersion hashVersion(*ProtocolVersion());
+    MT_ProtocolVersion hashVersion(*GetProtocolVersion());
 
     /*
     ** some browsers like chrome and openssl do weird things with version
@@ -3940,21 +3941,21 @@ MT_TLSCiphertext::GetProtocolVersionForSecurity(
     ** reconcile it. the default behavior is to strictly follow the RFC and use
     ** the record layer version
     */
-    if (*EndParams()->Version() != *hashVersion.Version())
+    if (*GetEndpointParams()->GetVersion() != *hashVersion.GetVersion())
     {
         MT_ProtocolVersion::MTPV_Version ver;
 
-        wprintf(L"reconciling version mismatch between conn:%04LX and record:%04LX\n", *EndParams()->Version(), *hashVersion.Version());
+        wprintf(L"reconciling version mismatch between conn:%04LX and record:%04LX\n", *GetEndpointParams()->GetVersion(), *hashVersion.GetVersion());
 
-        mr = Listener()->OnReconcileSecurityVersion(
+        mr = GetListener()->OnReconcileSecurityVersion(
                  this,
-                 *EndParams()->Version(),
-                 *hashVersion.Version(),
+                 *GetEndpointParams()->GetVersion(),
+                 *hashVersion.GetVersion(),
                  &ver);
 
         if (mr == MT_S_LISTENER_HANDLED)
         {
-            *hashVersion.Version() = ver;
+            hashVersion.SetVersion(ver);
         }
         else if (mr != MT_S_LISTENER_IGNORED)
         {
@@ -3980,13 +3981,13 @@ MT_TLSCiphertext::CheckSecurityPriv()
 {
     MTERR mr = MT_S_OK;
 
-    assert(EndParams()->Cipher()->type == CipherType_Stream ||
-           (EndParams()->Cipher()->type == CipherType_Block &&
-            (*EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS10 ||
-             *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS11 ||
-             *EndParams()->Version() == MT_ProtocolVersion::MTPV_TLS12)));
+    assert(GetEndpointParams()->GetCipher()->type == CipherType_Stream ||
+           (GetEndpointParams()->GetCipher()->type == CipherType_Block &&
+            (*GetEndpointParams()->GetVersion() == MT_ProtocolVersion::MTPV_TLS10 ||
+             *GetEndpointParams()->GetVersion() == MT_ProtocolVersion::MTPV_TLS11 ||
+             *GetEndpointParams()->GetVersion() == MT_ProtocolVersion::MTPV_TLS12)));
 
-    CHKOK(CipherFragment()->CheckSecurity());
+    CHKOK(GetCipherFragment()->CheckSecurity());
 
 done:
     return mr;
@@ -4002,15 +4003,15 @@ MT_TLSCiphertext::GenerateNextIV(ByteVector* pvbIV)
     MTERR mr = MT_S_OK;
     static MT_BYTE iIVSeed = 1;
 
-    switch (*EndParams()->Version())
+    switch (*GetEndpointParams()->GetVersion())
     {
         case MT_ProtocolVersion::MTPV_TLS10:
-            pvbIV->assign(Fragment()->end() - EndParams()->Cipher()->cbIVSize, Fragment()->end());
+            pvbIV->assign(GetFragment()->end() - GetEndpointParams()->GetCipher()->cbIVSize, GetFragment()->end());
         break;
 
         case MT_ProtocolVersion::MTPV_TLS11:
         case MT_ProtocolVersion::MTPV_TLS12:
-            pvbIV->assign(EndParams()->Cipher()->cbIVSize, iIVSeed);
+            pvbIV->assign(GetEndpointParams()->GetCipher()->cbIVSize, iIVSeed);
             iIVSeed++;
         break;
 
@@ -4052,7 +4053,7 @@ MT_CipherFragment::ParseFromPriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    PARSEVB(cb, EncryptedContent());
+    PARSEVB(cb, GetEncryptedContent());
 
     assert(cb == 0);
 
@@ -4076,7 +4077,7 @@ MT_CipherFragment::SerializePriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    SERIALIZEPVB(EncryptedContent());
+    SERIALIZEPVB(GetEncryptedContent());
 
     assert(cb == 0);
 
@@ -4090,7 +4091,7 @@ error:
 size_t
 MT_CipherFragment::Length() const
 {
-    return EncryptedContent()->size();
+    return GetEncryptedContent()->size();
 } // end function Length
 
 /*
@@ -4122,7 +4123,7 @@ MT_CipherFragment::ComputeMAC(
     size_t cb = 0;
     size_t cbField = 0;
 
-    const HashInfo* pHashInfo = EndParams()->Hash();
+    const HashInfo* pHashInfo = GetEndpointParams()->GetHash();
 
     assert(pProtocolVersion->Length() == c_cbProtocolVersion_Length);
     assert(pContentType->Length() == c_cbContentType_Length);
@@ -4131,7 +4132,7 @@ MT_CipherFragment::ComputeMAC(
          pContentType->Length() +
          pProtocolVersion->Length() +
          c_cbRecordLayerMessage_Fragment_LFL +
-         Content()->size();
+         GetContent()->size();
 
     wprintf(L"MAC text is %d bytes\n", cb);
 
@@ -4155,21 +4156,21 @@ MT_CipherFragment::ComputeMAC(
 
     cbField = c_cbRecordLayerMessage_Fragment_LFL;
     CHKOK(WriteNetworkLong(
-             Content()->size(),
+             GetContent()->size(),
              cbField,
              pv,
              cb));
 
     ADVANCE_PARSE();
 
-    SERIALIZEPVB(Content());
+    SERIALIZEPVB(GetContent());
 
     assert(cb == 0);
 
     wprintf(L"MAC hash text:\n");
     PrintByteVector(&vbHashText);
 
-    CHKOK((*EndParams()->HashInst())->HMAC(
+    CHKOK(GetEndpointParams()->GetHasher()->HMAC(
              pHashInfo,
              pvbMACKey,
              &vbHashText,
@@ -4202,7 +4203,7 @@ MT_GenericStreamCipher::ParseFromPriv(
 )
 {
     MTERR mr = MT_S_OK;
-    const HashInfo* pHashInfo = EndParams()->Hash();
+    const HashInfo* pHashInfo = GetEndpointParams()->GetHash();
     size_t cbField = 0;
     ByteVector vbDecryptedStruct;
 
@@ -4212,8 +4213,8 @@ MT_GenericStreamCipher::ParseFromPriv(
     ** we have to be careful only to call this when we mean it, or else it
     ** changes the internal state of the cipherer down in cryptapi
     */
-    CHKOK((*EndParams()->SymCipherer())->DecryptBuffer(
-             EncryptedContent(),
+    CHKOK(GetEndpointParams()->GetSymCipherer()->DecryptBuffer(
+             GetEncryptedContent(),
              nullptr, // no IV for stream ciphers
              &vbDecryptedStruct));
 
@@ -4227,11 +4228,11 @@ MT_GenericStreamCipher::ParseFromPriv(
     ** huge, and therefore fail, so it should be safe. Or we could have used
     ** MT_SizeTSub().
     */
-    PARSEVB(cb - pHashInfo->cbHashSize, Content());
+    PARSEVB(cb - pHashInfo->cbHashSize, GetContent());
 
     assert(cb == pHashInfo->cbHashSize);
 
-    PARSEVB(pHashInfo->cbHashSize, MAC());
+    PARSEVB(pHashInfo->cbHashSize, GetMAC());
 
     assert(cb == 0);
 
@@ -4253,32 +4254,32 @@ MT_GenericStreamCipher::UpdateWriteSecurity()
 
     // get the MAC to attach to this message
     CHKOK(ComputeSecurityInfo(
-              *EndParams()->SequenceNumber(),
-              EndParams()->MACKey(),
-              Ciphertext()->ContentType(),
-              Ciphertext()->ProtocolVersion(),
-              MAC()));
+              *GetEndpointParams()->GetSequenceNumber(),
+              GetEndpointParams()->GetMACKey(),
+              GetCiphertext()->GetContentType(),
+              GetCiphertext()->GetProtocolVersion(),
+              GetMAC()));
 
-    assert(MAC()->size() == EndParams()->Hash()->cbHashSize);
+    assert(GetMAC()->size() == GetEndpointParams()->GetHash()->cbHashSize);
 
-    cb = Content()->size() +
-         MAC()->size();
+    cb = GetContent()->size() +
+         GetMAC()->size();
 
     ResizeVector(&vbPlaintextStruct, cb);
     pv = &vbPlaintextStruct.front();
 
-    SERIALIZEPVB(Content());
+    SERIALIZEPVB(GetContent());
 
-    SERIALIZEPVB(MAC());
+    SERIALIZEPVB(GetMAC());
 
     assert(cb == 0);
 
-    CHKOK((*EndParams()->SymCipherer())->EncryptBuffer(
+    CHKOK(GetEndpointParams()->GetSymCipherer()->EncryptBuffer(
              &vbPlaintextStruct,
-             nullptr, // no IV for stream cipher
-             EncryptedContent()));
+             nullptr, // no IV for stream ciphers
+             GetEncryptedContent()));
 
-    assert(!EncryptedContent()->empty());
+    assert(!GetEncryptedContent()->empty());
 
 done:
     return mr;
@@ -4325,22 +4326,22 @@ MT_GenericStreamCipher::CheckSecurityPriv()
     ByteVector vbMAC;
     MT_ProtocolVersion hashVersion;
 
-    CHKOK(Ciphertext()->GetProtocolVersionForSecurity(&hashVersion));
+    CHKOK(GetCiphertext()->GetProtocolVersionForSecurity(&hashVersion));
 
     CHKOK(ComputeSecurityInfo(
-              *EndParams()->SequenceNumber(),
-              EndParams()->MACKey(),
-              Ciphertext()->ContentType(),
+              *GetEndpointParams()->GetSequenceNumber(),
+              GetEndpointParams()->GetMACKey(),
+              GetCiphertext()->GetContentType(),
               &hashVersion,
               &vbMAC));
 
     wprintf(L"received MAC:\n");
-    PrintByteVector(MAC());
+    PrintByteVector(GetMAC());
 
     wprintf(L"computed MAC:\n");
     PrintByteVector(&vbMAC);
 
-    if (*MAC() != vbMAC)
+    if (*GetMAC() != vbMAC)
     {
         mr = MT_E_BAD_RECORD_MAC;
         goto error;
@@ -4373,7 +4374,7 @@ MT_GenericBlockCipher::ParseFromPriv(
 )
 {
     MTERR mr = MT_S_OK;
-    const HashInfo* pHashInfo = EndParams()->Hash();
+    const HashInfo* pHashInfo = GetEndpointParams()->GetHash();
     const MT_BYTE* pvEnd = nullptr;
     MT_UINT8 cbPaddingLength = 0;
     size_t cbField = 0;
@@ -4385,9 +4386,9 @@ MT_GenericBlockCipher::ParseFromPriv(
     ** we have to be careful only to call this when we mean it, or else it
     ** changes the internal state of the cipherer
     */
-    CHKOK((*EndParams()->SymCipherer())->DecryptBuffer(
-             EncryptedContent(),
-             IV(),
+    CHKOK(GetEndpointParams()->GetSymCipherer()->DecryptBuffer(
+             GetEncryptedContent(),
+             GetIV(),
              &vbDecryptedStruct));
 
     // now restart the parsing with the decrypted content
@@ -4428,11 +4429,11 @@ MT_GenericBlockCipher::ParseFromPriv(
     **          pvEnd -
     **          cbField + 1
     */
-    Padding()->assign(pvEnd - cbField + 1, pvEnd + 1);
+    GetPadding()->assign(pvEnd - cbField + 1, pvEnd + 1);
 
     {
         ByteVector vbExpectedPadding(cbPaddingLength, static_cast<MT_BYTE>(cbPaddingLength));
-        if (*Padding() != vbExpectedPadding)
+        if (*GetPadding() != vbExpectedPadding)
         {
             mr = MT_E_BAD_RECORD_PADDING;
             goto error;
@@ -4452,11 +4453,11 @@ MT_GenericBlockCipher::ParseFromPriv(
     ** parse out these two things now
     */
 
-    PARSEVB(cb - pHashInfo->cbHashSize, Content());
+    PARSEVB(cb - pHashInfo->cbHashSize, GetContent());
 
     assert(cb == pHashInfo->cbHashSize);
 
-    PARSEVB(pHashInfo->cbHashSize, MAC());
+    PARSEVB(pHashInfo->cbHashSize, GetMAC());
 
     assert(cb == 0);
 
@@ -4481,28 +4482,28 @@ MT_GenericBlockCipher::UpdateWriteSecurity()
     ByteVector vbPlaintextContent;
 
     CHKOK(ComputeSecurityInfo(
-             *EndParams()->SequenceNumber(),
-             EndParams()->MACKey(),
-             Ciphertext()->ContentType(),
-             Ciphertext()->ProtocolVersion(),
-             MAC(),
-             Padding()));
+             *GetEndpointParams()->GetSequenceNumber(),
+             GetEndpointParams()->GetMACKey(),
+             GetCiphertext()->GetContentType(),
+             GetCiphertext()->GetProtocolVersion(),
+             GetMAC(),
+             GetPadding()));
 
-    assert(MAC()->size() == EndParams()->Hash()->cbHashSize);
+    assert(GetMAC()->size() == GetEndpointParams()->GetHash()->cbHashSize);
 
-    cb = Content()->size() +
-         MAC()->size() +
-         Padding()->size() +
+    cb = GetContent()->size() +
+         GetMAC()->size() +
+         GetPadding()->size() +
          c_cbGenericBlockCipher_Padding_LFL;
 
     {
-        const CipherInfo* pCipherInfo = EndParams()->Cipher();
+        const CipherInfo* pCipherInfo = GetEndpointParams()->GetCipher();
         assert(pCipherInfo->type == CipherType_Block);
 
         /*
-        ** this check makes sure that Padding() was the right size to make the
-        ** total size of the payload a multiple of the block size, which is a
-        ** requirement for block ciphers
+        ** this check makes sure that GetPadding() was the right size to make
+        ** the total size of the payload a multiple of the block size, which is
+        ** a requirement for block ciphers
         */
         assert((cb % pCipherInfo->cbBlockSize) == 0);
     }
@@ -4511,11 +4512,11 @@ MT_GenericBlockCipher::UpdateWriteSecurity()
     ResizeVector(&vbPlaintextContent, cb);
     pv = &vbPlaintextContent.front();
 
-    SERIALIZEPVB(Content());
+    SERIALIZEPVB(GetContent());
 
-    SERIALIZEPVB(MAC());
+    SERIALIZEPVB(GetMAC());
 
-    SERIALIZEPVB(Padding());
+    SERIALIZEPVB(GetPadding());
 
     cbField = c_cbGenericBlockCipher_Padding_LFL;
     CHKOK(WriteNetworkLong(PaddingLength(), cbField, pv, cb));
@@ -4524,12 +4525,12 @@ MT_GenericBlockCipher::UpdateWriteSecurity()
 
     assert(cb == 0);
 
-    CHKOK((*EndParams()->SymCipherer())->EncryptBuffer(
+    CHKOK(GetEndpointParams()->GetSymCipherer()->EncryptBuffer(
              &vbPlaintextContent,
-             IV(),
-             EncryptedContent()));
+             GetIV(),
+             GetEncryptedContent()));
 
-    assert(!EncryptedContent()->empty());
+    assert(!GetEncryptedContent()->empty());
 
 done:
     return mr;
@@ -4544,7 +4545,7 @@ MT_GenericBlockCipher::PaddingLength() const
 {
     MTERR mr = MT_S_OK;
     MT_BYTE b = 0;
-    mr = MT_SizeTToByte(Padding()->size(), &b);
+    mr = MT_SizeTToByte(GetPadding()->size(), &b);
     assert(mr == MT_S_OK);
     return b;
 } // end function PaddingLength
@@ -4565,7 +4566,7 @@ MT_GenericBlockCipher::ComputeSecurityInfo(
 )
 {
     MTERR mr = MT_S_OK;
-    const CipherInfo* pCipherInfo = EndParams()->Cipher();
+    const CipherInfo* pCipherInfo = GetEndpointParams()->GetCipher();
 
     CHKOK(ComputeMAC(
                sequenceNumber,
@@ -4577,7 +4578,7 @@ MT_GenericBlockCipher::ComputeSecurityInfo(
     // generate padding bytes and assign to pvbPadding
     {
         assert(pCipherInfo->cbBlockSize != 0);
-        size_t cbUnpaddedBlockLength = Content()->size() + MAC()->size();
+        size_t cbUnpaddedBlockLength = GetContent()->size() + GetMAC()->size();
 
         // keep accumulating blocks until it just clears the content length
         size_t cbPaddedBlockLength = 0;
@@ -4605,7 +4606,7 @@ MT_GenericBlockCipher::ComputeSecurityInfo(
     // check that the entire content + padding is a multiple of block size
     assert(
     (
-      (Content()->size() +
+      (GetContent()->size() +
        pvbMAC->size() +
        pvbPadding->size() +
        c_cbGenericBlockCipher_Padding_LFL)
@@ -4628,35 +4629,35 @@ MT_GenericBlockCipher::CheckSecurityPriv()
     ByteVector vbPadding;
     MT_ProtocolVersion hashVersion;
 
-    CHKOK(Ciphertext()->GetProtocolVersionForSecurity(&hashVersion));
+    CHKOK(GetCiphertext()->GetProtocolVersionForSecurity(&hashVersion));
 
     CHKOK(ComputeSecurityInfo(
-              *EndParams()->SequenceNumber(),
-              EndParams()->MACKey(),
-              Ciphertext()->ContentType(),
+              *GetEndpointParams()->GetSequenceNumber(),
+              GetEndpointParams()->GetMACKey(),
+              GetCiphertext()->GetContentType(),
               &hashVersion,
               &vbMAC,
               &vbPadding));
 
     wprintf(L"received MAC:\n");
-    PrintByteVector(MAC());
+    PrintByteVector(GetMAC());
 
     wprintf(L"computed MAC:\n");
     PrintByteVector(&vbMAC);
 
-    if (*MAC() != vbMAC)
+    if (*GetMAC() != vbMAC)
     {
         mr = MT_E_BAD_RECORD_MAC;
         goto error;
     }
 
     wprintf(L"received padding:\n");
-    PrintByteVector(Padding());
+    PrintByteVector(GetPadding());
 
     wprintf(L"computed padding:\n");
     PrintByteVector(&vbPadding);
 
-    if (*Padding() != vbPadding)
+    if (*GetPadding() != vbPadding)
     {
         mr = MT_E_BAD_RECORD_PADDING;
         goto error;
@@ -4673,10 +4674,10 @@ error:
 /*********** MT_GenericBlockCipher_TLS10 *****************/
 
 const ByteVector*
-MT_GenericBlockCipher_TLS10::IV() const
+MT_GenericBlockCipher_TLS10::GetIV() const
 {
-    return EndParams()->IV();
-} // end function IV
+    return GetEndpointParams()->GetIV();
+} // end function GetIV
 
 
 /*********** MT_GenericBlockCipher_TLS11 *****************/
@@ -4706,10 +4707,10 @@ MT_GenericBlockCipher_TLS11::ParseFromPriv(
     ** http://stackoverflow.com/q/3436864
     */
 
-    PARSEVB(EndParams()->Cipher()->cbIVSize, IV());
+    PARSEVB(GetEndpointParams()->GetCipher()->cbIVSize, GetIV());
 
     wprintf(L"received IV field:\n");
-    PrintByteVector(IV());
+    PrintByteVector(GetIV());
 
     CHKOK(MT_GenericBlockCipher::ParseFromPriv(pv, cb));
 
@@ -4723,7 +4724,7 @@ error:
 MTERR
 MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
 {
-    *IV() = *EndParams()->IV();
+    SetIV(GetEndpointParams()->GetIV());
     return MT_GenericBlockCipher::UpdateWriteSecurity();
 } // end function UpdateWriteSecurity
 
@@ -4743,7 +4744,7 @@ MT_GenericBlockCipher_TLS11::SerializePriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    SERIALIZEPVB(IV());
+    SERIALIZEPVB(GetIV());
 
     CHKOK(MT_GenericBlockCipher::SerializePriv(pv, cb));
 
@@ -4758,7 +4759,7 @@ size_t
 MT_GenericBlockCipher_TLS11::Length() const
 {
     size_t cbLength = MT_GenericBlockCipher::Length() +
-                      EndParams()->Cipher()->cbIVSize;
+                      GetEndpointParams()->GetCipher()->cbIVSize;
 
     return cbLength;
 } // end function Length
@@ -4779,10 +4780,10 @@ SymmetricCipherer::SetCipherInfo(
 {
     MT_UNREFERENCED_PARAMETER(pvbKey);
 
-    *Cipher() = *pCipherInfo;
+    SetCipher(pCipherInfo);
 
     // if you pick null cipher, then better send an empty key
-    assert(Cipher()->alg != CipherAlg_NULL || pvbKey->empty());
+    assert(GetCipher()->alg != CipherAlg_NULL || pvbKey->empty());
 
     return MT_S_OK;
 } // end function SetCipherInfo
@@ -4801,7 +4802,7 @@ SymmetricCipherer::EncryptBuffer(
 {
     MT_UNREFERENCED_PARAMETER(pvbIV);
 
-    if (Cipher()->alg == CipherAlg_NULL)
+    if (GetCipher()->alg == CipherAlg_NULL)
     {
         *pvbEncrypted = *pvbCleartext;
         return MT_S_OK;
@@ -4820,7 +4821,7 @@ SymmetricCipherer::DecryptBuffer(
 {
     MT_UNREFERENCED_PARAMETER(pvbIV);
 
-    if (Cipher()->alg == CipherAlg_NULL)
+    if (GetCipher()->alg == CipherAlg_NULL)
     {
         *pvbDecrypted = *pvbEncrypted;
         return MT_S_OK;
@@ -4891,12 +4892,12 @@ MT_Alert::ParseFromPriv(
     MTERR mr = MT_S_OK;
     size_t cbField = c_cbAlertLevel_Length;
 
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Level())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(GetLevel())));
 
     ADVANCE_PARSE();
 
     cbField = c_cbAlertDescription_Length;
-    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(Description())));
+    CHKOK(ReadNetworkLong(pv, cb, cbField, reinterpret_cast<MT_UINT8*>(GetDescription())));
 
     ADVANCE_PARSE();
 
@@ -4916,12 +4917,12 @@ MT_Alert::SerializePriv(
     MTERR mr = MT_S_OK;
     size_t cbField = c_cbAlertLevel_Length;
 
-    CHKOK(WriteNetworkLong(static_cast<MT_BYTE>(*Level()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_BYTE>(*GetLevel()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
     cbField = c_cbAlertDescription_Length;
-    CHKOK(WriteNetworkLong(static_cast<MT_BYTE>(*Description()), cbField, pv, cb));
+    CHKOK(WriteNetworkLong(static_cast<MT_BYTE>(*GetDescription()), cbField, pv, cb));
 
     ADVANCE_PARSE();
 
@@ -4938,7 +4939,7 @@ MT_Alert::ToString() const
     const wchar_t* wszLevel = nullptr;
     const wchar_t* wszDescription = nullptr;
 
-    switch (*Level())
+    switch (*GetLevel())
     {
         case MTAL_Warning:
         wszLevel = L"warning";
@@ -4953,7 +4954,7 @@ MT_Alert::ToString() const
         break;
     }
 
-    switch (*Description())
+    switch (*GetDescription())
     {
         case MTAD_CloseNotify:
         wszDescription = L"CloseNotify";
@@ -5032,7 +5033,7 @@ MT_Alert::ToString() const
         break;
 
         case MTAD_ProtocolVersion:
-        wszDescription = L"ProtocolVersion";
+        wszDescription = L"GetProtocolVersion";
         break;
 
         case MTAD_InsufficientSecurity:
@@ -5099,14 +5100,14 @@ error:
 
 /*
 ** MT_RenegotiationInfoExtension is a subclass of MT_Extension, which means it
-** has to expose ExtensionData() to get the raw bytes of the extension. but it
-** also keeps track of a higher-level MT_RenegotiatedConnection object for easy
-** examination in code. unfortunately, this means that m_renegotiatedConnection
-** and ExtensionData() need to be kept in sync.
+** has to expose GetExtensionData() to get the raw bytes of the extension. but
+** it also keeps track of a higher-level MT_RenegotiatedConnection object for
+** easy examination in code. unfortunately, this means that
+** m_renegotiatedConnection and GetExtensionData() need to be kept in sync.
 **
 ** this function is called to set both members together. Elsewhere, there are
 ** calls to CheckExtensionDataIntegrity to make sure that the integrity hasn't
-** been tampered with by direct modifications to ExtensionData().
+** been tampered with by direct modifications to GetExtensionData().
 */
 MTERR
 MT_RenegotiationInfoExtension::SetRenegotiatedConnection(
@@ -5116,7 +5117,8 @@ MT_RenegotiationInfoExtension::SetRenegotiatedConnection(
     MTERR mr = MT_S_OK;
     m_renegotiatedConnection = *pRenegotiatedConnection;
 
-    CHKOK(RenegotiatedConnection()->SerializeToVect(MT_Extension::ExtensionData()->Data()));
+    CHKOK(m_renegotiatedConnection.SerializeToVect(MT_Extension::GetExtensionData()->GetData()));
+    assert(MT_S_OK == CheckExtensionDataIntegrity());
 
 done:
     return mr;
@@ -5126,8 +5128,30 @@ error:
 } // end function SetRenegotiatedConnection
 
 /*
+** see alos: the comment for SetRenegotiatedConnection. this immediately sets
+** the m_renegotiatedConnection object as well as the raw bytes, so they are
+** kept in sync
+*/
+MTERR
+MT_RenegotiationInfoExtension::SetExtensionData(
+    MT_ExtensionData* pExtensionData
+)
+{
+    MTERR mr = MT_S_OK;
+
+    CHKOK(ParseFromVect(pExtensionData->GetData()));
+    CHKOK(CheckExtensionDataIntegrity());
+
+done:
+    return mr;
+
+error:
+    goto done;
+} // end function SetExtensionData
+
+/*
 ** serialize the renegotiated connection member and check that it matches
-** ExtensionData. they should always be in sync
+** GetExtensionData. they should always be in sync
 */
 MTERR
 MT_RenegotiationInfoExtension::CheckExtensionDataIntegrity() const
@@ -5137,7 +5161,7 @@ MT_RenegotiationInfoExtension::CheckExtensionDataIntegrity() const
 
     CHKOK(m_renegotiatedConnection.SerializeToVect(&vbConnection));
 
-    if (vbConnection == *MT_Extension::ExtensionData()->Data())
+    if (vbConnection == *MT_Extension::GetExtensionData()->GetData())
     {
         mr = MT_S_OK;
     }
@@ -5154,24 +5178,18 @@ error:
 } // end function CheckExtensionDataIntegrity
 
 const MT_ExtensionData*
-MT_RenegotiationInfoExtension::ExtensionData() const
+MT_RenegotiationInfoExtension::GetExtensionData() const
 {
-#if DBG
     assert(CheckExtensionDataIntegrity() == MT_S_OK);
-#endif
-
-    return MT_Extension::ExtensionData();
-} // end function ExtensionData
+    return MT_Extension::GetExtensionData();
+} // end function GetExtensionData
 
 const MT_RenegotiationInfoExtension::MT_RenegotiatedConnection*
-MT_RenegotiationInfoExtension::RenegotiatedConnection() const
+MT_RenegotiationInfoExtension::GetRenegotiatedConnection() const
 {
-#if DBG
     assert(CheckExtensionDataIntegrity() == MT_S_OK);
-#endif
-
     return &m_renegotiatedConnection;
-} // end function RenegotiatedConnection
+} // end function GetRenegotiatedConnection
 
 
 // boilerplate code for quickly creating new structures
