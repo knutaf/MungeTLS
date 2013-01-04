@@ -470,8 +470,8 @@ LookupCertificate(
     PCCERT_CHAIN_CONTEXT* ppCertChain)
 {
     HRESULT hr = S_OK;
-    PCCERT_CONTEXT pCertContext = NULL;
-    PCCERT_CHAIN_CONTEXT pCertChain = NULL;
+    PCCERT_CONTEXT pCertContext = nullptr;
+    PCCERT_CHAIN_CONTEXT pCertChain = nullptr;
     CERT_CHAIN_PARA chainPara = {0};
     HCERTSTORE hCertStore = NULL;
 
@@ -509,10 +509,10 @@ LookupCertificate(
     *ppCertChain = pCertChain;
 
 done:
-    if (pCertContext != NULL)
+    if (pCertContext != nullptr)
     {
         CertFreeCertificateContext(pCertContext);
-        pCertContext = NULL;
+        pCertContext = nullptr;
     }
 
     if (hCertStore != NULL)
@@ -524,10 +524,10 @@ done:
     return hr;
 
 error:
-    if (pCertChain != NULL)
+    if (pCertChain != nullptr)
     {
         CertFreeCertificateChain(pCertChain);
-        pCertChain = NULL;
+        pCertChain = nullptr;
     }
 
     goto done;

@@ -2306,7 +2306,7 @@ CryptoInfoFromCipherSuite(
     MTERR mr = MT_S_OK;
     MT_CipherSuiteValue eCSV;
 
-    if (pHashInfo == NULL && pCipherInfo == NULL)
+    if (pHashInfo == nullptr && pCipherInfo == nullptr)
     {
         mr = MT_E_INVALIDARG;
         goto error;
