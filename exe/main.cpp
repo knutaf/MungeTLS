@@ -556,7 +556,7 @@ MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             {
                 CHKOK(GetConnection()->EnqueueStartRenegotiation());
 
-                SetPendingResponse(vbApplicationData);
+                CHKOK(SetPendingResponse(vbApplicationData));
             }
 
             // on first response, just send it now. no fancy tricks
@@ -623,13 +623,17 @@ MTERR SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello, 
 
     if (csv != MTCS_UNKNOWN)
     {
-        pCipherSuite->SetValue(csv);
+        CHKOK(pCipherSuite->SetValue(csv));
         mr = MT_S_LISTENER_HANDLED;
     }
 
     m_iCipherSelected = (m_iCipherSelected + 1) % ARRAYSIZE(c_rgCipherSuites);
 
+done:
     return mr;
+
+error:
+    goto done;
 } // end function OnSelectCipherSuite
 
 /*

@@ -3,7 +3,6 @@ BUGS:
 - tls 1.2 openssl doesn't renegotiate properly, but only when using MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
 
 WORK:
-- need to CHK on setters
 - SAL annotations would be nice
 
 - TLS CLIENT

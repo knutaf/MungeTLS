@@ -1133,7 +1133,7 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
 
     MTERR GenerateNextIV(ByteVector* pvbIV);
 
-    void SetListener(ITLSListener* pListener) { m_pListener = pListener; }
+    MTERR SetListener(ITLSListener* pListener) { m_pListener = pListener; return MT_S_OK; }
 
     private:
     MTERR CheckSecurityPriv();
