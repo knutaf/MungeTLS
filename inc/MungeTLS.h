@@ -792,7 +792,7 @@ class ConnectionParameters
     // private due to non-const access to shared ptrs
     virtual const std::vector<std::shared_ptr<MT_Structure>>* GetHandshakeMessages() const { return &m_vHandshakeMessages; }
 
-    virtual MTERR ComputeMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
+    virtual MTERR SetMasterSecret(const MT_PreMasterSecret* pPreMasterSecret);
 
     MT_CertificateList m_certChain;
     std::shared_ptr<PublicKeyCipherer> m_spPubKeyCipherer;

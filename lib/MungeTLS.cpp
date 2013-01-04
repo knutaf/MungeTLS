@@ -1321,20 +1321,20 @@ TLSConnection::SendQueuedMessages()
             wprintf(L"sending %u messages\n", GetPendingSends()->size());
 
             for_each(GetPendingSends()->begin(), GetPendingSends()->end(),
-            [](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
+            [](shared_ptr<const MT_RecordLayerMessage> spStructure)
             {
-                wprintf(L"    %s\n", rspStructure->GetContentType()->ToString().c_str());
+                wprintf(L"    %s\n", spStructure->GetContentType()->ToString().c_str());
             });
         }
 
         for_each(GetPendingSends()->begin(), GetPendingSends()->end(),
-        [&mr, this](const shared_ptr<MT_RecordLayerMessage>& rspStructure)
+        [&mr, this](shared_ptr<const MT_RecordLayerMessage> spStructure)
         {
             if (mr == MT_S_OK)
             {
                 ByteVector vbRecord;
 
-                mr = rspStructure->SerializeToVect(&vbRecord);
+                mr = spStructure->SerializeToVect(&vbRecord);
                 if (mr == MT_S_OK)
                 {
                     mr = GetListener()->OnSend(&vbRecord);
@@ -1790,7 +1790,7 @@ error:
 ** [0..47];
 */
 MTERR
-ConnectionParameters::ComputeMasterSecret(
+ConnectionParameters::SetMasterSecret(
     const MT_PreMasterSecret* pPreMasterSecret
 )
 {
@@ -1826,7 +1826,7 @@ done:
 
 error:
     goto done;
-} // end function ComputeMasterSecret
+} // end function SetMasterSecret
 
 /*
 ** the key_block is a chunk of data produced by the PRF that is partitioned
@@ -1863,7 +1863,7 @@ ConnectionParameters::GenerateKeyMaterial(
 
     wprintf(L"gen key material\n");
 
-    CHKOK(ComputeMasterSecret(pPreMasterSecret));
+    CHKOK(SetMasterSecret(pPreMasterSecret));
 
     // should only be called when cipher and hash are finalized
     assert(*GetReadParams()->GetCipher() == *GetWriteParams()->GetCipher());
@@ -3631,9 +3631,9 @@ MT_Finished::ComputeVerifyData(
         for_each(
             GetConnParams()->GetHandshakeMessages()->begin(),
             GetConnParams()->GetHandshakeMessages()->end(),
-            [] (const shared_ptr<MT_Structure> spStructure)
+            [] (shared_ptr<const MT_Structure> spStructure)
             {
-                MT_Handshake* pHandshakeMessage = static_cast<MT_Handshake*>(spStructure.get());
+                const MT_Handshake* pHandshakeMessage = static_cast<const MT_Handshake*>(spStructure.get());
                 wprintf(L"    %s\n", pHandshakeMessage->HandshakeTypeString().c_str());
             }
         );

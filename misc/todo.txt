@@ -3,8 +3,8 @@ BUGS:
 - tls 1.2 openssl doesn't renegotiate properly, but only when using MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
 
 WORK:
-- Compute* functions have side effects. need better names
 - need to CHK on setters
+- SAL annotations would be nice
 
 - TLS CLIENT
   - if we have our own client impl, we can also implement some wonky compression scheme
