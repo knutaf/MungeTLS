@@ -21,7 +21,7 @@ using namespace MungeTLS;
 ** Much of this is taken with little modification from an MSDN sockets sample,
 ** so the coding style differs a little from all the other code in the project.
 */
-int __cdecl wmain(int argc, wchar_t* argv[])
+int __cdecl wmain(_In_ int argc, _In_reads_(argc) wchar_t* argv[])
 {
     UNREFERENCED_PARAMETER(argc);
     UNREFERENCED_PARAMETER(argv);
@@ -37,7 +37,7 @@ int __cdecl wmain(int argc, wchar_t* argv[])
     int iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
     if (iResult != NO_ERROR)
     {
-        wprintf(L"Error at WSAStartup(): %lu\n", iResult);
+        wprintf(L"Error at WSAStartup(): %d\n", iResult);
         hr = HRESULT_FROM_WIN32(iResult);
         goto error;
     }
@@ -132,7 +132,10 @@ error:
 }
 
 template <typename N>
-wstring StringFromInt(N n)
+_Check_return_
+wstring
+StringFromInt(
+    _In_ N n)
 {
     wstringstream s;
     s << n;
@@ -144,7 +147,11 @@ wstring StringFromInt(N n)
 ** the "munge2netmon" companion tool, which can take the raw traffic and turn
 ** it into a netmon capture, which can be viewed for debugging goodness
 */
-HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const ByteVector* pvb)
+HRESULT
+LogTraffic(
+    _In_ ULONG nFile,
+    _In_ const wstring* pwsSuffix,
+    _In_ const ByteVector* pvb)
 {
     HRESULT hr = S_OK;
     wstring wsFilename(L"out\\");
@@ -187,12 +194,12 @@ HRESULT LogTraffic(ULONG nFile, const wstring* pwsSuffix, const ByteVector* pvb)
 
         if (cbWritten != pvb->size())
         {
-            wprintf(L"only wrote %lu bytes of %lu\n", cbWritten, pvb->size());
+            wprintf(L"only wrote %u bytes of %Iu\n", cbWritten, pvb->size());
             hr = E_FAIL;
             goto error;
         }
 
-        wprintf(L"logged %lu bytes of traffic '%s' to %s\n", cbWritten, pwsSuffix->c_str(), wsFilename.c_str());
+        wprintf(L"logged %u bytes of traffic '%s' to %s\n", cbWritten, pwsSuffix->c_str(), wsFilename.c_str());
     }
     else
     {
@@ -285,7 +292,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
 
                 GetPendingSends()->erase(GetPendingSends()->begin());
 
-                wprintf(L"responding with %d bytes\n", cbPayload);
+                wprintf(L"responding with %Iu bytes\n", cbPayload);
 
                 // this loop sends the whole buffer, in pieces
                 while (cbPayload != 0)
@@ -306,7 +313,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
                         break;
                     }
 
-                    wprintf(L"sent %u bytes\n", cb);
+                    wprintf(L"sent %d bytes\n", cb);
 
                     assert(cb >= 0);
                     assert(static_cast<ULONG>(cb) <= cbPayload);
@@ -389,6 +396,7 @@ error:
     goto done;
 } // end function ProcessConnection
 
+_Use_decl_annotations_
 HRESULT SimpleHTTPServer::EnqueueSendApplicationData(const ByteVector* pvb)
 {
     static const size_t cbChunkSize = 50;
@@ -426,20 +434,22 @@ error:
 } // end function EnqueueSendApplicationData
 
 // called when the TLS connection has some bytes to be sent over the network
-MTERR SimpleHTTPServer::OnSend(const ByteVector* pvb)
+_Use_decl_annotations_
+MTERR_T SimpleHTTPServer::OnSend(const ByteVector* pvb)
 {
-    wprintf(L"queueing up %d bytes of data to send\n", pvb->size());
+    wprintf(L"queueing up %Iu bytes of data to send\n", pvb->size());
     GetPendingSends()->push_back(*pvb);
     return MT_S_OK;
 } // end function OnSend
 
 // pvb is the plaintext application data that's been received
-MTERR SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
+_Use_decl_annotations_
+MTERR_T SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
 {
     MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
 
-    wprintf(L"got %d bytes of application data\n", pvb->size());
+    wprintf(L"got %Iu bytes of application data\n", pvb->size());
 
     // sometimes the other party sends us empty messages. ok. just ignore them.
     if (!pvb->empty())
@@ -588,7 +598,8 @@ error:
 ** called during handshake to choose the protocol version to use in ServerHello
 ** default is to use ClientHello.version
 */
-MTERR SimpleHTTPServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion)
+_Use_decl_annotations_
+MTERR_T SimpleHTTPServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion)
 {
     UNREFERENCED_PARAMETER(pProtocolVersion);
     return MT_S_LISTENER_IGNORED;
@@ -602,7 +613,8 @@ MTERR SimpleHTTPServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVer
 ** this client implementation helps testing renegotation by choosing a
 ** different cipher suite round-robin from a list of choices.
 */
-MTERR SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite)
+_Use_decl_annotations_
+MTERR_T SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite)
 {
     // negotiations will cycle through this list. "unknown" means use default
     static const MT_CipherSuiteValue c_rgCipherSuites[] =
@@ -647,7 +659,8 @@ error:
 ** is Windows-specific code, but that's okay, because it's contained in the
 ** application (rather than lib) portion.
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 SimpleHTTPServer::OnInitializeCrypto(
     MT_CertificateList* pCertChain,
     shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
@@ -714,7 +727,8 @@ error:
 ** same record layer message, since they're all of the same content type
 ** default is to do separate records
 */
-MTERR SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, MT_UINT32* pfFlags)
+_Use_decl_annotations_
+MTERR_T SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, MT_UINT32* pfFlags)
 {
     UNREFERENCED_PARAMETER(pHandshake);
     //*pfFlags |= MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE;
@@ -727,7 +741,8 @@ MTERR SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, MT_
 ** of being sent, either in its plaintext form or after conversion to
 ** ciphertext. this is primarily used for logging traffic
 */
-MTERR SimpleHTTPServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
+_Use_decl_annotations_
+MTERR_T SimpleHTTPServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
     MTERR mr = MT_S_OK;
     ByteVector vb;
@@ -753,7 +768,8 @@ error:
 } // end function OnEnqueuePlaintext
 
 // the "receiving" equivalent of OnEnqueuePlaintext. primarily used for logging
-MTERR SimpleHTTPServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
+_Use_decl_annotations_
+MTERR_T SimpleHTTPServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
     MTERR mr = MT_S_OK;
     ByteVector vb;
@@ -783,7 +799,9 @@ error:
 ** application data. here we send the data we saved off back in
 ** OnReceivedApplicationData before the renegotiation.
 */
-MTERR SimpleHTTPServer::OnHandshakeComplete()
+_Use_decl_annotations_
+MTERR_T
+SimpleHTTPServer::OnHandshakeComplete()
 {
     MTERR mr = MT_S_OK;
 
@@ -813,7 +831,8 @@ error:
 ** always set to whatever higher version was previously negotiated if the
 ** versions differ
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 SimpleHTTPServer::OnReconcileSecurityVersion(
     const MT_TLSCiphertext* pCiphertext,
     MT_ProtocolVersion::MTPV_Version connVersion,

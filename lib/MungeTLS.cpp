@@ -56,21 +56,21 @@ using namespace std;
 
 MTERR
 ComputePRF_TLS12(
-    Hasher* pHasher,
-    const ByteVector* pvbSecret,
-    const char* szLabel,
-    const ByteVector* pvbSeed,
-    size_t cbLengthDesired,
-    ByteVector* pvbPRF);
+    _In_ Hasher* pHasher,
+    _In_ const ByteVector* pvbSecret,
+    _In_ const char* szLabel,
+    _In_ const ByteVector* pvbSeed,
+    _In_ size_t cbLengthDesired,
+    _Out_ ByteVector* pvbPRF);
 
 MTERR
 ComputePRF_TLS10(
-    Hasher* pHasher,
-    const ByteVector* pvbSecret,
-    const char* szLabel,
-    const ByteVector* pvbSeed,
-    size_t cbLengthDesired,
-    ByteVector* pvbPRF);
+    _In_ Hasher* pHasher,
+    _In_ const ByteVector* pvbSecret,
+    _In_ const char* szLabel,
+    _In_ const ByteVector* pvbSeed,
+    _In_ size_t cbLengthDesired,
+    _Out_ ByteVector* pvbPRF);
 
 // same PRF used for both 1.0 and 1.1
 auto ComputePRF_TLS11 = ComputePRF_TLS10;
@@ -78,26 +78,27 @@ auto ComputePRF_TLS11 = ComputePRF_TLS10;
 // RFC-defined helper function for PRF
 MTERR
 PRF_P_hash(
-    Hasher* pHasher,
-    const HashInfo* pHashInfo,
-    const ByteVector* pvbSecret,
-    const ByteVector* pvbSeed,
-    size_t cbMinimumLengthDesired,
-    ByteVector* pvbResult);
+    _In_ Hasher* pHasher,
+    _In_ const HashInfo* pHashInfo,
+    _In_ const ByteVector* pvbSecret,
+    _In_ const ByteVector* pvbSeed,
+    _In_ size_t cbMinimumLengthDesired,
+    _Out_ ByteVector* pvbResult);
 
 // RFC-defined helper function for PRF
 MTERR
 PRF_A(
-    Hasher* pHasher,
-    const HashInfo* pHashInfo,
-    MT_UINT32 i,
-    const ByteVector* pvbSecret,
-    const ByteVector* pvbSeed,
-    ByteVector* pvbResult);
+    _In_ Hasher* pHasher,
+    _In_ const HashInfo* pHashInfo,
+    _In_ MT_UINT32 i,
+    _In_ const ByteVector* pvbSecret,
+    _In_ const ByteVector* pvbSeed,
+    _Out_ ByteVector* pvbResult);
 
 
 /*********** TLSConnection *****************/
 
+_Use_decl_annotations_
 TLSConnection::TLSConnection(ITLSListener* pListener)
     : m_currentConnection(),
       m_nextConnection(),
@@ -107,7 +108,8 @@ TLSConnection::TLSConnection(ITLSListener* pListener)
 } // end ctor TLSConnection
 
 // one-time initialization for this object
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::Initialize()
 {
     MTERR mr = MT_S_OK;
@@ -142,7 +144,8 @@ error:
 **   into the handshake process
 ** - pass on application data to the app
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::HandleMessage(
     ByteVector* pvb
 )
@@ -174,7 +177,7 @@ TLSConnection::HandleMessage(
     */
     CHKOK(ciphertext.ParseFromVect(pvb));
 
-    wprintf(L"successfully parsed TLSCiphertext. CT=%d\n", *ciphertext.GetContentType()->GetType());
+    wprintf(L"successfully parsed TLSCiphertext. CT=%u\n", *ciphertext.GetContentType()->GetType());
 
     // this supplies the necessary information to decrypt the message
     CHKOK(ciphertext.SetEndpointParams(GetCurrConn()->GetReadParams()));
@@ -310,12 +313,12 @@ TLSConnection::HandleMessage(
             */
             if (vStructures.size() > 1)
             {
-                wprintf(L"warning: received %lu ChangeCipherSpec messages in a row\n", vStructures.size());
+                wprintf(L"warning: received %Iu ChangeCipherSpec messages in a row\n", vStructures.size());
             }
 
             for (auto it = vStructures.begin(); it != vStructures.end(); it++)
             {
-                wprintf(L"change cipher spec found: %d\n", *it->GetType());
+                wprintf(L"change cipher spec found: %u\n", *it->GetType());
                 CHKOK(GetCurrConn()->SetReadParams(GetNextConn()->GetReadParams()));
             }
 
@@ -395,7 +398,8 @@ error:
     goto done;
 } // end function HandleMessage
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::HandleHandshakeMessage(
     const MT_Handshake* pHandshakeMessage
 )
@@ -412,7 +416,7 @@ TLSConnection::HandleHandshakeMessage(
     shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
     *spHandshakeMessage = *pHandshakeMessage;
 
-    wprintf(L"handling Handshake of type=%d\n", *spHandshakeMessage->GetType());
+    wprintf(L"handling Handshake of type=%u\n", *spHandshakeMessage->GetType());
 
     // handshake messages have their own inner "content type"
     switch (*spHandshakeMessage->GetType())
@@ -433,24 +437,24 @@ TLSConnection::HandleHandshakeMessage(
                 wprintf(L"version %04LX\n", *clientHello.GetClientVersion()->GetVersion());
                 if (clientHello.GetSessionID()->Count() > 0)
                 {
-                    wprintf(L"session ID %d (%d)\n", clientHello.GetSessionID()->GetData()[0]);
+                    wprintf(L"session ID %u\n", clientHello.GetSessionID()->GetData()->at(0));
                 }
                 else
                 {
                     wprintf(L"no session ID specified\n");
                 }
 
-                wprintf(L"%d crypto suites\n", clientHello.GetCipherSuites()->Count());
+                wprintf(L"%Iu crypto suites\n", clientHello.GetCipherSuites()->Count());
 
                 wprintf(L"crypto suite 0: %02X %02X\n",
                        *clientHello.GetCipherSuites()->at(0)->at(0),
                        *clientHello.GetCipherSuites()->at(0)->at(1));
 
-                wprintf(L"%d compression methods: %d\n",
+                wprintf(L"%Iu compression methods: %u\n",
                        clientHello.GetCompressionMethods()->Count(),
                        *clientHello.GetCompressionMethods()->at(0)->GetMethod());
 
-                wprintf(L"%d extensions, taking %d bytes\n", clientHello.GetExtensions()->Count(), clientHello.GetExtensions()->Length());
+                wprintf(L"%Iu extensions, taking %Iu bytes\n", clientHello.GetExtensions()->Count(), clientHello.GetExtensions()->Length());
 
                 for (auto it = clientHello.GetExtensions()->GetData()->begin(); it != clientHello.GetExtensions()->GetData()->end(); it++)
                 {
@@ -596,11 +600,11 @@ TLSConnection::HandleHandshakeMessage(
             */
             assert(*GetNextConn()->GetReadParams()->GetCipherSuite() == *GetNextConn()->GetWriteParams()->GetCipherSuite());
 
-            CHKOK(GetNextConn()->GetReadParams()->GetCipherSuite()->KeyExchangeAlgorithm(&keyExchangeAlg));
+            CHKOK(GetNextConn()->GetReadParams()->GetCipherSuite()->GetKeyExchangeAlgorithm(&keyExchangeAlg));
 
             if (keyExchangeAlg != MTKEA_rsa)
             {
-                wprintf(L"unsupported key exchange type: %d\n", keyExchangeAlg);
+                wprintf(L"unsupported key exchange type: %u\n", keyExchangeAlg);
                 mr = MT_E_UNSUPPORTED_KEY_EXCHANGE;
                 goto error;
             }
@@ -626,7 +630,7 @@ TLSConnection::HandleHandshakeMessage(
             wprintf(L"version %04LX\n", *pSecret->GetClientVersion()->GetVersion());
 
             // generate a bunch of crypto material from this
-            CHKOK(GetNextConn()->GenerateKeyMaterial(pSecret));
+            CHKOK(GetNextConn()->SetKeyMaterial(pSecret));
 
             wprintf(L"computed master secret and key material:\n");
             PrintByteVector(GetNextConn()->GetMasterSecret());
@@ -680,7 +684,7 @@ TLSConnection::HandleHandshakeMessage(
 
         default:
         {
-            wprintf(L"not yet supporting handshake type %d\n", *spHandshakeMessage->GetType());
+            wprintf(L"not yet supporting handshake type %u\n", *spHandshakeMessage->GetType());
             mr = MT_E_UNSUPPORTED_HANDSHAKE_TYPE;
             goto error;
         }
@@ -705,7 +709,8 @@ error:
 ** Handshake) into a single record layer message, or to split them up into
 ** individual record layer messages.
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::RespondToClientHello()
 {
     MTERR mr = MT_S_OK;
@@ -763,7 +768,7 @@ TLSConnection::RespondToClientHello()
 
                 if (rc.GetData()->size() != c_cbFinishedVerifyData_Length * 2)
                 {
-                    wprintf(L"warning: renegotiation verify data is odd length. expected: %u, actual: %u\n", c_cbFinishedVerifyData_Length * 2, rc.GetData()->size());
+                    wprintf(L"warning: renegotiation verify data is odd length. expected: %Iu, actual: %Iu\n", c_cbFinishedVerifyData_Length * 2, rc.GetData()->size());
                 }
 
                 wprintf(L"adding renegotation binding information:\n");
@@ -918,7 +923,8 @@ error:
 ** MT_S_OK means we are returning a new plaintext message
 ** MT_S_FALSE means we are returning the same plaintext message
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::AddHandshakeMessage(
     MT_Handshake* pHandshake,
     MT_ProtocolVersion::MTPV_Version version,
@@ -969,7 +975,8 @@ error:
 ** we send a ChangeCipherSpec, which enables the pending cipher suite, so that
 ** Finished message we send is encrypted with the new security parameters.
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::RespondToFinished()
 {
     MTERR mr = MT_S_OK;
@@ -1041,7 +1048,8 @@ error:
     goto done;
 } // end function RespondToFinished
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::CreatePlaintext(
     MT_ContentType::MTCT_Type eContentType,
     MT_ProtocolVersion::MTPV_Version eProtocolVersion,
@@ -1069,7 +1077,8 @@ error:
     goto done;
 } // end function CreatePlaintext
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::CreatePlaintext(
     MT_ContentType::MTCT_Type eContentType,
     MT_ProtocolVersion::MTPV_Version eProtocolVersion,
@@ -1094,7 +1103,8 @@ error:
     goto done;
 } // end function CreatePlaintext
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::CreateCiphertext(
     MT_ContentType::MTCT_Type eContentType,
     MT_ProtocolVersion::MTPV_Version eProtocolVersion,
@@ -1128,7 +1138,8 @@ error:
     goto done;
 } // end function CreateCiphertext
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::CreateCiphertext(
     MT_ContentType::MTCT_Type eContentType,
     MT_ProtocolVersion::MTPV_Version eProtocolVersion,
@@ -1156,7 +1167,8 @@ error:
 } // end function CreateCiphertext
 
 // called when we receive a ClientHello message, to start off a new negotiation
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::StartNextHandshake(MT_ClientHello* pClientHello)
 {
     MTERR mr = MT_S_OK;
@@ -1192,7 +1204,8 @@ error:
 ** it's painfully obvious how much of an intermediary we are between the conn
 ** and the listener here. but that's okay
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::InitializeConnection(
     ConnectionParameters* pParams
 )
@@ -1235,7 +1248,8 @@ error:
 ** endpoint-specific parameters needed to parse or send messages, but we still
 ** need to copy few miscellaneous pieces of data we've accumulated in NextConn.
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::FinishNextHandshake()
 {
     MTERR mr = MT_S_OK;
@@ -1269,7 +1283,8 @@ error:
 ** sent, so effectively committed in terms of updates to the IV and sequence
 ** number.
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::EnqueueMessage(
     shared_ptr<MT_TLSPlaintext> spPlaintext
 )
@@ -1290,7 +1305,7 @@ TLSConnection::EnqueueMessage(
     */
     if (GetCurrConn()->GetWriteParams()->GetCipher()->type == CipherType_Block)
     {
-        spCiphertext->GenerateNextIV(GetCurrConn()->GetWriteParams()->GetIV());
+        CHKOK(spCiphertext->GenerateNextIV(GetCurrConn()->GetWriteParams()->GetIV()));
         wprintf(L"next IV for writing:\n");
         PrintByteVector(GetCurrConn()->GetWriteParams()->GetIV());
     }
@@ -1300,7 +1315,7 @@ TLSConnection::EnqueueMessage(
     GetPendingSends()->push_back(spCiphertext);
     CHKOK(GetCurrConn()->GetWriteParams()->SetSequenceNumber(*GetCurrConn()->GetWriteParams()->GetSequenceNumber() + 1));
 
-    wprintf(L"write seq num is now %d\n", *GetCurrConn()->GetWriteParams()->GetSequenceNumber());
+    wprintf(L"write seq num is now %I64u\n", *GetCurrConn()->GetWriteParams()->GetSequenceNumber());
 
     // primarily used for logging by the app
     CHKOK(GetListener()->OnEnqueuePlaintext(
@@ -1315,7 +1330,8 @@ error:
 } // end function EnqueueMessage
 
 // alert the app about each message's raw bytes that need to be sent
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::SendQueuedMessages()
 {
     MTERR mr = MT_S_OK;
@@ -1323,7 +1339,7 @@ TLSConnection::SendQueuedMessages()
     if (!GetPendingSends()->empty())
     {
         { // only logging
-            wprintf(L"sending %u messages\n", GetPendingSends()->size());
+            wprintf(L"sending %Iu messages\n", GetPendingSends()->size());
 
             for_each(GetPendingSends()->begin(), GetPendingSends()->end(),
             [](shared_ptr<const MT_RecordLayerMessage> spStructure)
@@ -1374,7 +1390,8 @@ error:
 ** this is how the app calls the connection to send some application data. we
 ** package it up, encrypt it, and queue it for sending
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::EnqueueSendApplicationData(
     const ByteVector* pvb
 )
@@ -1405,7 +1422,8 @@ error:
 ** that the client start a renegotiation, since they are always initiated from
 ** the client
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 TLSConnection::EnqueueStartRenegotiation()
 {
     MTERR mr = MT_S_OK;
@@ -1438,18 +1456,25 @@ error:
 
 /*********** Utility functions *****************/
 
-bool MT_Succeeded(MTERR mr)
+_Use_decl_annotations_
+bool
+MT_Succeeded(
+    MTERR_T mr
+)
 {
-    return !MT_Failed(mr);
+    return (mr & 0x80000000) == 0;
 } // end function MT_Succeeded
 
-// high bit is set -> failure
-bool MT_Failed(MTERR mr)
+_Use_decl_annotations_
+bool
+MT_Failed(
+    MTERR_T mr
+)
 {
-    return (mr & 0x80000000) != 0;
+    return !MT_Succeeded(mr);
 } // end function MT_Failed
-
-MTERR
+_Use_decl_annotations_
+MTERR_T
 WriteRandomBytes(
     MT_BYTE* pv,
     size_t cb
@@ -1483,6 +1508,7 @@ WriteRandomBytes(
 
 // specialization of above, for bytes
 template <>
+_Use_decl_annotations_
 void
 ResizeVector<MT_BYTE>(
     ByteVector* pv,
@@ -1493,7 +1519,8 @@ ResizeVector<MT_BYTE>(
     pv->resize(siz, 0x23);
 } // end function ResizeVector<MT_BYTE>
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 ParseByteVector(
     size_t cbField,
     const MT_BYTE* pv,
@@ -1518,7 +1545,8 @@ error:
     goto done;
 } // end function ParseByteVector
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 SerializeByteVector(
     const ByteVector* pvb,
     MT_BYTE* pv,
@@ -1543,7 +1571,10 @@ error:
     goto done;
 } // end function SerializeByteVector
 
-MTERR PrintByteVector(const ByteVector* pvb)
+_Use_decl_annotations_
+MTERR_T
+PrintByteVector(
+    const ByteVector* pvb)
 {
      for_each(pvb->begin(), pvb->end(),
      [](MT_BYTE b)
@@ -1570,7 +1601,8 @@ EndpointParameters::EndpointParameters()
 {
 } // end ctor EndpointParameters
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 EndpointParameters::Initialize(
     shared_ptr<SymmetricCipherer> spSymCipherer,
     shared_ptr<Hasher> spHasher
@@ -1586,6 +1618,7 @@ EndpointParameters::Initialize(
 ** us to return a const pointer to it without requiring that the caller also
 ** free it
 */
+_Use_decl_annotations_
 const CipherInfo*
 EndpointParameters::GetCipher() const
 {
@@ -1605,6 +1638,7 @@ EndpointParameters::GetCipher() const
 } // end function GetCipher
 
 // same comment as for GetCipher()
+_Use_decl_annotations_
 const HashInfo*
 EndpointParameters::GetHash() const
 {
@@ -1621,6 +1655,7 @@ EndpointParameters::GetHash() const
     return &hashInfo;
 } // end function GetHash
 
+_Use_decl_annotations_
 bool
 EndpointParameters::IsEncrypted() const
 {
@@ -1655,7 +1690,8 @@ ConnectionParameters::ConnectionParameters()
 ** in all cases, this is a fresh connection, so is basically pretty blank
 ** aside from the objects passed in here
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 ConnectionParameters::Initialize(
     const MT_CertificateList* pCertChain,
     shared_ptr<PublicKeyCipherer> spPubKeyCipherer,
@@ -1707,7 +1743,8 @@ error:
 ** multiplex to run the TLS pseudorandom function appropriate to the current
 ** protocol version.
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 ConnectionParameters::ComputePRF(
     const ByteVector* pvbSecret,
     const char* szLabel,
@@ -1794,7 +1831,8 @@ error:
 **                     ClientHello.random + ServerHello.random)
 ** [0..47];
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 ConnectionParameters::SetMasterSecret(
     const MT_PreMasterSecret* pPreMasterSecret
 )
@@ -1855,8 +1893,9 @@ error:
 ** client_write_IV[SecurityParameters.IV_size]
 ** server_write_IV[SecurityParameters.IV_size]
 */
-MTERR
-ConnectionParameters::GenerateKeyMaterial(
+_Use_decl_annotations_
+MTERR_T
+ConnectionParameters::SetKeyMaterial(
     const MT_PreMasterSecret* pPreMasterSecret
 )
 {
@@ -1883,7 +1922,7 @@ ConnectionParameters::GenerateKeyMaterial(
                  (GetReadParams()->GetCipher()->cbKeyMaterialSize * 2) +
                  (GetReadParams()->GetCipher()->cbIVSize * 2);
 
-    wprintf(L"need %d bytes for key block (%d * 2) + (%d * 2) + (%d * 2)\n",
+    wprintf(L"need %Iu bytes for key block (%Iu * 2) + (%Iu * 2) + (%Iu * 2)\n",
         cbKeyBlock,
         GetReadParams()->GetHash()->cbMACKeySize,
         GetReadParams()->GetCipher()->cbKeyMaterialSize,
@@ -1893,7 +1932,7 @@ ConnectionParameters::GenerateKeyMaterial(
 
     CHKOK(GetClientRandom()->SerializeAppendToVect(&vbRandoms));
 
-    wprintf(L"randoms: (%d bytes)\n", vbRandoms.size());
+    wprintf(L"randoms: (%Iu bytes)\n", vbRandoms.size());
     PrintByteVector(&vbRandoms);
 
     CHKOK(ComputePRF(
@@ -1979,14 +2018,15 @@ error:
     GetReadParams()->GetIV()->clear();
     GetWriteParams()->GetIV()->clear();
     goto done;
-} // end function GenerateKeyMaterial
+} // end function SetKeyMaterial
 
 /*
 ** copies leftover parameters aside from endpoint-specific ones to another
 ** connection parameters object. this is used in the last stage of finalizing
 ** a handshake, to make a connection the active one
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 ConnectionParameters::CopyCommonParamsTo(
     ConnectionParameters* pDest
 )
@@ -2010,6 +2050,7 @@ error:
     goto done;
 } // end function CopyCommonParamsTo
 
+_Use_decl_annotations_
 bool
 ConnectionParameters::IsHandshakeInProgress() const
 {
@@ -2023,7 +2064,8 @@ ConnectionParameters::IsHandshakeInProgress() const
 ** TLS 1.2
 ** PRF(secret, label, seed) = P_<hash>(secret, label + seed)
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 ComputePRF_TLS12(
     Hasher* pHasher,
     const ByteVector* pvbSecret,
@@ -2087,7 +2129,8 @@ error:
 **                                P_SHA-1(S2, label + seed);
 ** "
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 ComputePRF_TLS10(
     Hasher* pHasher,
     const ByteVector* pvbSecret,
@@ -2113,13 +2156,13 @@ ComputePRF_TLS10(
         pvbSeed->begin(),
         pvbSeed->end());
 
-    wprintf(L"label + seed = (%d)\n", vbLabelAndSeed.size());
+    wprintf(L"label + seed = (%Iu)\n", vbLabelAndSeed.size());
     PrintByteVector(&vbLabelAndSeed);
 
     // ceil(size / 2)
     size_t cbL_S1 = (pvbSecret->size() + 1) / 2;
 
-    wprintf(L"L_S = %d, L_S1 = L_S2 = %d\n", pvbSecret->size(), cbL_S1);
+    wprintf(L"L_S = %Iu, L_S1 = L_S2 = %Iu\n", pvbSecret->size(), cbL_S1);
 
     auto itSecretMidpoint = pvbSecret->begin() + cbL_S1;
 
@@ -2186,7 +2229,8 @@ error:
 **     A(0) = seed
 **     A(i) = HMAC_hash(secret, A(i-1))
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 PRF_A(
     Hasher* pHasher,
     const HashInfo* pHashInfo,
@@ -2239,7 +2283,8 @@ error:
 ** this returns >= cbMinimumLengthDesired bytes. the calling function is
 ** responsible for throwing away any excess
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 PRF_P_hash(
     Hasher* pHasher,
     const HashInfo* pHashInfo,
@@ -2251,12 +2296,12 @@ PRF_P_hash(
 {
     MTERR mr = MT_S_OK;
 
-    assert(pvbResult->empty());
+    pvbResult->clear();
 
     // starts from A(1), not A(0). keep expanding until we have enough output
     for (MT_UINT32 i = 1; pvbResult->size() < cbMinimumLengthDesired; i++)
     {
-        wprintf(L"PRF_P generated %d out of %d bytes\n", pvbResult->size(), cbMinimumLengthDesired);
+        wprintf(L"PRF_P generated %Iu out of %Iu bytes\n", pvbResult->size(), cbMinimumLengthDesired);
 
         ByteVector vbIteration;
         ByteVector vbInnerSeed;
@@ -2296,7 +2341,8 @@ error:
 **
 ** caller can ask for the cipher info, hash info, or both
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 CryptoInfoFromCipherSuite(
     const MT_CipherSuite* pCipherSuite,
     CipherInfo* pCipherInfo,
@@ -2404,7 +2450,8 @@ error:
 
 /*********** MT_Structure *****************/
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Structure::ParseFrom(
     const MT_BYTE* pv,
     size_t cb
@@ -2413,7 +2460,8 @@ MT_Structure::ParseFrom(
     return ParseFromPriv(pv, cb);
 } // end function ParseFrom
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Structure::ParseFromVect(
     const ByteVector* pvb
 )
@@ -2421,7 +2469,8 @@ MT_Structure::ParseFromVect(
     return ParseFrom(&(pvb->front()), pvb->size());
 } // end function ParseFromVect
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Structure::Serialize(
     MT_BYTE* pv,
     size_t cb
@@ -2430,7 +2479,8 @@ MT_Structure::Serialize(
     return SerializePriv(pv, cb);
 } // end function Serialize
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Structure::SerializeToVect(
     ByteVector* pvb
 ) const
@@ -2444,7 +2494,8 @@ MT_Structure::SerializeToVect(
 ** but remember the original end. serialize this object just after the original
 ** end
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Structure::SerializeAppendToVect(
     ByteVector* pvb
 ) const
@@ -2466,7 +2517,8 @@ MT_Securable::MT_Securable()
 {
 } // end ctor MT_Securable
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Securable::CheckSecurity()
 {
     assert(GetEndpointParams() != nullptr);
@@ -2476,7 +2528,8 @@ MT_Securable::CheckSecurity()
 
 /*********** MT_RecordLayerMessage *****************/
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_ConnectionAware::SetConnection(
     TLSConnection* pConnection
 )
@@ -2497,7 +2550,8 @@ MT_RecordLayerMessage::MT_RecordLayerMessage()
 {
 } // end ctor MT_RecordLayerMessage
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_RecordLayerMessage::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -2525,6 +2579,7 @@ error:
     goto done;
 } // end function ParseFromPriv
 
+_Use_decl_annotations_
 MT_UINT16
 MT_RecordLayerMessage::PayloadLength() const
 {
@@ -2533,6 +2588,7 @@ MT_RecordLayerMessage::PayloadLength() const
     return static_cast<MT_UINT16>(cbLength);
 } // end function PayloadLength
 
+_Use_decl_annotations_
 size_t
 MT_RecordLayerMessage::Length() const
 {
@@ -2544,7 +2600,8 @@ MT_RecordLayerMessage::Length() const
     return cbLength;
 } // end function Length
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_RecordLayerMessage::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -2582,7 +2639,8 @@ MT_Handshake::MT_Handshake()
 {
 } // end ctor MT_Handshake
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Handshake::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -2596,7 +2654,7 @@ MT_Handshake::ParseFromPriv(
 
     if (!IsKnownType(*GetType()))
     {
-        wprintf(L"warning: unknown handshake type: %d\n", *GetType());
+        wprintf(L"warning: unknown handshake type: %u\n", *GetType());
     }
 
     ADVANCE_PARSE();
@@ -2615,6 +2673,7 @@ error:
     goto done;
 } // end function ParseFromPriv
 
+_Use_decl_annotations_
 size_t
 MT_Handshake::Length() const
 {
@@ -2638,6 +2697,7 @@ const MT_Handshake::MTH_HandshakeType MT_Handshake::c_rgeKnownTypes[] =
     MTH_Unknown,
 };
 
+_Use_decl_annotations_
 bool
 MT_Handshake::IsKnownType(
     MTH_HandshakeType eType
@@ -2646,7 +2706,8 @@ MT_Handshake::IsKnownType(
     return (find(c_rgeKnownTypes, c_rgeKnownTypes+_countof(c_rgeKnownTypes), eType) != c_rgeKnownTypes+_countof(c_rgeKnownTypes));
 } // end function IsKnownType
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Handshake::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -2674,6 +2735,7 @@ error:
     goto done;
 } // end function SerializePriv
 
+_Use_decl_annotations_
 wstring
 MT_Handshake::HandshakeTypeString() const
 {
@@ -2743,7 +2805,8 @@ MT_ClientHello::MT_ClientHello()
 {
 } // end ctor MT_ClientHello
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_ClientHello::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -2771,6 +2834,7 @@ error:
     goto done;
 } // end function ParseFromPriv
 
+_Use_decl_annotations_
 size_t
 MT_ClientHello::Length() const
 {
@@ -2798,6 +2862,7 @@ MT_ServerHello::MT_ServerHello()
 {
 } // end ctor MT_ServerHello
 
+_Use_decl_annotations_
 size_t
 MT_ServerHello::Length() const
 {
@@ -2815,7 +2880,8 @@ MT_ServerHello::Length() const
     return cbLength;
 } // end function Length
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_ServerHello::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -2855,7 +2921,8 @@ MT_ProtocolVersion::MT_ProtocolVersion()
 {
 } // end ctor MT_ProtocolVersion
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_ProtocolVersion::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -2883,7 +2950,8 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_ProtocolVersion::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -2904,6 +2972,7 @@ error:
     goto done;
 } // end function SerializePriv
 
+_Use_decl_annotations_
 bool
 MT_ProtocolVersion::IsKnownVersion(
     MTPV_Version eVersion
@@ -2922,6 +2991,7 @@ MT_CipherSuite::MT_CipherSuite()
 {
 } // end ctor MT_CipherSuite
 
+_Use_decl_annotations_
 MT_CipherSuite::MT_CipherSuite(MT_CipherSuiteValue eValue)
     : MT_FixedLengthByteStructure()
 {
@@ -2931,8 +3001,9 @@ MT_CipherSuite::MT_CipherSuite(MT_CipherSuiteValue eValue)
     assert(mr == MT_S_OK);
 } // end ctor MT_CipherSuite
 
-MTERR
-MT_CipherSuite::KeyExchangeAlgorithm(
+_Use_decl_annotations_
+MTERR_T
+MT_CipherSuite::GetKeyExchangeAlgorithm(
     MT_KeyExchangeAlgorithm* pAlg
 ) const
 {
@@ -2967,9 +3038,10 @@ done:
 
 error:
     goto done;
-} // end function KeyExchangeAlgorithm
+} // end function GetKeyExchangeAlgorithm
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_CipherSuite::GetValue(
     MT_CipherSuiteValue* peValue
 ) const
@@ -2995,7 +3067,8 @@ error:
     goto done;
 } // end function GetValue
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_CipherSuite::SetValue(
     MT_CipherSuiteValue eValue
 )
@@ -3017,6 +3090,7 @@ error:
     goto done;
 } // end function SetValue
 
+_Use_decl_annotations_
 bool
 MT_CipherSuite::operator==(
     const MT_CipherSuite& rOther
@@ -3050,6 +3124,7 @@ const MT_CipherSuiteValue c_rgeCipherSuitePreference[] =
       MTCS_TLS_RSA_WITH_RC4_128_MD5
 };
 
+_Use_decl_annotations_
 const vector<MT_CipherSuiteValue>* GetCipherSuitePreference()
 {
     static vector<MT_CipherSuiteValue> s_veCipherSuiteValues;
@@ -3073,7 +3148,8 @@ const vector<MT_CipherSuiteValue>* GetCipherSuitePreference()
 ** this function puts the two together and picks the server's favorite that the
 ** client also advertises support for
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 ChooseBestCipherSuite(
     const vector<MT_CipherSuiteValue>* pveClientPreference,
     const vector<MT_CipherSuiteValue>* pveServerPreference,
@@ -3114,7 +3190,8 @@ MT_ContentType::MT_ContentType()
 {
 } // end ctor MT_ContentType
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_ContentType::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -3136,7 +3213,8 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_ContentType::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -3158,6 +3236,7 @@ error:
     goto done;
 } // end function SerializePriv
 
+_Use_decl_annotations_
 wstring
 MT_ContentType::ToString() const
 {
@@ -3195,7 +3274,8 @@ MT_Random::MT_Random()
 {
 } // end ctor MT_Random
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Random::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -3217,7 +3297,8 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Random::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -3239,7 +3320,8 @@ error:
     goto done;
 } // end function SerializePriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Random::PopulateNow()
 {
     MTERR mr = MT_S_OK;
@@ -3268,7 +3350,8 @@ MT_CompressionMethod::MT_CompressionMethod()
 {
 } // end ctor MT_CompressionMethod
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_CompressionMethod::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -3283,7 +3366,7 @@ MT_CompressionMethod::ParseFromPriv(
 
     if (*GetMethod() != MTCM_Null)
     {
-        wprintf(L"warning: unknown compression method: %d\n", *GetMethod());
+        wprintf(L"warning: unknown compression method: %u\n", *GetMethod());
     }
 
     ADVANCE_PARSE();
@@ -3295,7 +3378,8 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_CompressionMethod::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -3325,7 +3409,8 @@ MT_Certificate::MT_Certificate()
 {
 } // end ctor MT_Certificate
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Certificate::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -3343,7 +3428,8 @@ error:
     goto done;
 } // end function SerializePriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Certificate::AddCertificateFromMemory(
     const MT_BYTE* pvCert,
     size_t cbCert
@@ -3358,7 +3444,8 @@ MT_Certificate::AddCertificateFromMemory(
 
 /*********** MT_SessionID *****************/
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_SessionID::PopulateWithRandom()
 {
     MTERR mr = MT_S_OK;
@@ -3384,7 +3471,8 @@ MT_Extension::MT_Extension()
 {
 } // end ctor MT_Extension
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Extension::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -3406,6 +3494,7 @@ error:
     goto done;
 } // end function ParseFromPriv
 
+_Use_decl_annotations_
 size_t
 MT_Extension::Length() const
 {
@@ -3414,7 +3503,8 @@ MT_Extension::Length() const
     return cbLength;
 } // end function Length
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Extension::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -3447,7 +3537,8 @@ MT_PreMasterSecret::MT_PreMasterSecret()
 {
 } // end ctor MT_PreMasterSecret
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_PreMasterSecret::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -3467,7 +3558,8 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_PreMasterSecret::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -3487,6 +3579,7 @@ error:
     goto done;
 } // end function SerializePriv
 
+_Use_decl_annotations_
 size_t
 MT_PreMasterSecret::Length() const
 {
@@ -3505,7 +3598,8 @@ MT_ChangeCipherSpec::MT_ChangeCipherSpec()
 {
 } // end ctor MT_ChangeCipherSpec
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_ChangeCipherSpec::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -3520,7 +3614,7 @@ MT_ChangeCipherSpec::ParseFromPriv(
 
     if (*GetType() != MTCCS_ChangeCipherSpec)
     {
-        wprintf(L"warning: unrecognized change cipher spec type: %d\n", *GetType());
+        wprintf(L"warning: unrecognized change cipher spec type: %u\n", *GetType());
     }
 
     ADVANCE_PARSE();
@@ -3532,7 +3626,8 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_ChangeCipherSpec::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -3563,7 +3658,8 @@ MT_Finished::MT_Finished()
 {
 } // end ctor MT_Finished
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Finished::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -3572,7 +3668,8 @@ MT_Finished::ParseFromPriv(
     return GetVerifyData()->ParseFrom(pv, cb);
 } // end function ParseFromPriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Finished::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -3587,7 +3684,8 @@ MT_Finished::SerializePriv(
 ** correct cipher suite. this is basically a hash of all the handshake messages
 ** involved so far
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Finished::CheckSecurityPriv()
 {
     MTERR mr = MT_S_OK;
@@ -3627,7 +3725,8 @@ error:
 **
 ** take a hash (or two) of all handshake messages using the master secret
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Finished::ComputeVerifyData(
     const char* szLabel,
     ByteVector* pvbVerifyData
@@ -3730,7 +3829,8 @@ MT_ServerHelloDone::MT_ServerHelloDone()
 {
 } // end ctor MT_ServerHelloDone
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_ServerHelloDone::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -3751,7 +3851,8 @@ MT_HelloRequest::MT_HelloRequest()
 {
 } // end ctor MT_HelloRequest
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_HelloRequest::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -3783,7 +3884,8 @@ MT_TLSCiphertext::MT_TLSCiphertext()
 ** note that we pass in "this" when creating the cipher fragment. it calls back
 ** up to us to get to the app for questions sometimes
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_TLSCiphertext::SetEndpointParams(
     EndpointParameters* pEndParams
 )
@@ -3850,7 +3952,8 @@ error:
     goto done;
 } // end function SetEndpointParams
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_TLSCiphertext::Decrypt()
 {
     MTERR mr = MT_S_OK;
@@ -3870,7 +3973,8 @@ error:
     goto done;
 } // end function Decrypt
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_TLSCiphertext::ToTLSPlaintext(
     MT_TLSPlaintext* pPlaintext
 )
@@ -3893,7 +3997,8 @@ error:
     goto done;
 } // end function ToTLSPlaintext
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_TLSCiphertext::FromTLSPlaintext(
     MT_TLSPlaintext* pPlaintext,
     EndpointParameters* pEndParams,
@@ -3919,7 +4024,8 @@ error:
 } // end function FromTLSPlaintext
 
 // effectively adds a MAC to the payload and encrypts the whole thing
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_TLSCiphertext::Protect()
 {
     MTERR mr = MT_S_OK;
@@ -3941,7 +4047,8 @@ error:
     goto done;
 } // end function Protect
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_TLSCiphertext::GetProtocolVersionForSecurity(
     MT_ProtocolVersion* pVersion
 )
@@ -3975,8 +4082,9 @@ MT_TLSCiphertext::GetProtocolVersionForSecurity(
         {
             CHKOK(hashVersion.SetVersion(ver));
         }
-        else if (mr != MT_S_LISTENER_IGNORED)
+        else if (MT_Failed(mr))
         {
+            __assume(mr != MT_S_OK);
             goto error;
         }
 
@@ -3994,7 +4102,8 @@ error:
 } // end function GetProtocolVersionForSecurity
 
 // effectively checks the MAC
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_TLSCiphertext::CheckSecurityPriv()
 {
     MTERR mr = MT_S_OK;
@@ -4015,7 +4124,8 @@ error:
 } // end function CheckSecurityPriv
 
 // the next IV to use is either the last ciphertext block or a "random" value
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_TLSCiphertext::GenerateNextIV(ByteVector* pvbIV)
 {
     MTERR mr = MT_S_OK;
@@ -4045,6 +4155,7 @@ MT_TLSCiphertext::GenerateNextIV(ByteVector* pvbIV)
 
 /*********** MT_CipherFragment *****************/
 
+_Use_decl_annotations_
 MT_CipherFragment::MT_CipherFragment(
     MT_TLSCiphertext* pCiphertext
 )
@@ -4062,7 +4173,8 @@ MT_CipherFragment::MT_CipherFragment(
 ** this point we have no way of determining what the size should be. this
 ** EncryptedContent is still ciphered, not plaintext
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_CipherFragment::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -4086,7 +4198,8 @@ error:
 ** the ciphering for EncryptedContent needs to have been done separately and
 ** prior to calling this
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_CipherFragment::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -4106,6 +4219,7 @@ error:
     goto done;
 } // end function SerializePriv
 
+_Use_decl_annotations_
 size_t
 MT_CipherFragment::Length() const
 {
@@ -4125,7 +4239,8 @@ MT_CipherFragment::Length() const
 ** basically just put a bunch of fields together and hash it with the MAC key,
 ** which was generated back with the master secret
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_CipherFragment::ComputeMAC(
     MT_UINT64 sequenceNumber,
     const ByteVector* pvbMACKey,
@@ -4152,12 +4267,12 @@ MT_CipherFragment::ComputeMAC(
          c_cbRecordLayerMessage_Fragment_LFL +
          GetContent()->size();
 
-    wprintf(L"MAC text is %d bytes\n", cb);
+    wprintf(L"MAC text is %Iu bytes\n", cb);
 
     ResizeVector(&vbHashText, cb);
     pv = &vbHashText.front();
 
-    wprintf(L"sequence number: %d\n", sequenceNumber);
+    wprintf(L"sequence number: %I64u\n", sequenceNumber);
 
     cbField = c_cbSequenceNumber_Length;
     CHKOK(WriteNetworkLong(
@@ -4206,6 +4321,7 @@ error:
 
 /*********** MT_GenericStreamCipher *****************/
 
+_Use_decl_annotations_
 MT_GenericStreamCipher::MT_GenericStreamCipher(
     MT_TLSCiphertext* pCiphertext
 )
@@ -4214,7 +4330,8 @@ MT_GenericStreamCipher::MT_GenericStreamCipher(
 {
 } // end ctor MT_GenericStreamCipher
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericStreamCipher::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -4261,7 +4378,8 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericStreamCipher::UpdateWriteSecurity()
 {
     MTERR mr = MT_S_OK;
@@ -4319,7 +4437,8 @@ error:
 ** basically just put a bunch of fields together and hash it with the MAC key,
 ** which was generated back with the master secret
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericStreamCipher::ComputeSecurityInfo(
     MT_UINT64 sequenceNumber,
     const ByteVector* pvbMACKey,
@@ -4337,7 +4456,8 @@ MT_GenericStreamCipher::ComputeSecurityInfo(
 } // end function ComputeSecurityInfo
 
 // compare the MAC that we compute to the one received in the message
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericStreamCipher::CheckSecurityPriv()
 {
     MTERR mr = MT_S_OK;
@@ -4375,6 +4495,7 @@ error:
 
 /*********** MT_GenericBlockCipher *****************/
 
+_Use_decl_annotations_
 MT_GenericBlockCipher::MT_GenericBlockCipher(
     MT_TLSCiphertext* pCiphertext
 )
@@ -4385,7 +4506,8 @@ MT_GenericBlockCipher::MT_GenericBlockCipher(
 } // end ctor MT_GenericBlockCipher
 
 // parses and also decrypts... then parses the decrypted part, too
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericBlockCipher::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -4490,7 +4612,8 @@ error:
 ** this is called to prepare the contents for being serialized. it takes the
 ** plaintext payload, attaches the MAC to it, and encrypts it
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericBlockCipher::UpdateWriteSecurity()
 {
     MTERR mr = MT_S_OK;
@@ -4558,6 +4681,7 @@ error:
 } // end function UpdateWriteSecurity
 
 // primarily this makes sure the padding is less then 256 bytes long
+_Use_decl_annotations_
 MT_UINT8
 MT_GenericBlockCipher::PaddingLength() const
 {
@@ -4573,7 +4697,8 @@ MT_GenericBlockCipher::PaddingLength() const
 ** MT_GenericStreamCipher::ComputeSecurityInfo for more info. this differs from
 ** the stream cipher only in that it also computes the padding for the block
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericBlockCipher::ComputeSecurityInfo(
     MT_UINT64 sequenceNumber,
     const ByteVector* pvbMACKey,
@@ -4639,7 +4764,8 @@ error:
     goto done;
 } // end function ComputeSecurityInfo
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericBlockCipher::CheckSecurityPriv()
 {
     MTERR mr = MT_S_OK;
@@ -4691,6 +4817,7 @@ error:
 
 /*********** MT_GenericBlockCipher_TLS10 *****************/
 
+_Use_decl_annotations_
 const ByteVector*
 MT_GenericBlockCipher_TLS10::GetIV() const
 {
@@ -4700,6 +4827,7 @@ MT_GenericBlockCipher_TLS10::GetIV() const
 
 /*********** MT_GenericBlockCipher_TLS11 *****************/
 
+_Use_decl_annotations_
 MT_GenericBlockCipher_TLS11::MT_GenericBlockCipher_TLS11(
     MT_TLSCiphertext* pCiphertext
 )
@@ -4708,7 +4836,8 @@ MT_GenericBlockCipher_TLS11::MT_GenericBlockCipher_TLS11(
 {
 } // end ctor MT_GenericBlockCipher_TLS11
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericBlockCipher_TLS11::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -4739,7 +4868,8 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericBlockCipher_TLS11::UpdateWriteSecurity()
 {
     MTERR mr = MT_S_OK;
@@ -4761,7 +4891,8 @@ error:
 ** un-encrypted to the front, so this is the last thing we do before
 ** serializing
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_GenericBlockCipher_TLS11::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -4781,6 +4912,7 @@ error:
     goto done;
 } // end function SerializePriv
 
+_Use_decl_annotations_
 size_t
 MT_GenericBlockCipher_TLS11::Length() const
 {
@@ -4798,7 +4930,8 @@ SymmetricCipherer::SymmetricCipherer()
 {
 } // end ctor SymmetricCipherer
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 SymmetricCipherer::SetCipherInfo(
     const ByteVector* pvbKey,
     const CipherInfo* pCipherInfo
@@ -4821,11 +4954,12 @@ error:
 } // end function SetCipherInfo
 
 /*
-** handle null cipher here. MT_S_OK indicates to the caller that some "encryption"
-** was done here. MT_E_NOTIMPL means that the caller needs to handle the
-** encryption itself
+** handle null cipher here. MT_S_OK indicates to the caller that some
+** "encryption" was done here. MT_E_NOTIMPL means that the caller needs to
+** handle the encryption itself
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 SymmetricCipherer::EncryptBuffer(
     const ByteVector* pvbCleartext,
     const ByteVector* pvbIV,
@@ -4844,7 +4978,8 @@ SymmetricCipherer::EncryptBuffer(
 } // end function EncryptBuffer
 
 // handle null encryption here. MT_S_OK means we handled it. else MT_E_NOTIMPL
-MTERR
+_Use_decl_annotations_
+MTERR_T
 SymmetricCipherer::DecryptBuffer(
     const ByteVector* pvbEncrypted,
     const ByteVector* pvbIV,
@@ -4866,7 +5001,8 @@ SymmetricCipherer::DecryptBuffer(
 /*********** Hasher *****************/
 
 // handle null (0 byte) hash. MT_S_OK means we handled it. MT_E_NOTIMPL otherwise
-MTERR
+_Use_decl_annotations_
+MTERR_T
 Hasher::Hash(
     const HashInfo* pHashInfo,
     const ByteVector* pvbText,
@@ -4885,7 +5021,8 @@ Hasher::Hash(
 } // end function Hash
 
 // handle null (0 byte) HMAC. MT_S_OK means we handled it. MT_E_NOTIMPL otherwise
-MTERR
+_Use_decl_annotations_
+MTERR_T
 Hasher::HMAC(
     const HashInfo* pHashInfo,
     const ByteVector* pvbKey,
@@ -4915,7 +5052,8 @@ MT_Alert::MT_Alert()
 {
 } // end ctor MT_Alert
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Alert::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -4940,7 +5078,8 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Alert::SerializePriv(
     MT_BYTE* pv,
     size_t cb
@@ -4965,6 +5104,7 @@ error:
     goto done;
 } // end function SerializePriv
 
+_Use_decl_annotations_
 wstring
 MT_Alert::ToString() const
 {
@@ -5109,7 +5249,8 @@ MT_RenegotiationInfoExtension::MT_RenegotiationInfoExtension()
 } // end ctor MT_RenegotiationInfoExtension
 
 // see notes for SetRenegotiatedConnection
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_RenegotiationInfoExtension::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -5141,7 +5282,8 @@ error:
 ** calls to CheckExtensionDataIntegrity to make sure that the integrity hasn't
 ** been tampered with by direct modifications to GetExtensionData().
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_RenegotiationInfoExtension::SetRenegotiatedConnection(
     const MT_RenegotiatedConnection* pRenegotiatedConnection
 )
@@ -5164,9 +5306,10 @@ error:
 ** the m_renegotiatedConnection object as well as the raw bytes, so they are
 ** kept in sync
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_RenegotiationInfoExtension::SetExtensionData(
-    MT_ExtensionData* pExtensionData
+    const MT_ExtensionData* pExtensionData
 )
 {
     MTERR mr = MT_S_OK;
@@ -5185,7 +5328,8 @@ error:
 ** serialize the renegotiated connection member and check that it matches
 ** GetExtensionData. they should always be in sync
 */
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_RenegotiationInfoExtension::CheckExtensionDataIntegrity() const
 {
     MTERR mr = MT_S_OK;
@@ -5209,6 +5353,7 @@ error:
     goto done;
 } // end function CheckExtensionDataIntegrity
 
+_Use_decl_annotations_
 const MT_ExtensionData*
 MT_RenegotiationInfoExtension::GetExtensionData() const
 {
@@ -5216,6 +5361,7 @@ MT_RenegotiationInfoExtension::GetExtensionData() const
     return MT_Extension::GetExtensionData();
 } // end function GetExtensionData
 
+_Use_decl_annotations_
 const MT_RenegotiationInfoExtension::MT_RenegotiatedConnection*
 MT_RenegotiationInfoExtension::GetRenegotiatedConnection() const
 {
@@ -5234,7 +5380,8 @@ MT_Thingy::MT_Thingy()
 {
 } // end ctor MT_Thingy
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Thingy::ParseFromPriv(
     const MT_BYTE* pv,
     size_t cb
@@ -5252,6 +5399,7 @@ error:
     goto done;
 } // end function ParseFromPriv
 
+_Use_decl_annotations_
 size_t
 MT_Thingy::Length() const
 {
@@ -5259,7 +5407,8 @@ MT_Thingy::Length() const
     return cbLength;
 } // end function Length
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_Thingy::SerializePriv(
     MT_BYTE* pv,
     size_t cb

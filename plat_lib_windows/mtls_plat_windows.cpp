@@ -7,9 +7,14 @@
 namespace MungeTLS
 {
 
-HRESULT EpochTimeFromSystemTime(const SYSTEMTIME* pST, ULONG* pTime);
+HRESULT
+EpochTimeFromSystemTime(
+    _In_ const SYSTEMTIME* pST,
+    _Out_ ULONG* pTime
+);
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 GetCurrentGMTTime(
     MT_UINT32* pTime
 )
@@ -38,6 +43,7 @@ error:
 ** since midnight on Jan 1 1970 GMT, which is suitable for inclusion in the
 ** "gmt_unix_time" field in the TLS RFC.
 */
+_Use_decl_annotations_
 HRESULT
 EpochTimeFromSystemTime(
     const SYSTEMTIME* pST,
@@ -90,7 +96,8 @@ error:
     goto done;
 } // end function EpochTimeFromSystemTime
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 HR2MR(
     HRESULT hr
 )
@@ -98,15 +105,17 @@ HR2MR(
     return hr;
 } // end function HR2MR
 
+_Use_decl_annotations_
 HRESULT
 MR2HR(
-    MTERR mr
+    MTERR_T mr
 )
 {
     return mr;
 } // end function MR2HR
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_SizeTToByte(
     size_t s,
     MT_BYTE* pb
@@ -115,7 +124,8 @@ MT_SizeTToByte(
     return HR2MR(SizeTToByte(s, pb));
 } // end function MT_SizeTToByte
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 MT_SizeTSub(
     size_t l,
     size_t r,

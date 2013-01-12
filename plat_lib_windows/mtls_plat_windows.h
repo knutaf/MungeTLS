@@ -10,8 +10,8 @@
 namespace MungeTLS
 {
 
-MTERR HR2MR(HRESULT hr);
-HRESULT MR2HR(MTERR mr);
+MTERR HR2MR(_In_ HRESULT hr);
+HRESULT MR2HR(_In_ MTERR mr);
 
 #define CHKNUL(stmt)                                        \
 {                                                           \
@@ -70,12 +70,30 @@ class KeyAndProv
     public:
     KeyAndProv();
     ~KeyAndProv();
-    KeyAndProv& operator=(const KeyAndProv& rOther);
 
-    void Init(HCRYPTPROV hProv, BOOL fCallerFree = TRUE);
-    HCRYPTKEY GetKey() const { return m_hKey; }
-    HCRYPTPROV GetProv() const { return m_hProv; }
-    void SetKey(HCRYPTKEY hKey);
+    KeyAndProv&
+    operator=(
+        _In_ const KeyAndProv& rOther);
+
+    void Init(_In_ HCRYPTPROV hProv, _In_ BOOL fCallerFree = TRUE);
+
+    _Check_return_
+    _Ret_notnull_
+    HCRYPTKEY
+    GetKey() const
+    {
+        return m_hKey;
+    }
+
+    _Check_return_
+    _Ret_notnull_
+    HCRYPTPROV
+    GetProv() const
+    {
+        return m_hProv;
+    }
+
+    void SetKey(_In_ HCRYPTKEY hKey);
     void Detach();
 
     private:
@@ -88,47 +106,47 @@ class KeyAndProv
 
 HRESULT
 EncryptBuffer(
-    const ByteVector* pvbCleartext,
-    HCRYPTKEY hKey,
-    const CipherInfo* pCipherInfo,
-    const ByteVector* pvbIV,
-    ByteVector* pvbEncrypted);
+    _In_ const ByteVector* pvbCleartext,
+    _In_ HCRYPTKEY hKey,
+    _In_ const CipherInfo* pCipherInfo,
+    _In_opt_ const ByteVector* pvbIV,
+    _Out_ ByteVector* pvbEncrypted);
 
 HRESULT
 DecryptBuffer(
-    const ByteVector* pvbEncrypted,
-    HCRYPTKEY hKey,
-    const CipherInfo* pCipherInfo,
-    const ByteVector* pvbIV,
-    ByteVector* pvbDecrypted);
+    _In_ const ByteVector* pvbEncrypted,
+    _In_ HCRYPTKEY hKey,
+    _In_ const CipherInfo* pCipherInfo,
+    _In_opt_ const ByteVector* pvbIV,
+    _Out_ ByteVector* pvbDecrypted);
 
 HRESULT
 LookupCertificate(
-    DWORD dwCertStoreFlags,
-    PCWSTR wszStoreName,
-    PCWSTR wszSubjectName,
-    PCCERT_CHAIN_CONTEXT* ppCertChain);
+    _In_ DWORD dwCertStoreFlags,
+    _In_ PCWSTR wszStoreName,
+    _In_ PCWSTR wszSubjectName,
+    _Outptr_ PCCERT_CHAIN_CONTEXT* ppCertChain);
 
 HRESULT
 GetPrivateKeyFromCertificate(
-    PCCERT_CONTEXT pCertContext,
-    KeyAndProv* pPrivateKey);
+    _In_ PCCERT_CONTEXT pCertContext,
+    _Out_ KeyAndProv* pPrivateKey);
 
 HRESULT
 GetPublicKeyFromCertificate(
-    PCCERT_CONTEXT pCertContext,
-    KeyAndProv* pPublicKey);
+    _In_ PCCERT_CONTEXT pCertContext,
+    _Out_ KeyAndProv* pPublicKey);
 
 HRESULT
 MTCertChainFromWinChain(
-    PCCERT_CHAIN_CONTEXT pWinChain,
-    MT_CertificateList* pMTChain);
+    _In_ PCCERT_CHAIN_CONTEXT pWinChain,
+    _Out_ MT_CertificateList* pMTChain);
 
 HRESULT
 ImportSymmetricKey(
-    const ByteVector* pvbKey,
-    ALG_ID algID,
-    KeyAndProv* pKey);
+    _In_ const ByteVector* pvbKey,
+    _In_ ALG_ID algID,
+    _Out_ KeyAndProv* pKey);
 
 
 
@@ -140,33 +158,59 @@ class WindowsPublicKeyCipherer : public PublicKeyCipherer
 
     HRESULT
     Initialize(
-        std::shared_ptr<KeyAndProv> spPublicKeyProv,
-        std::shared_ptr<KeyAndProv> spPrivateKeyProv);
+        _In_ std::shared_ptr<KeyAndProv> spPublicKeyProv,
+        _In_ std::shared_ptr<KeyAndProv> spPrivateKeyProv);
 
     HRESULT
-    Initialize(PCCERT_CONTEXT pCertCContext);
+    Initialize(_In_ PCCERT_CONTEXT pCertCContext);
 
     MTERR
     EncryptBufferWithPublicKey(
-        const ByteVector* pvbCleartext,
-        ByteVector* pvbEncrypted) const;
+        _In_ const ByteVector* pvbCleartext,
+        _Out_ ByteVector* pvbEncrypted) const;
 
     MTERR
     DecryptBufferWithPrivateKey(
-        const ByteVector* pvbEncrypted,
-        ByteVector* pvbDecrypted) const;
+        _In_ const ByteVector* pvbEncrypted,
+        _Out_ ByteVector* pvbDecrypted) const;
 
     MTERR
     EncryptBufferWithPrivateKey(
-        const ByteVector* pvbCleartext,
-        ByteVector* pvbEncrypted) const;
+        _In_ const ByteVector* pvbCleartext,
+        _Out_ ByteVector* pvbEncrypted) const;
 
     private:
-    HCRYPTKEY PublicKey() const { return PublicKeyAndProv()->GetKey(); }
-    HCRYPTKEY PrivateKey() const { return PrivateKeyAndProv()->GetKey(); }
+    _Check_return_
+    _Ret_notnull_
+    HCRYPTKEY
+    PublicKey() const
+    {
+        return PublicKeyAndProv()->GetKey();
+    }
 
-    std::shared_ptr<KeyAndProv> PrivateKeyAndProv() const { return m_spPrivateKeyProv; }
-    std::shared_ptr<KeyAndProv> PublicKeyAndProv() const { return m_spPublicKeyProv; }
+    _Check_return_
+    _Ret_notnull_
+    HCRYPTKEY
+    PrivateKey() const
+    {
+        return PrivateKeyAndProv()->GetKey();
+    }
+
+    _Check_return_
+    _Ret_notnull_
+    std::shared_ptr<KeyAndProv>
+    PrivateKeyAndProv() const
+    {
+        return m_spPrivateKeyProv;
+    }
+
+    _Check_return_
+    _Ret_notnull_
+    std::shared_ptr<KeyAndProv>
+    PublicKeyAndProv() const
+    {
+        return m_spPublicKeyProv;
+    }
 
     std::shared_ptr<KeyAndProv> m_spPublicKeyProv;
     std::shared_ptr<KeyAndProv> m_spPrivateKeyProv;
@@ -180,26 +224,26 @@ class WindowsSymmetricCipherer : public SymmetricCipherer
 
     MTERR
     SetCipherInfo(
-        const ByteVector* pvbKey,
-        const CipherInfo* pCipherInfo);
+        _In_ const ByteVector* pvbKey,
+        _In_ const CipherInfo* pCipherInfo);
 
     MTERR
     EncryptBuffer(
-        const ByteVector* pvbCleartext,
-        const ByteVector* pvbIV,
-        ByteVector* pvbEncrypted);
+        _In_ const ByteVector* pvbCleartext,
+        _In_opt_ const ByteVector* pvbIV,
+        _Out_ ByteVector* pvbEncrypted);
 
     MTERR
     DecryptBuffer(
-        const ByteVector* pvbEncrypted,
-        const ByteVector* pvbIV,
-        ByteVector* pvbDecrypted);
+        _In_ const ByteVector* pvbEncrypted,
+        _In_opt_ const ByteVector* pvbIV,
+        _Out_ ByteVector* pvbDecrypted);
 
     static
     HRESULT
     WindowsCipherAlgFromMTCipherAlg(
-        CipherAlg alg,
-        ALG_ID* pAlgID);
+        _In_ CipherAlg alg,
+        _Out_ ALG_ID* pAlgID);
 
     private:
     ACCESSORS_SP(KeyAndProv, Key, m_spKey);
@@ -212,23 +256,23 @@ class WindowsHasher : public Hasher
     public:
     MTERR
     Hash(
-        const HashInfo* pHashInfo,
-        const ByteVector* pvbText,
-        ByteVector* pvbHash);
+        _In_ const HashInfo* pHashInfo,
+        _In_ const ByteVector* pvbText,
+        _Out_ ByteVector* pvbHash);
 
     MTERR
     HMAC(
-        const HashInfo* pHashInfo,
-        const ByteVector* pvbKey,
-        const ByteVector* pvbText,
-        ByteVector* pvbHMAC);
+        _In_ const HashInfo* pHashInfo,
+        _In_ const ByteVector* pvbKey,
+        _In_ const ByteVector* pvbText,
+        _Out_ ByteVector* pvbHMAC);
 
     private:
     static
     HRESULT
     WindowsHashAlgFromMTHashInfo(
-        const HashInfo* pHashInfo,
-        ALG_ID* pAlg);
+        _In_ const HashInfo* pHashInfo,
+        _Out_ ALG_ID* pAlg);
 };
 
 }

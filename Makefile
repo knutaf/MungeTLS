@@ -1,7 +1,11 @@
 # disable warning C4505 for templates that are declared but not referenced
 #   later
 C_FLAGS=\
+    $(C_FLAGS) \
     /wd4505 \
+
+    # to enable static analysis
+    #/analyze:log analyze.xml \
 
 C_DEFINES=\
     -DUNICODE \
@@ -10,6 +14,7 @@ C_DEFINES=\
 
 H_FILES=\
     ..\inc\mtls_defs.h \
+    ..\inc\salshim.h \
     ..\inc\MungeTLS.h \
     ..\inc\MungeCrypto.h \
     ..\inc\mtls_helper.h \
@@ -50,4 +55,4 @@ clean:
 	cd ..
 
 cleanup:
-	del /s *.ilk vc11* *.obj *.pch
+	del /s *.ilk vc11* *.obj *.pch analyze.xml

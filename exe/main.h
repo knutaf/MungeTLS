@@ -12,7 +12,7 @@ using namespace MungeTLS;
 class SimpleHTTPServer : public ITLSListener
 {
     public:
-    SimpleHTTPServer(SOCKET sockClient)
+    SimpleHTTPServer(_In_ SOCKET sockClient)
         : m_vPendingSends(),
           m_con(this), // not a copy ctor; taking this as an ITLSListener
           m_sPendingRequest(""),
@@ -26,32 +26,53 @@ class SimpleHTTPServer : public ITLSListener
     ~SimpleHTTPServer() { }
 
     HRESULT ProcessConnection();
-    HRESULT EnqueueSendApplicationData(const ByteVector* pvb);
+    HRESULT EnqueueSendApplicationData(_In_ const ByteVector* pvb);
 
-    MTERR OnSend(const ByteVector* pvb);
-    MTERR OnReceivedApplicationData(const ByteVector* pvb);
-    MTERR OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion);
-    MTERR OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite);
-    MTERR OnCreatingHandshakeMessage(MT_Handshake* pHandshake, MT_UINT32* pfFlags);
-    MTERR OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
-    MTERR OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted);
-    MTERR OnHandshakeComplete();
+    MTERR OnSend(_In_ const ByteVector* pvb);
+
+    MTERR OnReceivedApplicationData(_In_ const ByteVector* pvb);
 
     MTERR
     OnInitializeCrypto(
-        MT_CertificateList* pCertChain,
-        std::shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
-        std::shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
-        std::shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
-        std::shared_ptr<Hasher>* pspClientHasher,
-        std::shared_ptr<Hasher>* pspServerHasher);
+        _Out_ MT_CertificateList* pCertChain,
+        _Out_ std::shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
+        _Out_ std::shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
+        _Out_ std::shared_ptr<SymmetricCipherer>* pspServerSymCipherer,
+        _Out_ std::shared_ptr<Hasher>* pspClientHasher,
+        _Out_ std::shared_ptr<Hasher>* pspServerHasher);
+
+    MTERR
+    OnSelectProtocolVersion(
+        _Inout_ MT_ProtocolVersion* pProtocolVersion);
+
+    MTERR
+    OnSelectCipherSuite(
+        _In_ const MT_ClientHello* pClientHello,
+        _Out_ MT_CipherSuite* pCipherSuite);
+
+    MTERR
+    OnCreatingHandshakeMessage(
+        _Inout_ MT_Handshake* pHandshake,
+        _Inout_ MT_UINT32* pfFlags);
+
+    MTERR OnHandshakeComplete();
+
+    MTERR
+    OnEnqueuePlaintext(
+        _In_ const MT_TLSPlaintext* pPlaintext,
+        _In_ bool fActuallyEncrypted);
+
+    MTERR
+    OnReceivingPlaintext(
+        _In_ const MT_TLSPlaintext* pPlaintext,
+        _In_ bool fActuallyEncrypted);
 
     MTERR
     OnReconcileSecurityVersion(
-        const MT_TLSCiphertext* pCiphertext,
-        MT_ProtocolVersion::MTPV_Version connVersion,
-        MT_ProtocolVersion::MTPV_Version recordVersion,
-        MT_ProtocolVersion::MTPV_Version* pOverrideVersion);
+        _In_ const MT_TLSCiphertext* pCiphertext,
+        _In_ MT_ProtocolVersion::MTPV_Version connVersion,
+        _In_ MT_ProtocolVersion::MTPV_Version recordVersion,
+        _Out_ MT_ProtocolVersion::MTPV_Version* pOverrideVersion);
 
     ACCESSORS(std::vector<ByteVector>, PendingSends, m_vPendingSends);
     ACCESSORS(ByteVector, PendingResponse, m_vbPendingAppData);

@@ -33,7 +33,11 @@ struct PlaintextKey
     BYTE rgbKeyData[1];
 };
 
-ByteVector ReverseByteOrder(const ByteVector* pvb);
+_Check_return_
+ByteVector
+ReverseByteOrder(
+    _In_ const ByteVector* pvb
+);
 
 
 /*********** KeyAndProv *****************/
@@ -45,6 +49,7 @@ KeyAndProv::KeyAndProv()
 {
 } // end ctor KeyAndProv
 
+_Use_decl_annotations_
 KeyAndProv& KeyAndProv::operator=(const KeyAndProv& rOther)
 {
     Release();
@@ -54,10 +59,12 @@ KeyAndProv& KeyAndProv::operator=(const KeyAndProv& rOther)
     return *this;
 } // end operator=
 
+_Use_decl_annotations_
 void
 KeyAndProv::Init(
     HCRYPTPROV hProv,
-    BOOL fCallerFree)
+    BOOL fCallerFree
+)
 {
     Release();
 
@@ -93,6 +100,7 @@ void KeyAndProv::Detach()
     m_fCallerFree = FALSE;
 } // end function Detach
 
+_Use_decl_annotations_
 void KeyAndProv::SetKey(HCRYPTKEY hKey)
 {
     // only support tracking a key if we also track a provider
@@ -107,13 +115,15 @@ void KeyAndProv::SetKey(HCRYPTKEY hKey)
 ** the functions to encrypt and decrypt data, once you actually get to this
 ** point, are the same for pretty much all cipher types
 */
+_Use_decl_annotations_
 HRESULT
 EncryptBuffer(
     const ByteVector* pvbCleartext,
     HCRYPTKEY hKey,
     const CipherInfo* pCipherInfo,
     const ByteVector* pvbIV,
-    ByteVector* pvbEncrypted)
+    ByteVector* pvbEncrypted
+)
 {
     HRESULT hr = S_OK;
     DWORD cb = 0;
@@ -212,7 +222,7 @@ EncryptBuffer(
              &cb,
              1);
 
-    wprintf(L"found we need %d bytes for ciphertext\n", cb);
+    wprintf(L"found we need %u bytes for ciphertext\n", cb);
     if (pvbCleartext->size() > cb)
     {
         wprintf(L"currently don't support cleartext bigger than one block\n");
@@ -272,20 +282,22 @@ error:
 } // end function EncryptBuffer
 
 // see notes above from EncryptBuffer
+_Use_decl_annotations_
 HRESULT
 DecryptBuffer(
     const ByteVector* pvbEncrypted,
     HCRYPTKEY hKey,
     const CipherInfo* pCipherInfo,
     const ByteVector* pvbIV,
-    ByteVector* pvbDecrypted)
+    ByteVector* pvbDecrypted
+)
 {
     HRESULT hr = S_OK;
     DWORD cb;
     BOOL fFinal;
     HCRYPTKEY hKeyNew = hKey;
 
-    wprintf(L"decrypting. ciphertext (%d bytes):\n", pvbEncrypted->size());
+    wprintf(L"decrypting. ciphertext (%Iu bytes):\n", pvbEncrypted->size());
     PrintByteVector(pvbEncrypted);
 
     /*
@@ -367,7 +379,7 @@ DecryptBuffer(
              &pvbDecrypted->front(),
              &cb));
 
-    wprintf(L"done initial decrypt: cb=%d, size=%d\n", cb, pvbDecrypted->size());
+    wprintf(L"done initial decrypt: cb=%u, size=%Iu\n", cb, pvbDecrypted->size());
     PrintByteVector(pvbDecrypted);
 
     /*
@@ -391,7 +403,7 @@ DecryptBuffer(
         // get the padding length, which will also be the value
         BYTE paddingByteValue = pvbDecrypted->back();
         size_t cbPaddingBytes = paddingByteValue;
-        wprintf(L"looking for %lu padding bytes\n", cbPaddingBytes);
+        wprintf(L"looking for %Iu padding bytes\n", cbPaddingBytes);
 
         /*
         ** we'll now walk backwards from the end (skipping the padding length
@@ -462,12 +474,14 @@ error:
 ** I'm not sure this handles multiple certificates with the same subject well.
 ** from this, you get the whole cert chain that can be walked up to the root.
 */
+_Use_decl_annotations_
 HRESULT
 LookupCertificate(
     DWORD dwCertStoreFlags,
     PCWSTR wszStoreName,
     PCWSTR wszSubjectName,
-    PCCERT_CHAIN_CONTEXT* ppCertChain)
+    PCCERT_CHAIN_CONTEXT* ppCertChain
+)
 {
     HRESULT hr = S_OK;
     PCCERT_CONTEXT pCertContext = nullptr;
@@ -537,10 +551,12 @@ error:
 ** given a cert context, fetch a crypto provider + the private key. Of course,
 ** you have to have imported the private key previously for this to work.
 */
+_Use_decl_annotations_
 HRESULT
 GetPrivateKeyFromCertificate(
     PCCERT_CONTEXT pCertContext,
-    KeyAndProv* pPrivateKey)
+    KeyAndProv* pPrivateKey
+)
 {
     HRESULT hr = S_OK;
     HCRYPTKEY hKey = NULL;
@@ -603,10 +619,12 @@ error:
 **
 ** why can't we just get at the public key directly? I don't get it.
 */
+_Use_decl_annotations_
 HRESULT
 GetPublicKeyFromCertificate(
     PCCERT_CONTEXT pCertContext,
-    KeyAndProv* pPublicKey)
+    KeyAndProv* pPublicKey
+)
 {
     HRESULT hr = S_OK;
     HCRYPTPROV hProv = NULL;
@@ -651,7 +669,7 @@ GetPublicKeyFromCertificate(
              NULL,
              &cbPublicKeyInfo));
 
-    wprintf(L"found we need %d bytes for public key info\n", cbPublicKeyInfo);
+    wprintf(L"found we need %u bytes for public key info\n", cbPublicKeyInfo);
 
     ResizeVector(&vbPublicKeyInfo, cbPublicKeyInfo);
     CHKWIN(CryptExportPublicKeyInfoEx(
@@ -698,14 +716,15 @@ GetPublicKeyFromCertificate(
 
 done:
     assert(kp.GetProv() == hProv);
-    assert(kpPub.GetProv() == hPubProv || pPublicKey->GetProv() == hPubProv);
     return hr;
 
 error:
+    assert(hPubProv == NULL || kpPub.GetProv() == hPubProv);
     goto done;
 } // end function GetPublicKeyFromCertificate
 
 // convert between windows specific type and MungeTLS platform agnostic one
+_Use_decl_annotations_
 HRESULT
 MTCertChainFromWinChain(
     PCCERT_CHAIN_CONTEXT pWinChain,
@@ -736,6 +755,7 @@ MTCertChainFromWinChain(
     return S_OK;
 } // end function MTCertChainFromWinChain
 
+_Use_decl_annotations_
 HRESULT
 ImportSymmetricKey(
     const ByteVector* pvbKey,
@@ -778,7 +798,7 @@ ImportSymmetricKey(
     // RC2 is used for HMAC keys. very spammy, so limit it
     if (algID != CALG_RC2)
     {
-        wprintf(L"importing key of size %lu (keylength=%lu)\n", cbKeySize, pvbKey->size());
+        wprintf(L"importing key of size %u (keylength=%Iu)\n", cbKeySize, pvbKey->size());
     }
 
     // need to pass CRYPT_IPSEC_HMAC_KEY to allow long key lengths, per MSDN
@@ -811,6 +831,7 @@ WindowsPublicKeyCipherer::WindowsPublicKeyCipherer(
 {
 } // end ctor WindowsPublicKeyCipherer
 
+_Use_decl_annotations_
 HRESULT
 WindowsPublicKeyCipherer::Initialize(
     shared_ptr<KeyAndProv> spPublicKeyProv,
@@ -822,6 +843,7 @@ WindowsPublicKeyCipherer::Initialize(
     return S_OK;
 } // end function Initialize
 
+_Use_decl_annotations_
 HRESULT
 WindowsPublicKeyCipherer::Initialize(
     PCCERT_CONTEXT pCertContext
@@ -850,7 +872,8 @@ error:
     goto done;
 } // end function Initialize
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 WindowsPublicKeyCipherer::EncryptBufferWithPublicKey(
     const ByteVector* pvbCleartext,
     ByteVector* pvbEncrypted
@@ -873,7 +896,8 @@ error:
     goto done;
 } // end function EncryptBufferWithPublicKey
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 WindowsPublicKeyCipherer::DecryptBufferWithPrivateKey(
     const ByteVector* pvbEncrypted,
     ByteVector* pvbDecrypted
@@ -896,7 +920,8 @@ error:
     goto done;
 } // end function DecryptBufferWithPrivateKey
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
     const ByteVector* pvbCleartext,
     ByteVector* pvbEncrypted
@@ -928,7 +953,8 @@ WindowsSymmetricCipherer::WindowsSymmetricCipherer()
 {
 } // end ctor WindowsSymmetricCipherer
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 WindowsSymmetricCipherer::SetCipherInfo(
     const ByteVector* pvbKey,
     const CipherInfo* pCipherInfo
@@ -970,7 +996,8 @@ error:
     goto done;
 } // end function SetCipherInfo
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 WindowsSymmetricCipherer::EncryptBuffer(
     const ByteVector* pvbCleartext,
     const ByteVector* pvbIV,
@@ -1009,7 +1036,8 @@ error:
     goto done;
 } // end function EncryptBuffer
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 WindowsSymmetricCipherer::DecryptBuffer(
     const ByteVector* pvbEncrypted,
     const ByteVector* pvbIV,
@@ -1049,6 +1077,7 @@ error:
 } // end function DecryptBuffer
 
 // maps between MungeTLS platform-agnostic cipher alg values and windows ones
+_Use_decl_annotations_
 HRESULT
 WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
     CipherAlg alg,
@@ -1080,12 +1109,14 @@ WindowsSymmetricCipherer::WindowsCipherAlgFromMTCipherAlg(
         case CipherAlg_NULL:
         {
             hr = S_FALSE;
+            *pAlgID = 0;
         }
         break;
 
         default:
         {
             hr = MR2HR(MT_E_UNSUPPORTED_CIPHER);
+            __assume(FAILED(hr));
             goto error;
         }
         break;
@@ -1101,7 +1132,8 @@ error:
 
 /*********** WindowsHasher *****************/
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 WindowsHasher::Hash(
     const HashInfo* pHashInfo,
     const ByteVector* pvbText,
@@ -1199,7 +1231,8 @@ error:
     goto done;
 } // end function Hash
 
-MTERR
+_Use_decl_annotations_
+MTERR_T
 WindowsHasher::HMAC(
     const HashInfo* pHashInfo,
     const ByteVector* pvbKey,
@@ -1282,6 +1315,7 @@ error:
 } // end function HMAC
 
 // maps between MungeTLS platform-agnostic hash alg values and windows ones
+_Use_decl_annotations_
 HRESULT
 WindowsHasher::WindowsHashAlgFromMTHashInfo(
     const HashInfo* pHashInfo,
@@ -1313,6 +1347,7 @@ WindowsHasher::WindowsHashAlgFromMTHashInfo(
         default:
         {
             hr = HR2MR(MT_E_UNSUPPORTED_HASH);
+            __assume(FAILED(hr));
             goto error;
         }
         break;
@@ -1325,6 +1360,7 @@ error:
     goto done;
 } // end function WindowsHashAlgFromMTHashInfo
 
+_Use_decl_annotations_
 ByteVector
 ReverseByteOrder(
     const ByteVector* pvb

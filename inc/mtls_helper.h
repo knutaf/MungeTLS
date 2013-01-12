@@ -7,48 +7,74 @@ namespace MungeTLS
 {
 
 // PLATFORM: needs to be implemented
-MTERR MT_SizeTToByte(size_t s, MT_BYTE* pb);
-MTERR MT_SizeTSub(size_t l, size_t r, size_t* pOut);
-MTERR GetCurrentGMTTime(MT_UINT32* pTime);
+MTERR
+MT_SizeTToByte(
+    _In_ size_t s,
+    _Out_ MT_BYTE* pb);
 
-MTERR PrintByteVector(const ByteVector* pvb);
+MTERR
+MT_SizeTSub(
+    _In_ size_t l,
+    _In_ size_t r,
+    _Out_ size_t* pOut);
+
+MTERR
+GetCurrentGMTTime(
+    _Out_ MT_UINT32* pTime);
+
+MTERR_T
+PrintByteVector(
+    _In_ const ByteVector* pvb);
 
 template <typename N>
 MTERR
 ReadNetworkLong(
-    const MT_BYTE* pv,
-    size_t cb,
-    size_t cbToRead,
-    N* pResult
-);
+    _In_reads_bytes_(cb) const MT_BYTE* pv,
+    _In_ size_t cb,
+    _In_ size_t cbToRead,
+    _Out_ N* pResult);
 
 template <typename I>
 MTERR
 WriteNetworkLong(
-    I toWrite,
-    size_t cbToWrite,
-    MT_BYTE* pv,
-    size_t cb
-);
+    _In_ I toWrite,
+    _In_ size_t cbToWrite,
+    _Out_writes_bytes_(cb) MT_BYTE* pv,
+    _In_ size_t cb);
 
 MTERR
 WriteRandomBytes(
-    MT_BYTE* pv,
-    size_t cb
-);
+    _Out_writes_bytes_all_(cb) MT_BYTE* pv,
+    _In_ size_t cb);
 
 template <typename T>
-void ResizeVector(std::vector<T>* pVect, typename std::vector<T>::size_type siz);
+void
+ResizeVector(
+    _Inout_ std::vector<T>* pVect,
+    _In_ typename std::vector<T>::size_type siz);
 
 // totally specialized for byte vector
 template <>
-void ResizeVector(ByteVector* pv, typename ByteVector::size_type siz);
+void
+ResizeVector(
+    _Inout_ ByteVector* pv,
+    _In_ typename ByteVector::size_type siz);
 
 
 /**************** Serializing helper functions and macros ****************/
 
-MTERR ParseByteVector(size_t cbField, const MT_BYTE* pv, size_t cb, ByteVector* pvb);
-MTERR SerializeByteVector(const ByteVector* pvb, MT_BYTE* pv, size_t cb);
+MTERR
+ParseByteVector(
+    _In_ size_t cbField,
+    _In_reads_bytes_(cb) const MT_BYTE* pv,
+    _In_ size_t cb,
+    _Out_ ByteVector* pvb);
+
+MTERR
+SerializeByteVector(
+    _In_ const ByteVector* pvb,
+    _Out_writes_bytes_(cb) MT_BYTE* pv,
+    _In_ size_t cb);
 
 // catches underflow errors in a MTERR
 #define SAFE_SUB(m, l, r)                                          \

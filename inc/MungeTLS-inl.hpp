@@ -21,9 +21,9 @@ using namespace std;
 template <typename T>
 MTERR
 SerializeMessagesToVector(
-    typename vector<T>::const_iterator itBegin,
-    typename vector<T>::const_iterator itEnd,
-    ByteVector* pvb
+    _In_ typename vector<T>::const_iterator itBegin,
+    _In_ typename vector<T>::const_iterator itEnd,
+    _Out_ ByteVector* pvb
 )
 {
     MTERR mr = MT_S_OK;
@@ -51,9 +51,9 @@ SerializeMessagesToVector(
 template <typename T>
 MTERR
 SerializeMessagesToVector(
-    typename vector<shared_ptr<T>>::const_iterator itBegin,
-    typename vector<shared_ptr<T>>::const_iterator itEnd,
-    ByteVector* pvb
+    _In_ typename vector<shared_ptr<T>>::const_iterator itBegin,
+    _In_ typename vector<shared_ptr<T>>::const_iterator itEnd,
+    _Out_ ByteVector* pvb
 )
 {
     MTERR mr = MT_S_OK;
@@ -84,8 +84,8 @@ SerializeMessagesToVector(
 template <typename T>
 MTERR
 ParseStructures(
-    const ByteVector* pvb,
-    vector<T>* pvStructures
+    _In_ const ByteVector* pvb,
+    _Out_ vector<T>* pvStructures
 )
 {
     MTERR mr = MT_S_OK;
@@ -157,6 +157,7 @@ template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
+_Use_decl_annotations_
 size_t
 MT_VariableLengthFieldBase
 <T, LengthFieldSize, MinSize, MaxSize>
@@ -169,6 +170,7 @@ template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
+_Use_decl_annotations_
 T*
 MT_VariableLengthFieldBase
 <T, LengthFieldSize, MinSize, MaxSize>
@@ -196,6 +198,7 @@ template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
+_Use_decl_annotations_
 MTERR
 MT_VariableLengthField
 <T, LengthFieldSize, MinSize, MaxSize>
@@ -260,6 +263,7 @@ template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
+_Use_decl_annotations_
 size_t
 MT_VariableLengthField
 <T, LengthFieldSize, MinSize, MaxSize>
@@ -285,6 +289,7 @@ template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
+_Use_decl_annotations_
 MTERR
 MT_VariableLengthField
 <T, LengthFieldSize, MinSize, MaxSize>
@@ -318,6 +323,7 @@ error:
 template <size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
+_Use_decl_annotations_
 MTERR
 MT_VariableLengthByteField
 <LengthFieldSize, MinSize, MaxSize>
@@ -358,6 +364,7 @@ error:
 template <size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
+_Use_decl_annotations_
 size_t
 MT_VariableLengthByteField
 <LengthFieldSize, MinSize, MaxSize>
@@ -373,6 +380,7 @@ MT_VariableLengthByteField
 template <size_t LengthFieldSize,
           size_t MinSize,
           size_t MaxSize>
+_Use_decl_annotations_
 MTERR
 MT_VariableLengthByteField
 <LengthFieldSize, MinSize, MaxSize>
@@ -410,6 +418,7 @@ MT_FixedLengthStructureBase<T, Size>::MT_FixedLengthStructureBase()
 
 template <typename T,
           size_t Size>
+_Use_decl_annotations_
 T*
 MT_FixedLengthStructureBase<T, Size>::at(
     typename vector<T>::size_type pos
@@ -428,6 +437,7 @@ MT_FixedLengthStructureBase<T, Size>::at(
 /*********** MT_FixedLengthStructure *****************/
 
 template <typename T, size_t Size>
+_Use_decl_annotations_
 MTERR
 MT_FixedLengthStructure<T, Size>::ParseFromPriv(
     const MT_BYTE* pv,
@@ -468,6 +478,7 @@ error:
 } // end function ParseFromPriv
 
 template <typename T, size_t Size>
+_Use_decl_annotations_
 MTERR
 MT_FixedLengthStructure<T, Size>::SerializePriv(
     MT_BYTE* pv,
@@ -490,6 +501,7 @@ error:
 } // end function SerializePriv
 
 template <typename T, size_t Size>
+_Use_decl_annotations_
 size_t
 MT_FixedLengthStructure<T, Size>::Length() const
 {
@@ -512,6 +524,7 @@ MT_FixedLengthStructure<T, Size>::Length() const
 /*********** MT_FixedLengthByteStructure *****************/
 
 template <size_t Size>
+_Use_decl_annotations_
 MTERR
 MT_FixedLengthByteStructure<Size>::ParseFromPriv(
     const MT_BYTE* pv,
@@ -531,6 +544,7 @@ error:
 } // end function ParseFromPriv
 
 template <size_t Size>
+_Use_decl_annotations_
 MTERR
 MT_FixedLengthByteStructure<Size>::SerializePriv(
     MT_BYTE* pv,
@@ -552,6 +566,7 @@ error:
 } // end function SerializePriv
 
 template <size_t Size>
+_Use_decl_annotations_
 size_t
 MT_FixedLengthByteStructure<Size>::Length() const
 {
@@ -572,6 +587,7 @@ MT_PublicKeyEncryptedStructure<T>::MT_PublicKeyEncryptedStructure()
 } // end ctor MT_PublicKeyEncryptedStructure
 
 template <typename T>
+_Use_decl_annotations_
 MTERR
 MT_PublicKeyEncryptedStructure<T>::ParseFromPriv(
     const MT_BYTE* pv,
@@ -596,6 +612,7 @@ error:
 } // end function ParseFromPriv
 
 template <typename T>
+_Use_decl_annotations_
 size_t
 MT_PublicKeyEncryptedStructure<T>::Length() const
 {
@@ -603,6 +620,7 @@ MT_PublicKeyEncryptedStructure<T>::Length() const
 } // end function Length
 
 template <typename T>
+_Use_decl_annotations_
 MTERR
 MT_PublicKeyEncryptedStructure<T>::DecryptStructure(
     PublicKeyCipherer* pCipherer
@@ -634,6 +652,7 @@ MT_ClientKeyExchange<KeyType>::MT_ClientKeyExchange()
 } // end ctor MT_ClientKeyExchange
 
 template <typename KeyType>
+_Use_decl_annotations_
 MTERR
 MT_ClientKeyExchange<KeyType>::ParseFromPriv(
     const MT_BYTE* pv,

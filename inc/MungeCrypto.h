@@ -41,7 +41,14 @@ struct CipherInfo
     size_t cbKeyMaterialSize;
     size_t cbIVSize;
     size_t cbBlockSize;
-    bool operator==(const CipherInfo& rOther) const { return alg == rOther.alg; }
+
+    _Check_return_
+    bool
+    operator==(
+        _In_ const CipherInfo& rOther) const
+    {
+        return alg == rOther.alg;
+    }
 };
 
 enum HashAlg
@@ -63,7 +70,14 @@ struct HashInfo
     HashAlg alg;
     size_t cbHashSize;
     size_t cbMACKeySize;
-    bool operator==(const HashInfo& rOther) const { return alg == rOther.alg; }
+
+    _Check_return_
+    bool
+    operator==(
+        _In_ const HashInfo& rOther) const
+    {
+        return alg == rOther.alg;
+    }
 };
 
 const CipherInfo c_CipherInfo_RSA =
@@ -150,20 +164,20 @@ class PublicKeyCipherer
     virtual
     MTERR
     EncryptBufferWithPublicKey(
-        const ByteVector* pvbCleartext,
-        ByteVector* pvbEncrypted) const = 0;
+        _In_ const ByteVector* pvbCleartext,
+        _Out_ ByteVector* pvbEncrypted) const = 0;
 
     virtual
     MTERR
     DecryptBufferWithPrivateKey(
-        const ByteVector* pvbEncrypted,
-        ByteVector* pvbDecrypted) const = 0;
+        _In_ const ByteVector* pvbEncrypted,
+        _Out_ ByteVector* pvbDecrypted) const = 0;
 
     virtual
     MTERR
     EncryptBufferWithPrivateKey(
-        const ByteVector* pvbCleartext,
-        ByteVector* pvbEncrypted) const = 0;
+        _In_ const ByteVector* pvbCleartext,
+        _Out_ ByteVector* pvbEncrypted) const = 0;
 };
 
 /*
@@ -180,22 +194,22 @@ class SymmetricCipherer
     virtual
     MTERR
     SetCipherInfo(
-        const ByteVector* pvbKey,
-        const CipherInfo* pCipherInfo) = 0;
+        _In_ const ByteVector* pvbKey,
+        _In_ const CipherInfo* pCipherInfo) = 0;
 
     virtual
     MTERR
     EncryptBuffer(
-        const ByteVector* pvbCleartext,
-        const ByteVector* pvbIV,
-        ByteVector* pvbEncrypted);
+        _In_ const ByteVector* pvbCleartext,
+        _In_opt_ const ByteVector* pvbIV,
+        _Out_ ByteVector* pvbEncrypted);
 
     virtual
     MTERR
     DecryptBuffer(
-        const ByteVector* pvbEncrypted,
-        const ByteVector* pvbIV,
-        ByteVector* pvbDecrypted);
+        _In_ const ByteVector* pvbEncrypted,
+        _In_opt_ const ByteVector* pvbIV,
+        _Out_ ByteVector* pvbDecrypted);
 
     ACCESSORS(CipherInfo, Cipher, m_cipherInfo);
 
@@ -214,17 +228,17 @@ class Hasher
     virtual
     MTERR
     Hash(
-        const HashInfo* pHashInfo,
-        const ByteVector* pvbText,
-        ByteVector* pvbHash);
+        _In_ const HashInfo* pHashInfo,
+        _In_ const ByteVector* pvbText,
+        _Out_ ByteVector* pvbHash);
 
     virtual
     MTERR
     HMAC(
-        const HashInfo* pHashInfo,
-        const ByteVector* pvbKey,
-        const ByteVector* pvbText,
-        ByteVector* pvbHMAC);
+        _In_ const HashInfo* pHashInfo,
+        _In_ const ByteVector* pvbKey,
+        _In_ const ByteVector* pvbText,
+        _Out_ ByteVector* pvbHMAC);
 };
 
 }

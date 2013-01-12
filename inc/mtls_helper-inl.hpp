@@ -12,10 +12,10 @@ using namespace std;
 template <typename N>
 MTERR
 ReadNetworkLong(
-    const MT_BYTE* pv,
-    size_t cb,
-    size_t cbToRead,
-    N* pResult
+    _In_reads_bytes_(cb) const MT_BYTE* pv,
+    _In_ size_t cb,
+    _In_ size_t cbToRead,
+    _Out_ N* pResult
 )
 {
     MTERR mr = MT_S_OK;
@@ -54,10 +54,10 @@ error:
 template <typename I>
 MTERR
 WriteNetworkLong(
-    I toWrite,
-    size_t cbToWrite,
-    MT_BYTE* pv,
-    size_t cb
+    _In_ I toWrite,
+    _In_ size_t cbToWrite,
+    _Out_writes_bytes_(cb) MT_BYTE* pv,
+    _In_ size_t cb
 )
 {
     MTERR mr = MT_S_OK;
@@ -92,11 +92,11 @@ error:
 template <typename T>
 void
 ResizeVector<T>(
-    vector<T>* pv,
-    typename vector<T>::size_type siz
+    _Inout_ std::vector<T>* pVect,
+    _In_ typename std::vector<T>::size_type siz
 )
 {
-    pv->resize(siz);
+    pVect->resize(siz);
 } // end function ResizeVector<T>
 
 }

@@ -2,6 +2,7 @@
 #define MTLS_INC_MTLS_DEFS_H
 #include <stdio.h>
 #include <vector>
+#include "salshim.h"
 
 namespace MungeTLS
 {
@@ -28,9 +29,12 @@ MT_C_ASSERT(sizeof(MT_UINT64) == 8);
 // just for convenience, since it's used everywhere
 typedef std::vector<MT_BYTE> ByteVector;
 
-typedef MT_UINT32 MTERR;
-bool MT_Succeeded(MTERR mr);
-bool MT_Failed(MTERR mr);
+// need to use a macro, because _Check_return_ can't be applied to typedefs
+typedef _Return_type_success_(return == 0) MT_UINT32 MTERR_T;
+#define MTERR _Check_return_ MTERR_T
+
+_Check_return_ bool MT_Succeeded(_In_ MTERR mr);
+_Check_return_ bool MT_Failed(_In_ MTERR mr);
 
 const MTERR MT_S_OK                                       = 0x00000000;
 const MTERR MT_S_FALSE                                    = 0x00000001;
@@ -48,7 +52,7 @@ const MTERR MT_E_INVALIDARG                               = 0x80230057;
 #define WSTRINGIFY2(x) L## #x
 #define WSTRINGIFY(x) WSTRINGIFY2(x)
 
-#define LOGFAIL(tag, stmt, err) wprintf(tag L" %s:%u - %s == %08LX\n", WIDEN(__FILE__), __LINE__, WSTRINGIFY(stmt), (err)); \
+#define LOGFAIL(tag, stmt, err) wprintf(tag L" %s:%d - %s == %08LX\n", WIDEN(__FILE__), __LINE__, WSTRINGIFY(stmt), (err)); \
 
 #define CHKSUC(stmt)                                        \
 {                                                           \
@@ -78,26 +82,32 @@ const MTERR MT_E_INVALIDARG                               = 0x80230057;
 
 // accessors for regular non-pointer members.
 #define ACCESSOR_GETTER_RO(returnType, name, member)                          \
-    virtual const returnType* Get ## name() const                             \
+    virtual                                                                   \
+    _Check_return_                                                            \
+    _Ret_notnull_                                                             \
+    const returnType* Get ## name() const                                     \
     {                                                                         \
         return &(member);                                                     \
     }                                                                         \
 
 #define ACCESSOR_GETTER_RW(returnType, name, member)                          \
-    virtual returnType* Get ## name()                                         \
+    virtual                                                                   \
+    _Check_return_                                                            \
+    _Ret_notnull_                                                             \
+    returnType* Get ## name()                                                 \
     {                                                                         \
         return &(member);                                                     \
     }                                                                         \
 
 #define ACCESSOR_SETTER(dataType, name, member)                               \
-    virtual MTERR Set ## name(const dataType* accset_val)                     \
+    virtual MTERR Set ## name(_In_ const dataType* accset_val)                \
     {                                                                         \
         (member) = *accset_val;                                               \
         return MT_S_OK;                                                       \
     }                                                                         \
 
 #define ACCESSOR_SETTER_VAL(dataType, name, member)                           \
-    virtual MTERR Set ## name(dataType accset_val)                            \
+    virtual MTERR Set ## name(_In_ dataType accset_val)                       \
     {                                                                         \
         (member) = accset_val;                                                \
         return MT_S_OK;                                                       \
@@ -121,19 +131,23 @@ const MTERR MT_E_INVALIDARG                               = 0x80230057;
 ** only the pointer itself
 */
 #define ACCESSOR_PTR_GETTER_RO(returnType, name, member)                      \
-    virtual const returnType* Get ## name() const                             \
+    virtual                                                                   \
+    _Check_return_                                                            \
+    const returnType* Get ## name() const                                     \
     {                                                                         \
         return (member);                                                      \
     }                                                                         \
 
 #define ACCESSOR_PTR_GETTER_RW(returnType, name, member)                      \
-    virtual returnType* Get ## name()                                         \
+    virtual                                                                   \
+    _Check_return_                                                            \
+    returnType* Get ## name()                                                 \
     {                                                                         \
         return (member);                                                      \
     }                                                                         \
 
 #define ACCESSOR_PTR_SETTER(dataType, name, member)                           \
-    virtual MTERR Set ## name(dataType* accset_val)                           \
+    virtual MTERR Set ## name(_In_ dataType* accset_val)                      \
     {                                                                         \
         (member) = accset_val;                                                \
         return MT_S_OK;                                                       \
@@ -153,19 +167,23 @@ const MTERR MT_E_INVALIDARG                               = 0x80230057;
 
 // accessors for shared pointers
 #define ACCESSOR_SP_GETTER_RO(returnType, name, member)                       \
-    virtual std::shared_ptr<const returnType> Get ## name() const             \
+    virtual                                                                   \
+    _Check_return_                                                            \
+    std::shared_ptr<const returnType> Get ## name() const                     \
     {                                                                         \
         return member;                                                        \
     }                                                                         \
 
 #define ACCESSOR_SP_GETTER_RW(returnType, name, member)                       \
-    virtual std::shared_ptr<returnType> Get ## name()                         \
+    virtual                                                                   \
+    _Check_return_                                                            \
+    std::shared_ptr<returnType> Get ## name()                                 \
     {                                                                         \
         return member;                                                        \
     }                                                                         \
 
 #define ACCESSOR_SP_SETTER(dataType, name, member)                            \
-    virtual MTERR Set ## name(std::shared_ptr<dataType> accset_val)           \
+    virtual MTERR Set ## name(_In_ std::shared_ptr<dataType> accset_val)      \
     {                                                                         \
         (member) = accset_val;                                                \
         return MT_S_OK;                                                       \
