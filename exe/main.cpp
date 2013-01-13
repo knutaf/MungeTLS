@@ -271,7 +271,7 @@ HRESULT SimpleHTTPServer::ProcessConnection()
     {
         wprintf(L"read %d bytes from the network\n", cb);
 
-        assert(cb <= vbData.size());
+        assert(static_cast<ULONG>(cb) <= vbData.size());
         cbConsumedBuffer += cb;
         assert(cbConsumedBuffer <= vbData.size());
         ResizeVector(&vbData, cbConsumedBuffer);
