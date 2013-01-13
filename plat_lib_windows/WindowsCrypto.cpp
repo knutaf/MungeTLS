@@ -856,14 +856,14 @@ WindowsPublicKeyCipherer::Initialize(
 
     CHKWINOK(GetPrivateKeyFromCertificate(
                  pCertContext,
-                 PrivateKeyAndProv().get()));
+                 GetPrivateKeyAndProv().get()));
 
     assert(m_spPublicKeyProv == nullptr);
     m_spPublicKeyProv.reset(new KeyAndProv());
 
     CHKWINOK(GetPublicKeyFromCertificate(
                  pCertContext,
-                 PublicKeyAndProv().get()));
+                 GetPublicKeyAndProv().get()));
 
 done:
     return hr;
@@ -884,7 +884,7 @@ WindowsPublicKeyCipherer::EncryptBufferWithPublicKey(
 
     CHKWINOKM(MungeTLS::EncryptBuffer(
                   pvbCleartext,
-                  PublicKey(),
+                  GetPublicKey(),
                   &c_CipherInfo_RSA,
                   nullptr,
                   pvbEncrypted));
@@ -908,7 +908,7 @@ WindowsPublicKeyCipherer::DecryptBufferWithPrivateKey(
 
     CHKWINOKM(MungeTLS::DecryptBuffer(
                   pvbEncrypted,
-                  PrivateKey(),
+                  GetPrivateKey(),
                   &c_CipherInfo_RSA,
                   nullptr,
                   pvbDecrypted));
@@ -932,7 +932,7 @@ WindowsPublicKeyCipherer::EncryptBufferWithPrivateKey(
 
     CHKWINOKM(MungeTLS::EncryptBuffer(
                   pvbCleartext,
-                  PrivateKey(),
+                  GetPrivateKey(),
                   &c_CipherInfo_RSA,
                   nullptr,
                   pvbEncrypted));

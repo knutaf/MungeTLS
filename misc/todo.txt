@@ -3,8 +3,6 @@ BUGS:
 - tls 1.2 openssl doesn't renegotiate properly, but only when using MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
 
 WORK:
-- in mtls_plat_windows.h, rename PublicKey() and PrivateKey() with getters. some other fields there too
-- build X86
 
 - TLS CLIENT
   - if we have our own client impl, we can also implement some wonky compression scheme

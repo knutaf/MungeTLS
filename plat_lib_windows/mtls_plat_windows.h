@@ -183,23 +183,23 @@ class WindowsPublicKeyCipherer : public PublicKeyCipherer
     _Check_return_
     _Ret_notnull_
     HCRYPTKEY
-    PublicKey() const
+    GetPublicKey() const
     {
-        return PublicKeyAndProv()->GetKey();
+        return GetPublicKeyAndProv()->GetKey();
     }
 
     _Check_return_
     _Ret_notnull_
     HCRYPTKEY
-    PrivateKey() const
+    GetPrivateKey() const
     {
-        return PrivateKeyAndProv()->GetKey();
+        return GetPrivateKeyAndProv()->GetKey();
     }
 
     _Check_return_
     _Ret_notnull_
     std::shared_ptr<KeyAndProv>
-    PrivateKeyAndProv() const
+    GetPrivateKeyAndProv() const
     {
         return m_spPrivateKeyProv;
     }
@@ -207,7 +207,7 @@ class WindowsPublicKeyCipherer : public PublicKeyCipherer
     _Check_return_
     _Ret_notnull_
     std::shared_ptr<KeyAndProv>
-    PublicKeyAndProv() const
+    GetPublicKeyAndProv() const
     {
         return m_spPublicKeyProv;
     }
