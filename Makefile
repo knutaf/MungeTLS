@@ -55,4 +55,4 @@ clean:
 	cd ..
 
 cleanup:
-	del /s *.ilk vc11* *.obj *.pch analyze.xml
+	del /s *.ilk vc11* *.obj *.pch *.pchast analyze.xml
