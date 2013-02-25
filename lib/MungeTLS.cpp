@@ -1512,11 +1512,11 @@ _Use_decl_annotations_
 void
 ResizeVector<MT_BYTE>(
     ByteVector* pv,
-    typename ByteVector::size_type siz
+    typename ByteVector::size_type cb
 )
 {
     // arbitrary filler value
-    pv->resize(siz, 0x23);
+    pv->resize(cb, 0x23);
 } // end function ResizeVector<MT_BYTE>
 
 _Use_decl_annotations_

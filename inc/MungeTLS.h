@@ -602,6 +602,7 @@ class MT_CipherSuite : public MT_FixedLengthByteStructure<c_cbCipherSuite_Length
     operator==(
         _In_ const MT_CipherSuite& rOther) const;
 
+    // need to define the stock implementation since we also define operator==
     _Check_return_
     bool
     operator!=(
@@ -1157,11 +1158,7 @@ class TLSConnection
     MTERR EnqueueMessage(_In_ std::shared_ptr<MT_TLSPlaintext> spMessage);
     MTERR SendQueuedMessages();
 
-    /*
-    ** there are constness issues with using ACCESSORS here, but I'm going to
-    ** allow it, since I want to give free public access to the contents of
-    ** this for clients.
-    */
+    // note that here I'm giving callers read-write access to PendingSends
     ACCESSORS(MessageList, PendingSends, m_pendingSends);
 
     MTERR
@@ -2073,22 +2070,11 @@ class MT_GenericBlockCipher_TLS11 : public MT_GenericBlockCipher
 };
 
 /*
-** TLS 1.2 - A BIT WRONG
-** struct {
-**     opaque IV[SecurityParameters.record_iv_length];
-**     block-ciphered struct {
-**         opaque content[TLSCompressed.length];
-**         opaque MAC[SecurityParameters.mac_length];
-**         uint8 padding[GenericBlockCipher.padding_length];
-**         uint8 padding_length;
-**     };
-** } GenericBlockCipher;
+** same as TLS 1.1, because TLS 1.1 is buggy and we treat it like 1.2, just as
+** browsers do.
 **
-** this is NOT the block cipher format we use for our implementation. The RFC
-** appears to have a bug in that IV is not within the block ciphered portion.
-** instead, we use the TLS 1.1 format, where the block cipher is included in
-** the encrypted part. this works in practice, whereas the one in the RFC does
-** not.
+** some further explanation here:
+** http://barncover.blogspot.com/2012/08/brain-flood-about-initialization-vectors.html
 */
 typedef MT_GenericBlockCipher_TLS11 MT_GenericBlockCipher_TLS12;
 

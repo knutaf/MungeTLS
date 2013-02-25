@@ -127,8 +127,8 @@ const MTERR MT_E_INVALIDARG                               = 0x80230057;
 
 
 /*
-** accessors for pointers. doesn't allow assigning to the referenced value,
-** only the pointer itself
+** accessors for pointers. doesn't allow assigning to the pointer itself, only
+** the referent
 */
 #define ACCESSOR_PTR_GETTER_RO(returnType, name, member)                      \
     virtual                                                                   \
