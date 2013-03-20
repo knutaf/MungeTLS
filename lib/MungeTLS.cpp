@@ -99,11 +99,11 @@ PRF_A(
 /*********** TLSConnection *****************/
 
 _Use_decl_annotations_
-TLSConnection::TLSConnection(ITLSListener* pListener)
+TLSConnection::TLSConnection(ITLSServerListener* pServerListener)
     : m_currentConnection(),
       m_nextConnection(),
       m_pendingSends(),
-      m_pListener(pListener)
+      m_pServerListener(pServerListener)
 {
 } // end ctor TLSConnection
 
@@ -163,11 +163,11 @@ TLSConnection::HandleMessage(
 
     /*
     ** absolutely first things first, hook up this message with this overall
-    ** connection. the message primarily uses this to invoke ITLSListener
+    ** connection. the message primarily uses this to invoke ITLSServerListener
     ** functions to get more data from the app
     */
     CHKOK(ciphertext.SetConnection(this));
-    CHKOK(ciphertext.SetListener(GetListener()));
+    CHKOK(ciphertext.SetServerListener(GetServerListener()));
 
     /*
     ** this first step just parses the record layer portion out of it. at this
@@ -206,7 +206,7 @@ TLSConnection::HandleMessage(
     ** allow the app to know about the plaintext reciept, and whether it was
     ** actually encrypted, as opposed to null-encrypted.
     */
-    CHKSUC(GetListener()->OnReceivingPlaintext(
+    CHKSUC(GetServerListener()->OnReceivingPlaintext(
              &plaintext,
              ciphertext.GetEndpointParams()->IsEncrypted()));
 
@@ -360,7 +360,7 @@ TLSConnection::HandleMessage(
             wprintf(L"application data:\n");
             PrintByteVector(plaintext.GetFragment());
 
-            CHKSUC(GetListener()->OnReceivedApplicationData(plaintext.GetFragment()));
+            CHKSUC(GetServerListener()->OnReceivedApplicationData(plaintext.GetFragment()));
             mr = MT_S_OK;
 
             // sequence number is incremented AFTER processing a record
@@ -479,7 +479,7 @@ TLSConnection::HandleHandshakeMessage(
             {
                 MT_ProtocolVersion protocolVersion = *clientHello.GetClientVersion();
 
-                CHKSUC(GetListener()->OnSelectProtocolVersion(&protocolVersion));
+                CHKSUC(GetServerListener()->OnSelectProtocolVersion(&protocolVersion));
                 mr = MT_S_OK;
 
                 CHKOK(GetNextConn()->GetReadParams()->SetVersion(*protocolVersion.GetVersion()));
@@ -497,7 +497,7 @@ TLSConnection::HandleHandshakeMessage(
             {
                 MT_CipherSuite cipherSuite;
 
-                CHKSUC(GetListener()->OnSelectCipherSuite(&clientHello, &cipherSuite));
+                CHKSUC(GetServerListener()->OnSelectCipherSuite(&clientHello, &cipherSuite));
 
                 // pick the library's preference out of the client list
                 if (mr == MT_S_LISTENER_IGNORED)
@@ -934,7 +934,7 @@ TLSConnection::AddHandshakeMessage(
     MTERR mr = MT_S_OK;
     MT_UINT32 fCreateFlags = 0;
 
-    mr = GetListener()->OnCreatingHandshakeMessage(pHandshake, &fCreateFlags);
+    mr = GetServerListener()->OnCreatingHandshakeMessage(pHandshake, &fCreateFlags);
     if (mr == MT_S_LISTENER_IGNORED)
     {
         fCreateFlags = MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE;
@@ -1118,7 +1118,7 @@ TLSConnection::CreateCiphertext(
     MT_ProtocolVersion protocolVersion;
 
     CHKOK(pCiphertext->SetConnection(this));
-    CHKOK(pCiphertext->SetListener(GetListener()));
+    CHKOK(pCiphertext->SetServerListener(GetServerListener()));
 
     CHKOK(pCiphertext->SetEndpointParams(pEndParams));
 
@@ -1219,7 +1219,7 @@ TLSConnection::InitializeConnection(
     shared_ptr<Hasher> spClientHasher;
     shared_ptr<Hasher> spServerHasher;
 
-    CHKOK(GetListener()->OnInitializeCrypto(
+    CHKOK(GetServerListener()->OnInitializeCrypto(
              &certChain,
              &spPubKeyCipherer,
              &spClientSymCipherer,
@@ -1264,7 +1264,7 @@ TLSConnection::FinishNextHandshake()
     assert(!GetNextConn()->IsHandshakeInProgress());
 
     // lets the app know it can start sending app data
-    CHKSUC(GetListener()->OnHandshakeComplete());
+    CHKSUC(GetServerListener()->OnHandshakeComplete());
     mr = MT_S_OK;
 
 done:
@@ -1318,7 +1318,7 @@ TLSConnection::EnqueueMessage(
     wprintf(L"write seq num is now %I64u\n", *GetCurrConn()->GetWriteParams()->GetSequenceNumber());
 
     // primarily used for logging by the app
-    CHKOK(GetListener()->OnEnqueuePlaintext(
+    CHKOK(GetServerListener()->OnEnqueuePlaintext(
              spPlaintext.get(),
              spCiphertext->GetEndpointParams()->IsEncrypted()));
 
@@ -1358,7 +1358,7 @@ TLSConnection::SendQueuedMessages()
                 mr = spStructure->SerializeToVect(&vbRecord);
                 if (mr == MT_S_OK)
                 {
-                    mr = GetListener()->OnSend(&vbRecord);
+                    mr = GetServerListener()->OnSend(&vbRecord);
                     if (MT_Failed(mr))
                     {
                         wprintf(L"warning: error in OnSend with listener: %08LX\n", mr);
@@ -3871,7 +3871,7 @@ MT_HelloRequest::SerializePriv(
 MT_TLSCiphertext::MT_TLSCiphertext()
     : MT_RecordLayerMessage(),
       MT_Securable(),
-      m_pListener(nullptr),
+      m_pServerListener(nullptr),
       m_spCipherFragment()
 {
 } // end ctor MT_TLSCiphertext
@@ -4072,7 +4072,7 @@ MT_TLSCiphertext::GetProtocolVersionForSecurity(
 
         wprintf(L"reconciling version mismatch between conn:%04LX and record:%04LX\n", *GetEndpointParams()->GetVersion(), *hashVersion.GetVersion());
 
-        mr = GetListener()->OnReconcileSecurityVersion(
+        mr = GetServerListener()->OnReconcileSecurityVersion(
                  this,
                  *GetEndpointParams()->GetVersion(),
                  *hashVersion.GetVersion(),

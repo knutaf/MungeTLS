@@ -9,12 +9,12 @@
 
 using namespace MungeTLS;
 
-class SimpleHTTPServer : public ITLSListener
+class SimpleHTTPServer : public ITLSServerListener
 {
     public:
     SimpleHTTPServer(_In_ SOCKET sockClient)
         : m_vPendingSends(),
-          m_con(this), // not a copy ctor; taking this as an ITLSListener
+          m_con(this), // not a copy ctor; taking this as an ITLSServerListener
           m_sPendingRequest(""),
           m_iCipherSelected(0),
           m_cMessages(0),

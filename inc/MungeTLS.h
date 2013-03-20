@@ -9,7 +9,7 @@
 
 /*
 ** For callers of MungeTLS, the contract that must be implemented by the
-** calling app is ITLSListener (see below).
+** calling app is ITLSServerListener (see below).
 */
 
 /*
@@ -43,7 +43,7 @@ const MTERR MT_E_BAD_RECORD_PADDING                       = 0x8023000f;
 const MTERR MT_E_NO_PREFERRED_CIPHER_SUITE                = 0x80230010;
 
 /*
-** used in the ITLSListener callbacks
+** used in the ITLSServerListener callbacks
 ** handled - the app did something with the callback, or at least acknowledges
 **           that it happened
 ** ignored - the app did not handle the callback, so MungeTLS should use
@@ -52,7 +52,7 @@ const MTERR MT_E_NO_PREFERRED_CIPHER_SUITE                = 0x80230010;
 const MTERR MT_S_LISTENER_HANDLED                         = 0x00230002;
 const MTERR MT_S_LISTENER_IGNORED                         = 0x00230003;
 
-// flags for ITLSListener::OnCreatingHandshakeMessage's pfFlags
+// flags for ITLSServerListener::OnCreatingHandshakeMessage's pfFlags
 const MT_UINT32 MT_CREATINGHANDSHAKE_SEPARATE_HANDSHAKE         = 0x00000000;
 const MT_UINT32 MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE          = 0x00000001;
 
@@ -116,7 +116,7 @@ class EndpointParameters;
 class ConnectionParameters;
 class MT_ContentType;
 class TLSConnection;
-class ITLSListener;
+class ITLSServerListener;
 class MT_RecordLayerMessage;
 class MT_TLSPlaintext;
 class MT_TLSCiphertext;
@@ -1150,7 +1150,7 @@ class TLSConnection
     typedef std::vector<std::shared_ptr<MT_RecordLayerMessage>> MessageList;
 
 
-    TLSConnection(_In_ ITLSListener* pListener);
+    TLSConnection(_In_ ITLSServerListener* pServerListener);
     virtual ~TLSConnection() { }
 
     MTERR Initialize();
@@ -1204,10 +1204,10 @@ class TLSConnection
 
     _Check_return_
     _Ret_notnull_
-    ITLSListener*
-    GetListener()
+    ITLSServerListener*
+    GetServerListener()
     {
-        return m_pListener;
+        return m_pServerListener;
     }
 
     MTERR RespondToClientHello();
@@ -1225,7 +1225,7 @@ class TLSConnection
     ConnectionParameters m_currentConnection;
     ConnectionParameters m_nextConnection;
     MessageList m_pendingSends;
-    ITLSListener* m_pListener;
+    ITLSServerListener* m_pServerListener;
 };
 
 /*
@@ -1233,7 +1233,7 @@ class TLSConnection
 ** callbacks it has to implement. These are all used to give the app
 ** visibility and input into the TLS protocol in action
 */
-class ITLSListener
+class ITLSServerListener
 {
     public:
     // called when MTLS has bytes to be sent to the client
@@ -1457,10 +1457,10 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
     MTERR GenerateNextIV(_Out_ ByteVector* pvbIV);
 
     MTERR
-    SetListener(
-        _In_ ITLSListener* pListener)
+    SetServerListener(
+        _In_ ITLSServerListener* pServerListener)
     {
-        m_pListener = pListener;
+        m_pServerListener = pServerListener;
         return MT_S_OK;
     }
 
@@ -1470,13 +1470,13 @@ class MT_TLSCiphertext : public MT_RecordLayerMessage, public MT_Securable
 
     _Check_return_
     _Ret_notnull_
-    ITLSListener*
-    GetListener()
+    ITLSServerListener*
+    GetServerListener()
     {
-        return m_pListener;
+        return m_pServerListener;
     }
 
-    ITLSListener* m_pListener;
+    ITLSServerListener* m_pServerListener;
     std::shared_ptr<MT_CipherFragment> m_spCipherFragment;
 };
 
