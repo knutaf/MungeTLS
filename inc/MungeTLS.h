@@ -1306,20 +1306,25 @@ class ITLSServerListener
     //
     // called when MTLS has readied a record layer message to be sent. this is
     // called with the plaintext version of the message regardless of whether
-    // it is going to be transmitted as ciphertext--useful for logging
-    // purposes
+    // it is going to be transmitted as ciphertext. the application has a
+    // chance to modify the final form of the message before it's encrypted and
+    // send out, but this is also useful for logging purposes
     //
     virtual
     MTERR
     OnEnqueuePlaintext(
-        _In_ const MT_TLSPlaintext* pPlaintext,
+        _Inout_ MT_TLSPlaintext* pPlaintext,
         _In_ bool fActuallyEncrypted) = 0;
 
-    // same as OnEnqueuePlaintext, but for receiving a decrypted message
+    //
+    // same as OnEnqueuePlaintext, but for receiving a decrypted message. if
+    // the application chooses to modify the message, it may cause some
+    // protocol error in MungeTLS, but it is permitted.
+    //
     virtual
     MTERR
     OnReceivingPlaintext(
-        _In_ const MT_TLSPlaintext* pPlaintext,
+        _Inout_ MT_TLSPlaintext* pPlaintext,
         _In_ bool fActuallyEncrypted) = 0;
 
     //

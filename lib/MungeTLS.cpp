@@ -204,7 +204,9 @@ TLSConnection::HandleMessage(
 
     //
     // allow the app to know about the plaintext reciept, and whether it was
-    // actually encrypted, as opposed to null-encrypted.
+    // actually encrypted, as opposed to null-encrypted. the app can modify it
+    // here if it wants, though there's a good chance that would just lead to
+    // some error in the protocol
     //
     CHKSUC(GetServerListener()->OnReceivingPlaintext(
              &plaintext,
@@ -1290,8 +1292,15 @@ TLSConnection::EnqueueMessage(
 )
 {
     MTERR mr = MT_S_OK;
-
     shared_ptr<MT_TLSCiphertext> spCiphertext;
+
+    //
+    // the app can modify the message before it's encrypted and sent out, but
+    // this is also useful for letting the app log the message
+    //
+    CHKOK(GetServerListener()->OnEnqueuePlaintext(
+             spPlaintext.get(),
+             GetCurrConn()->GetWriteParams()->IsEncrypted()));
 
     CHKOK(MT_TLSCiphertext::FromTLSPlaintext(
              spPlaintext.get(),
@@ -1316,11 +1325,6 @@ TLSConnection::EnqueueMessage(
     CHKOK(GetCurrConn()->GetWriteParams()->SetSequenceNumber(*GetCurrConn()->GetWriteParams()->GetSequenceNumber() + 1));
 
     wprintf(L"write seq num is now %I64u\n", *GetCurrConn()->GetWriteParams()->GetSequenceNumber());
-
-    // primarily used for logging by the app
-    CHKOK(GetServerListener()->OnEnqueuePlaintext(
-             spPlaintext.get(),
-             spCiphertext->GetEndpointParams()->IsEncrypted()));
 
 done:
     return mr;

@@ -742,7 +742,7 @@ MTERR_T SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, M
 // ciphertext. this is primarily used for logging traffic
 //
 _Use_decl_annotations_
-MTERR_T SimpleHTTPServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
+MTERR_T SimpleHTTPServer::OnEnqueuePlaintext(MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
     MTERR mr = MT_S_OK;
     ByteVector vb;
@@ -769,7 +769,7 @@ error:
 
 // the "receiving" equivalent of OnEnqueuePlaintext. primarily used for logging
 _Use_decl_annotations_
-MTERR_T SimpleHTTPServer::OnReceivingPlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
+MTERR_T SimpleHTTPServer::OnReceivingPlaintext(MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
     MTERR mr = MT_S_OK;
     ByteVector vb;

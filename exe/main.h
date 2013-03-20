@@ -59,12 +59,12 @@ class SimpleHTTPServer : public ITLSServerListener
 
     MTERR
     OnEnqueuePlaintext(
-        _In_ const MT_TLSPlaintext* pPlaintext,
+        _Inout_ MT_TLSPlaintext* pPlaintext,
         _In_ bool fActuallyEncrypted);
 
     MTERR
     OnReceivingPlaintext(
-        _In_ const MT_TLSPlaintext* pPlaintext,
+        _Inout_ MT_TLSPlaintext* pPlaintext,
         _In_ bool fActuallyEncrypted);
 
     MTERR
