@@ -9,44 +9,44 @@
 #include "MungeTLS.h"
 #include "mtls_helper.h"
 
-/*
-** this is it. the big file with most of the important TLS implementation in
-** it! here are some notes about the coding style
-**
-** ---------- gotos:
-** the code uses gotos heavily in a very structured way. gotos are only used to
-** jump to the cleanup block in a function, basically a minimal replacement for
-** exceptions. when used, there are two labels: "done" and "error". if the code
-** encounters an error, it jumps to the "error" label, under which some
-** cleanup can be done, e.g. clearing out out-parameters. then it jumps UP to
-** the "done" label, which does any cleanup that would always happen. the done
-** label is placed above the goto label so that its cleanup code runs in the
-** normal case too.
-**
-** ---------- parsing/serializing:
-** A lot of the parsing and serializing code uses a few formulaic patterns. the
-** TLS protocol consists of basically parsing byte fields and variable-length
-** vectors. The parsing keeps track of a few variables that are moved along.
-**
-** - pv: "pointer to void" - always points to the next unparsed byte
-** - cb: "count of bytes" - always contains the number of bytes from pv not yet
-**     parsed
-** - mr: the MTERR with the current success/fail error code
-** - cbField: the count of bytes needed for the field currently being parsed
-**
-** pv and cb obviously always need to be kept in lock-step, which is why they
-** are only ever manipulated using the ADVANCE_PARSE macro. in fact, the
-** parsing is so formulaic that I've added additional macros that assume the
-** presence of pv, cb, mr, cbField, and the goto: and done: labels to very
-** succinctly do parsing and serializing tasks with minimal clutter. but yeah,
-** they are macros, eww.
-**
-** ---------- long functions:
-** a lot of functions in here are pretty long, and not segmented into many
-** smaller functions. I chose to do this for bodies of code that do not have
-** smaller parts I'd be likely to reuse. it saves having to test all of the
-** smaller functions individually.
-*/
+//
+// this is it. the big file with most of the important TLS implementation in
+// it! here are some notes about the coding style
+//
+// ---------- gotos:
+// the code uses gotos heavily in a very structured way. gotos are only used to
+// jump to the cleanup block in a function, basically a minimal replacement for
+// exceptions. when used, there are two labels: "done" and "error". if the code
+// encounters an error, it jumps to the "error" label, under which some
+// cleanup can be done, e.g. clearing out out-parameters. then it jumps UP to
+// the "done" label, which does any cleanup that would always happen. the done
+// label is placed above the goto label so that its cleanup code runs in the
+// normal case too.
+//
+// ---------- parsing/serializing:
+// A lot of the parsing and serializing code uses a few formulaic patterns. the
+// TLS protocol consists of basically parsing byte fields and variable-length
+// vectors. The parsing keeps track of a few variables that are moved along.
+//
+// - pv: "pointer to void" - always points to the next unparsed byte
+// - cb: "count of bytes" - always contains the number of bytes from pv not yet
+//     parsed
+// - mr: the MTERR with the current success/fail error code
+// - cbField: the count of bytes needed for the field currently being parsed
+//
+// pv and cb obviously always need to be kept in lock-step, which is why they
+// are only ever manipulated using the ADVANCE_PARSE macro. in fact, the
+// parsing is so formulaic that I've added additional macros that assume the
+// presence of pv, cb, mr, cbField, and the goto: and done: labels to very
+// succinctly do parsing and serializing tasks with minimal clutter. but yeah,
+// they are macros, eww.
+//
+// ---------- long functions:
+// a lot of functions in here are pretty long, and not segmented into many
+// smaller functions. I chose to do this for bodies of code that do not have
+// smaller parts I'd be likely to reuse. it saves having to test all of the
+// smaller functions individually.
+//
 
 
 namespace MungeTLS
@@ -96,7 +96,7 @@ PRF_A(
     _Out_ ByteVector* pvbResult);
 
 
-/*********** TLSConnection *****************/
+// ********* TLSConnection ****************
 
 _Use_decl_annotations_
 TLSConnection::TLSConnection(ITLSServerListener* pServerListener)
@@ -132,18 +132,18 @@ error:
     goto done;
 } // end function Initialize
 
-/*
-** this is the top-level parsing functionality, one of the most important parts
-** of the code. The app calls this when they receive a chunk of data from the
-** network, and this results in us doing any or all of the following:
-**
-** - parse out handshake messages and store internal state about the progress
-**   of the handshake
-** - queue up handshake messages of our own to be sent back to the client
-** - generate one or more synchronous callbacks to the app to request input
-**   into the handshake process
-** - pass on application data to the app
-*/
+//
+// this is the top-level parsing functionality, one of the most important parts
+// of the code. The app calls this when they receive a chunk of data from the
+// network, and this results in us doing any or all of the following:
+//
+// - parse out handshake messages and store internal state about the progress
+//   of the handshake
+// - queue up handshake messages of our own to be sent back to the client
+// - generate one or more synchronous callbacks to the app to request input
+//   into the handshake process
+// - pass on application data to the app
+//
 _Use_decl_annotations_
 MTERR_T
 TLSConnection::HandleMessage(
@@ -161,20 +161,20 @@ TLSConnection::HandleMessage(
         goto done;
     }
 
-    /*
-    ** absolutely first things first, hook up this message with this overall
-    ** connection. the message primarily uses this to invoke ITLSServerListener
-    ** functions to get more data from the app
-    */
+    //
+    // absolutely first things first, hook up this message with this overall
+    // connection. the message primarily uses this to invoke ITLSServerListener
+    // functions to get more data from the app
+    //
     CHKOK(ciphertext.SetConnection(this));
     CHKOK(ciphertext.SetServerListener(GetServerListener()));
 
-    /*
-    ** this first step just parses the record layer portion out of it. at this
-    ** point, we assume the message is encrypted (though in actuality we might
-    ** be using null-encryption for now), so we don't yet have enough info to
-    ** decrypt it.
-    */
+    //
+    // this first step just parses the record layer portion out of it. at this
+    // point, we assume the message is encrypted (though in actuality we might
+    // be using null-encryption for now), so we don't yet have enough info to
+    // decrypt it.
+    //
     CHKOK(ciphertext.ParseFromVect(pvb));
 
     wprintf(L"successfully parsed TLSCiphertext. CT=%u\n", *ciphertext.GetContentType()->GetType());
@@ -190,22 +190,22 @@ TLSConnection::HandleMessage(
         PrintByteVector(ciphertext.GetCipherFragment()->GetContent());
     }
 
-    /*
-    ** verify the integrity of the message using the MAC, if present. we could
-    ** choose to present the app with a choice of proceeding despite a MAC
-    ** failure, though in practice, when interoperating with any sane TLS
-    ** implementation, this means that something has gone horribly wrong on
-    ** either the client (their) or server (our) side.
-    */
+    //
+    // verify the integrity of the message using the MAC, if present. we could
+    // choose to present the app with a choice of proceeding despite a MAC
+    // failure, though in practice, when interoperating with any sane TLS
+    // implementation, this means that something has gone horribly wrong on
+    // either the client (their) or server (our) side.
+    //
     CHKOK(ciphertext.CheckSecurity());
 
     // from here on, we operate on the plaintext version of the record
     CHKOK(ciphertext.ToTLSPlaintext(&plaintext));
 
-    /*
-    ** allow the app to know about the plaintext reciept, and whether it was
-    ** actually encrypted, as opposed to null-encrypted.
-    */
+    //
+    // allow the app to know about the plaintext reciept, and whether it was
+    // actually encrypted, as opposed to null-encrypted.
+    //
     CHKSUC(GetServerListener()->OnReceivingPlaintext(
              &plaintext,
              ciphertext.GetEndpointParams()->IsEncrypted()));
@@ -213,13 +213,13 @@ TLSConnection::HandleMessage(
     // app could return "handled" or "ignored" or something non-fail
     mr = MT_S_OK;
 
-    /*
-    ** update the next IV, if we're using a block cipher. this can actually be
-    ** done any time after we've parsed the ciphertext block (even before
-    ** decryption). This only needs to be done for TLS 1.0 block ciphers
-    ** because TLS 1.1 and later block ciphers have their IV packaged in
-    ** plaintext along with the payload.
-    */
+    //
+    // update the next IV, if we're using a block cipher. this can actually be
+    // done any time after we've parsed the ciphertext block (even before
+    // decryption). This only needs to be done for TLS 1.0 block ciphers
+    // because TLS 1.1 and later block ciphers have their IV packaged in
+    // plaintext along with the payload.
+    //
     if (GetCurrConn()->GetReadParams()->GetCipher()->type == CipherType_Block)
     {
         switch (*GetCurrConn()->GetReadParams()->GetVersion())
@@ -232,10 +232,10 @@ TLSConnection::HandleMessage(
             }
             break;
 
-            /*
-            ** for TLS 1.1 and 1.2, we track it just "for fun", since it's
-            ** never actually used. we could use it for logging or something
-            */
+            //
+            // for TLS 1.1 and 1.2, we track it just "for fun", since it's
+            // never actually used. we could use it for logging or something
+            //
             case MT_ProtocolVersion::MTPV_TLS11:
             {
                 MT_GenericBlockCipher_TLS11* pBlockCipher = static_cast<MT_GenericBlockCipher_TLS11*>(ciphertext.GetCipherFragment().get());
@@ -261,24 +261,24 @@ TLSConnection::HandleMessage(
     // make sure that whatever IV was assigned is correct for the cipher suite
     assert(GetCurrConn()->GetReadParams()->GetIV()->size() == GetCurrConn()->GetReadParams()->GetCipher()->cbIVSize);
 
-    /*
-    ** with plaintext in hand, we do content-type specific handling. Most
-    ** important for us are Handshake messages and ChangeCipherSpec messages,
-    ** which drive the handshake process forward.
-    */
+    //
+    // with plaintext in hand, we do content-type specific handling. Most
+    // important for us are Handshake messages and ChangeCipherSpec messages,
+    // which drive the handshake process forward.
+    //
     switch (*plaintext.GetContentType()->GetType())
     {
         case MT_ContentType::MTCT_Type_Handshake:
         {
-            /*
-            ** parse out one or more Handshake messages. A record layer message
-            ** with a given content type can contain multiple contiguous
-            ** messages of the same type in the fragment, since each inner
-            ** message has the fields in place to identify its own length.
-            **
-            ** ParseStructures is templated by the structure type, e.g.
-            ** MT_Handshake
-            */
+            //
+            // parse out one or more Handshake messages. A record layer message
+            // with a given content type can contain multiple contiguous
+            // messages of the same type in the fragment, since each inner
+            // message has the fields in place to identify its own length.
+            //
+            // ParseStructures is templated by the structure type, e.g.
+            // MT_Handshake
+            //
             vector<MT_Handshake> vStructures;
             CHKOK(ParseStructures(plaintext.GetFragment(), &vStructures));
 
@@ -292,25 +292,25 @@ TLSConnection::HandleMessage(
         }
         break;
 
-        /*
-        ** the ChangeCipherSpec message is one of the most important. its
-        ** receipt signals that the client is now going to switch to using the
-        ** newly negotiated crypto suite for all subsequent messages. At this
-        ** point, we copy over all the endpoint-specific data into the active
-        ** connection, so this change in decryption will automatically just
-        ** work
-        */
+        //
+        // the ChangeCipherSpec message is one of the most important. its
+        // receipt signals that the client is now going to switch to using the
+        // newly negotiated crypto suite for all subsequent messages. At this
+        // point, we copy over all the endpoint-specific data into the active
+        // connection, so this change in decryption will automatically just
+        // work
+        //
         case MT_ContentType::MTCT_Type_ChangeCipherSpec:
         {
             // see note on first ParseStructures call about multiple structures
             vector<MT_ChangeCipherSpec> vStructures;
             CHKOK(ParseStructures(plaintext.GetFragment(), &vStructures));
 
-            /*
-            ** though we repeat this action for all the CCS messages, it's
-            ** totally redundant to have more than one per direction in a
-            ** handshake
-            */
+            //
+            // though we repeat this action for all the CCS messages, it's
+            // totally redundant to have more than one per direction in a
+            // handshake
+            //
             if (vStructures.size() > 1)
             {
                 wprintf(L"warning: received %Iu ChangeCipherSpec messages in a row\n", vStructures.size());
@@ -322,19 +322,19 @@ TLSConnection::HandleMessage(
                 CHKOK(GetCurrConn()->SetReadParams(GetNextConn()->GetReadParams()));
             }
 
-            /*
-            ** after copying the pending endpoint state, which has not been
-            ** touched, its sequence number should already be 0 without having
-            ** to reset it
-            */
+            //
+            // after copying the pending endpoint state, which has not been
+            // touched, its sequence number should already be 0 without having
+            // to reset it
+            //
             assert(*GetCurrConn()->GetReadParams()->GetSequenceNumber() == 0);
         }
         break;
 
-        /*
-        ** alert messages are basically errors and warnings. we don't really do
-        ** much with them right now, just print them out.
-        */
+        //
+        // alert messages are basically errors and warnings. we don't really do
+        // much with them right now, just print them out.
+        //
         case MT_ContentType::MTCT_Type_Alert:
         {
             // see note on first ParseStructures call about multiple structures
@@ -351,10 +351,10 @@ TLSConnection::HandleMessage(
         }
         break;
 
-        /*
-        ** actual data for the application! we don't examine it at all, just
-        ** pass it on in a callback to the app
-        */
+        //
+        // actual data for the application! we don't examine it at all, just
+        // pass it on in a callback to the app
+        //
         case MT_ContentType::MTCT_Type_ApplicationData:
         {
             wprintf(L"application data:\n");
@@ -377,17 +377,17 @@ TLSConnection::HandleMessage(
         break;
     }
 
-    /*
-    ** inform the app of any messages we've queued up in the course of handling
-    ** this block of data
-    */
+    //
+    // inform the app of any messages we've queued up in the course of handling
+    // this block of data
+    //
     CHKOK(SendQueuedMessages());
 
-    /*
-    ** the ciphertext object represents the raw data in pvb that we consumed,
-    ** so it has to be smaller in size than pvb. also, erase that section from
-    ** pvb, which the app is possibly appending data from the client into
-    */
+    //
+    // the ciphertext object represents the raw data in pvb that we consumed,
+    // so it has to be smaller in size than pvb. also, erase that section from
+    // pvb, which the app is possibly appending data from the client into
+    //
     assert(ciphertext.Length() <= pvb->size());
     pvb->erase(pvb->begin(), pvb->begin() + ciphertext.Length());
 
@@ -406,13 +406,13 @@ TLSConnection::HandleHandshakeMessage(
 {
     MTERR mr = MT_S_OK;
 
-    /*
-    ** At the end of the handshake, as a security measure, each endpoint sends
-    ** the other a hash of all the handshake-layer data it has sent and
-    ** received, so we need to make a copy of the message here and archive it.
-    ** NB: this archive does NOT contain any of the record-layer message--ONLY
-    ** the handshake-layer message.
-    */
+    //
+    // At the end of the handshake, as a security measure, each endpoint sends
+    // the other a hash of all the handshake-layer data it has sent and
+    // received, so we need to make a copy of the message here and archive it.
+    // NB: this archive does NOT contain any of the record-layer message--ONLY
+    // the handshake-layer message.
+    //
     shared_ptr<MT_Handshake> spHandshakeMessage(new MT_Handshake());
     *spHandshakeMessage = *pHandshakeMessage;
 
@@ -421,11 +421,11 @@ TLSConnection::HandleHandshakeMessage(
     // handshake messages have their own inner "content type"
     switch (*spHandshakeMessage->GetType())
     {
-        /*
-        ** initial contact from the client that starts a new handshake. we
-        ** parse out a bunch of information about what the client advertises
-        ** its capabilities as
-        */
+        //
+        // initial contact from the client that starts a new handshake. we
+        // parse out a bunch of information about what the client advertises
+        // its capabilities as
+        //
         case MT_Handshake::MTH_ClientHello:
         {
             MT_ClientHello clientHello;
@@ -471,11 +471,11 @@ TLSConnection::HandleHandshakeMessage(
             // archive the message for the Finished hash later
             GetNextConn()->GetHandshakeMessages()->push_back(spHandshakeMessage);
 
-            /*
-            ** allow the app to select what protocol version to send in
-            ** response to the ClientHello, which has advertised a
-            ** particular version already
-            */
+            //
+            // allow the app to select what protocol version to send in
+            // response to the ClientHello, which has advertised a
+            // particular version already
+            //
             {
                 MT_ProtocolVersion protocolVersion = *clientHello.GetClientVersion();
 
@@ -488,12 +488,12 @@ TLSConnection::HandleHandshakeMessage(
 
             CHKOK(GetNextConn()->SetClientRandom(clientHello.GetRandom()));
 
-            /*
-            ** A particularly important block: allow the app to select the
-            ** cipher suite to be used, out of the list given by the
-            ** client. if the app ignores the callback, MungeTLS has a way
-            ** of picking its preferred choice
-            */
+            //
+            // A particularly important block: allow the app to select the
+            // cipher suite to be used, out of the list given by the
+            // client. if the app ignores the callback, MungeTLS has a way
+            // of picking its preferred choice
+            //
             {
                 MT_CipherSuite cipherSuite;
 
@@ -544,14 +544,14 @@ TLSConnection::HandleHandshakeMessage(
 
                 assert(mr == MT_S_OK);
 
-                /*
-                ** same cipher suite is always used for read and write.
-                ** it's important to note that setting this value here does
-                ** NOT immediately switch over the library to encrypting/
-                ** decrypting with this new cipher suite. this is all
-                ** *pending* state until we receive and send ChangeCipherSpec
-                ** messages.
-                */
+                //
+                // same cipher suite is always used for read and write.
+                // it's important to note that setting this value here does
+                // NOT immediately switch over the library to encrypting/
+                // decrypting with this new cipher suite. this is all
+                // *pending* state until we receive and send ChangeCipherSpec
+                // messages.
+                //
                 CHKOK(GetNextConn()->GetReadParams()->SetCipherSuite(cipherSuite));
                 CHKOK(GetNextConn()->GetWriteParams()->SetCipherSuite(cipherSuite));
 
@@ -564,27 +564,27 @@ TLSConnection::HandleHandshakeMessage(
                 }
             }
 
-            /*
-            ** having recorded all that stuff and made some choices about
-            ** protocol version and cipher suite, WELL ALLOW ME TO RETORT
-            */
+            //
+            // having recorded all that stuff and made some choices about
+            // protocol version and cipher suite, WELL ALLOW ME TO RETORT
+            //
             CHKOK(RespondToClientHello());
         }
         break;
 
-        /*
-        ** the ClientKeyExchange message is where the public key
-        ** cryptography takes place. the client has encrypted some data
-        ** (actually, the Random value it sent earlier) with our public
-        ** key, and we have to decrypt it, verify that it matches, and use
-        ** it to generate the bulk cipher keys used in the rest of the
-        ** connection
-        **
-        ** in theory, public/private key encryption could just be used for
-        ** all traffic in the connection, but it is computationally far
-        ** more expensive than symmetric key encryption, so it's merely
-        ** used as a bootstrap
-        */
+        //
+        // the ClientKeyExchange message is where the public key
+        // cryptography takes place. the client has encrypted some data
+        // (actually, the Random value it sent earlier) with our public
+        // key, and we have to decrypt it, verify that it matches, and use
+        // it to generate the bulk cipher keys used in the rest of the
+        // connection
+        //
+        // in theory, public/private key encryption could just be used for
+        // all traffic in the connection, but it is computationally far
+        // more expensive than symmetric key encryption, so it's merely
+        // used as a bootstrap
+        //
         case MT_Handshake::MTH_ClientKeyExchange:
         {
             MT_KeyExchangeAlgorithm keyExchangeAlg;
@@ -592,12 +592,12 @@ TLSConnection::HandleHandshakeMessage(
             shared_ptr<MT_EncryptedPreMasterSecret> spExchangeKeys;
             MT_PreMasterSecret* pSecret = nullptr;
 
-            /*
-            ** at this point we should have exchanged hellos and therefore
-            ** agreed on a single cipher suite, so the following call to
-            ** get the key exchange algorithm can use either read or write
-            ** params
-            */
+            //
+            // at this point we should have exchanged hellos and therefore
+            // agreed on a single cipher suite, so the following call to
+            // get the key exchange algorithm can use either read or write
+            // params
+            //
             assert(*GetNextConn()->GetReadParams()->GetCipherSuite() == *GetNextConn()->GetWriteParams()->GetCipherSuite());
 
             CHKOK(GetNextConn()->GetReadParams()->GetCipherSuite()->GetKeyExchangeAlgorithm(&keyExchangeAlg));
@@ -611,14 +611,14 @@ TLSConnection::HandleHandshakeMessage(
 
             CHKOK(keyExchange.ParseFromVect(spHandshakeMessage->GetBody()));
 
-            /*
-            ** actually decrypt the structure using our public key
-            ** cipherer, which internally should already be primed with the
-            ** correct public/private key pair. note that this should be
-            ** using NextConn, not CurrConn, since we're handshaking using
-            ** potentially a new certificate (and consequently a new key
-            ** pair)
-            */
+            //
+            // actually decrypt the structure using our public key
+            // cipherer, which internally should already be primed with the
+            // correct public/private key pair. note that this should be
+            // using NextConn, not CurrConn, since we're handshaking using
+            // potentially a new certificate (and consequently a new key
+            // pair)
+            //
             spExchangeKeys = keyExchange.GetExchangeKeys();
             CHKOK(spExchangeKeys->DecryptStructure(GetNextConn()->GetPubKeyCipherer().get()));
 
@@ -637,18 +637,18 @@ TLSConnection::HandleHandshakeMessage(
         }
         break;
 
-        /*
-        ** with the Finished message, the client has sent its last
-        ** handshake message. In fact, this message has already been
-        ** encrypted with the new connection parameters, so parsing this
-        ** message is needed only for verifying the integrity of the
-        ** client -> server stream.
-        **
-        ** verifying it involves computing a hash of all handshake messages
-        ** received so far (not including this very Finished message) and
-        ** comparing it with the decrypted body of this message. this hash
-        ** value is known as the "verify data"
-        */
+        //
+        // with the Finished message, the client has sent its last
+        // handshake message. In fact, this message has already been
+        // encrypted with the new connection parameters, so parsing this
+        // message is needed only for verifying the integrity of the
+        // client -> server stream.
+        //
+        // verifying it involves computing a hash of all handshake messages
+        // received so far (not including this very Finished message) and
+        // comparing it with the decrypted body of this message. this hash
+        // value is known as the "verify data"
+        //
         case MT_Handshake::MTH_Finished:
         {
             MT_Finished finishedMessage;
@@ -663,18 +663,18 @@ TLSConnection::HandleHandshakeMessage(
             // do the actual hash check
             CHKOK(finishedMessage.CheckSecurity());
 
-            /*
-            ** we have to store the verify data we received here to include
-            ** in a renegotiation, if one comes up
-            */
+            //
+            // we have to store the verify data we received here to include
+            // in a renegotiation, if one comes up
+            //
             CHKOK(GetNextConn()->SetClientVerifyData(finishedMessage.GetVerifyData()));
 
-            /*
-            ** yes, we archive this message, too. when the server sends its
-            ** own Finished message, guess what? it has to include all
-            ** handshake messages received so far, including the client
-            ** finished message
-            */
+            //
+            // yes, we archive this message, too. when the server sends its
+            // own Finished message, guess what? it has to include all
+            // handshake messages received so far, including the client
+            // finished message
+            //
             GetNextConn()->GetHandshakeMessages()->push_back(spHandshakeMessage);
 
             // go ahead and do that response right now
@@ -698,17 +698,17 @@ error:
     goto done;
 } // end function HandleHandshakeMessage
 
-/*
-** having received a client hello, prepare and queue up the messages we should
-** respond with to drive the TLS handshake
-**
-** this ends up being a ServerHello, a Certificate, and a ServerHelloDone
-**
-** This function is a little complicated because it handles the app's choice of
-** whether to package multiple records of the same content type (in this case,
-** Handshake) into a single record layer message, or to split them up into
-** individual record layer messages.
-*/
+//
+// having received a client hello, prepare and queue up the messages we should
+// respond with to drive the TLS handshake
+//
+// this ends up being a ServerHello, a Certificate, and a ServerHelloDone
+//
+// This function is a little complicated because it handles the app's choice of
+// whether to package multiple records of the same content type (in this case,
+// Handshake) into a single record layer message, or to split them up into
+// individual record layer messages.
+//
 _Use_decl_annotations_
 MTERR_T
 TLSConnection::RespondToClientHello()
@@ -735,15 +735,15 @@ TLSConnection::RespondToClientHello()
         // no compression support for now
         CHKOK(compressionMethod.SetMethod(MT_CompressionMethod::MTCM_Null));
 
-        /*
-        ** prepare the renegotiation extension information. if we're doing a
-        ** second handshake (renegotiation), then fill in the requisite
-        ** Finished verify data from the prior handshake
-        **
-        ** the MT_RenegotiationInfoExtension object is a standard Extension. it
-        ** contains a MT_RenegotiatedConnection object, which has all of the
-        ** specific data about this type of extension
-        */
+        //
+        // prepare the renegotiation extension information. if we're doing a
+        // second handshake (renegotiation), then fill in the requisite
+        // Finished verify data from the prior handshake
+        //
+        // the MT_RenegotiationInfoExtension object is a standard Extension. it
+        // contains a MT_RenegotiatedConnection object, which has all of the
+        // specific data about this type of extension
+        //
         {
             MT_RenegotiationInfoExtension renegotiationExtension;
             MT_RenegotiationInfoExtension::MT_RenegotiatedConnection rc;
@@ -820,11 +820,11 @@ TLSConnection::RespondToClientHello()
 
         GetNextConn()->GetHandshakeMessages()->push_back(spHandshake);
 
-        /*
-        ** don't enqueue or increment sequence number just yet. we may choose
-        ** as part of the next handshake message below to tack on another
-        ** handshake message to this single record layer message
-        */
+        //
+        // don't enqueue or increment sequence number just yet. we may choose
+        // as part of the next handshake message below to tack on another
+        // handshake message to this single record layer message
+        //
     }
 
     assert(mr == MT_S_OK);
@@ -845,14 +845,14 @@ TLSConnection::RespondToClientHello()
                  *pClientHello->GetClientVersion()->GetVersion(),
                  &pPlaintextPass);
 
-        /*
-        ** MT_S_OK -> send the previous record layer message. The app chose to
-        ** put this handshake message in a new record layer message, passed
-        ** back in pPlaintextPass
-        **
-        ** MT_S_FALSE -> keep accumulating data for this single plaintext
-        ** message.
-        */
+        //
+        // MT_S_OK -> send the previous record layer message. The app chose to
+        // put this handshake message in a new record layer message, passed
+        // back in pPlaintextPass
+        //
+        // MT_S_FALSE -> keep accumulating data for this single plaintext
+        // message.
+        //
         if (mr == MT_S_OK)
         {
             CHKOK(EnqueueMessage(spPlaintext));
@@ -914,15 +914,15 @@ error:
     goto done;
 } // end function RespondToClientHello
 
-/*
-** when sending handshake messages, there are often multiple in a row to send.
-** this calls back to the app for the choice of whether to combine these
-** messages with the same content type into a single TLSPlaintext message or to
-** break them up into separate ones
-**
-** MT_S_OK means we are returning a new plaintext message
-** MT_S_FALSE means we are returning the same plaintext message
-*/
+//
+// when sending handshake messages, there are often multiple in a row to send.
+// this calls back to the app for the choice of whether to combine these
+// messages with the same content type into a single TLSPlaintext message or to
+// break them up into separate ones
+//
+// MT_S_OK means we are returning a new plaintext message
+// MT_S_FALSE means we are returning the same plaintext message
+//
 _Use_decl_annotations_
 MTERR_T
 TLSConnection::AddHandshakeMessage(
@@ -969,12 +969,12 @@ error:
     goto done;
 } // end function AddHandshakeMessage
 
-/*
-** once we receive a Finished message from the client, we have to construct our
-** own Finished message and send it back, which completes the handshake. first
-** we send a ChangeCipherSpec, which enables the pending cipher suite, so that
-** Finished message we send is encrypted with the new security parameters.
-*/
+//
+// once we receive a Finished message from the client, we have to construct our
+// own Finished message and send it back, which completes the handshake. first
+// we send a ChangeCipherSpec, which enables the pending cipher suite, so that
+// Finished message we send is encrypted with the new security parameters.
+//
 _Use_decl_annotations_
 MTERR_T
 TLSConnection::RespondToFinished()
@@ -1000,10 +1000,10 @@ TLSConnection::RespondToFinished()
 
         CHKOK(GetCurrConn()->SetWriteParams(GetNextConn()->GetWriteParams()));
 
-        /*
-        ** newly copied new connection state should have its initial value of
-        ** 0 for sequence number, since it hasn't been touched yet
-        */
+        //
+        // newly copied new connection state should have its initial value of
+        // 0 for sequence number, since it hasn't been touched yet
+        //
         assert(*GetCurrConn()->GetWriteParams()->GetSequenceNumber() == 0);
     }
 
@@ -1181,11 +1181,11 @@ TLSConnection::StartNextHandshake(MT_ClientHello* pClientHello)
 
     CHKOK(GetNextConn()->SetClientHello(pClientHello));
 
-    /*
-    ** the next connection will be used for collecting information about the
-    ** pending security negotation, but is not used for parsing any incoming
-    ** records; the current connection does that.
-    */
+    //
+    // the next connection will be used for collecting information about the
+    // pending security negotation, but is not used for parsing any incoming
+    // records; the current connection does that.
+    //
     CHKOK(InitializeConnection(GetNextConn()));
 
 done:
@@ -1195,15 +1195,15 @@ error:
     goto done;
 } // end function StartNextHandshake
 
-/*
-** basically consists of calling the app to provide platform-specific crypto
-** objects that will be attached only to this connection. in practice, a few
-** of these objects probably don't need to be connection-specific (e.g. hasher)
-** but I don't want to make platform assumptions.
-**
-** it's painfully obvious how much of an intermediary we are between the conn
-** and the listener here. but that's okay
-*/
+//
+// basically consists of calling the app to provide platform-specific crypto
+// objects that will be attached only to this connection. in practice, a few
+// of these objects probably don't need to be connection-specific (e.g. hasher)
+// but I don't want to make platform assumptions.
+//
+// it's painfully obvious how much of an intermediary we are between the conn
+// and the listener here. but that's okay
+//
 _Use_decl_annotations_
 MTERR_T
 TLSConnection::InitializeConnection(
@@ -1242,12 +1242,12 @@ error:
     goto done;
 } // end function InitializeConnection
 
-/*
-** called when we have sent the Finished message, signaling the end of the
-** handshake/negotiation. at this point our current connection already has the
-** endpoint-specific parameters needed to parse or send messages, but we still
-** need to copy few miscellaneous pieces of data we've accumulated in NextConn.
-*/
+//
+// called when we have sent the Finished message, signaling the end of the
+// handshake/negotiation. at this point our current connection already has the
+// endpoint-specific parameters needed to parse or send messages, but we still
+// need to copy few miscellaneous pieces of data we've accumulated in NextConn.
+//
 _Use_decl_annotations_
 MTERR_T
 TLSConnection::FinishNextHandshake()
@@ -1274,15 +1274,15 @@ error:
     goto done;
 } // end function FinishNextHandshake
 
-/*
-** this function is called whenever we have a structure to send to the client.
-** it converts a plaintext object into a properly encrypted ciphertext object
-** according to the current connection's negotiated cipher suite.
-**
-** the ciphertext message isn't exactly sent yet, but it's in the queue to be
-** sent, so effectively committed in terms of updates to the IV and sequence
-** number.
-*/
+//
+// this function is called whenever we have a structure to send to the client.
+// it converts a plaintext object into a properly encrypted ciphertext object
+// according to the current connection's negotiated cipher suite.
+//
+// the ciphertext message isn't exactly sent yet, but it's in the queue to be
+// sent, so effectively committed in terms of updates to the IV and sequence
+// number.
+//
 _Use_decl_annotations_
 MTERR_T
 TLSConnection::EnqueueMessage(
@@ -1298,11 +1298,11 @@ TLSConnection::EnqueueMessage(
              GetCurrConn()->GetWriteParams(),
              &spCiphertext));
 
-    /*
-    ** after the ciphertext is created, update the IV to be used on the next
-    ** ciphertext. in practice, this is either the last block of the ciphertext
-    ** or a new, "random" value.
-    */
+    //
+    // after the ciphertext is created, update the IV to be used on the next
+    // ciphertext. in practice, this is either the last block of the ciphertext
+    // or a new, "random" value.
+    //
     if (GetCurrConn()->GetWriteParams()->GetCipher()->type == CipherType_Block)
     {
         CHKOK(spCiphertext->GenerateNextIV(GetCurrConn()->GetWriteParams()->GetIV()));
@@ -1386,10 +1386,10 @@ error:
     goto done;
 } // end function SendQueuedMessages
 
-/*
-** this is how the app calls the connection to send some application data. we
-** package it up, encrypt it, and queue it for sending
-*/
+//
+// this is how the app calls the connection to send some application data. we
+// package it up, encrypt it, and queue it for sending
+//
 _Use_decl_annotations_
 MTERR_T
 TLSConnection::EnqueueSendApplicationData(
@@ -1416,12 +1416,12 @@ error:
     goto done;
 } // end function EnqueueSendApplicationData
 
-/*
-** this lets the app start a renegotiation by queueing up a HelloRequest
-** message. Actually, this doesn't start a renegotiation; it just *requests*
-** that the client start a renegotiation, since they are always initiated from
-** the client
-*/
+//
+// this lets the app start a renegotiation by queueing up a HelloRequest
+// message. Actually, this doesn't start a renegotiation; it just *requests*
+// that the client start a renegotiation, since they are always initiated from
+// the client
+//
 _Use_decl_annotations_
 MTERR_T
 TLSConnection::EnqueueStartRenegotiation()
@@ -1454,7 +1454,7 @@ error:
 } // end function EnqueueStartRenegotiation
 
 
-/*********** Utility functions *****************/
+// ********* Utility functions ****************
 
 _Use_decl_annotations_
 bool
@@ -1588,7 +1588,7 @@ PrintByteVector(
 } // end function PrintByteVector
 
 
-/*********** EndpointParameters *****************/
+// ********* EndpointParameters ****************
 
 EndpointParameters::EndpointParameters()
     : m_cipherSuite(MTCS_TLS_RSA_WITH_NULL_NULL),
@@ -1613,11 +1613,11 @@ EndpointParameters::Initialize(
     return MT_S_OK;
 } // end function Initialize
 
-/*
-** cache the answer internally and return it after the first time. this allows
-** us to return a const pointer to it without requiring that the caller also
-** free it
-*/
+//
+// cache the answer internally and return it after the first time. this allows
+// us to return a const pointer to it without requiring that the caller also
+// free it
+//
 _Use_decl_annotations_
 const CipherInfo*
 EndpointParameters::GetCipher() const
@@ -1663,7 +1663,7 @@ EndpointParameters::IsEncrypted() const
 } // end function IsEncrypted
 
 
-/*********** ConnectionParameters *****************/
+// ********* ConnectionParameters ****************
 
 ConnectionParameters::ConnectionParameters()
     : m_certChain(),
@@ -1680,16 +1680,16 @@ ConnectionParameters::ConnectionParameters()
 {
 } // end ctor ConnectionParameters
 
-/*
-** this can be called at three different times:
-** - early, before any messages arrive
-** - after receiving a ClientHello, to prep the new connection for handshake
-** - after receiving a ClientHello when there is already an active, secure
-**   connection, when starting a renegotiation
-**
-** in all cases, this is a fresh connection, so is basically pretty blank
-** aside from the objects passed in here
-*/
+//
+// this can be called at three different times:
+// - early, before any messages arrive
+// - after receiving a ClientHello, to prep the new connection for handshake
+// - after receiving a ClientHello when there is already an active, secure
+//   connection, when starting a renegotiation
+//
+// in all cases, this is a fresh connection, so is basically pretty blank
+// aside from the objects passed in here
+//
 _Use_decl_annotations_
 MTERR_T
 ConnectionParameters::Initialize(
@@ -1739,10 +1739,10 @@ error:
     goto done;
 } // end function Initialize
 
-/*
-** multiplex to run the TLS pseudorandom function appropriate to the current
-** protocol version.
-*/
+//
+// multiplex to run the TLS pseudorandom function appropriate to the current
+// protocol version.
+//
 _Use_decl_annotations_
 MTERR_T
 ConnectionParameters::ComputePRF(
@@ -1755,10 +1755,10 @@ ConnectionParameters::ComputePRF(
 {
     MTERR mr = MT_S_OK;
 
-    /*
-    ** PRF should only be called at times after the version and cipher suite
-    ** are finalized
-    */
+    //
+    // PRF should only be called at times after the version and cipher suite
+    // are finalized
+    //
     assert(*GetReadParams()->GetVersion() == *GetWriteParams()->GetVersion());
     assert(*GetReadParams()->GetHash() == *GetWriteParams()->GetHash());
 
@@ -1825,12 +1825,12 @@ error:
     goto done;
 } // end function ComputePRF
 
-/*
-** TLS 1.0
-** master_secret = PRF(pre_master_secret, "master secret",
-**                     ClientHello.random + ServerHello.random)
-** [0..47];
-*/
+//
+// TLS 1.0
+// master_secret = PRF(pre_master_secret, "master secret",
+//                     ClientHello.random + ServerHello.random)
+// [0..47];
+//
 _Use_decl_annotations_
 MTERR_T
 ConnectionParameters::SetMasterSecret(
@@ -1871,28 +1871,28 @@ error:
     goto done;
 } // end function SetMasterSecret
 
-/*
-** the key_block is a chunk of data produced by the PRF that is partitioned
-** into the various pieces of cryptographic material needed in the connection.
-**
-** TLS 1.0
-** To generate the key material, compute
+//
+// the key_block is a chunk of data produced by the PRF that is partitioned
+// into the various pieces of cryptographic material needed in the connection.
+//
+// TLS 1.0
+// To generate the key material, compute
 
-** key_block = PRF(SecurityParameters.master_secret,
-**                    "key expansion",
-**                    SecurityParameters.server_random +
-**                    SecurityParameters.client_random);
-**
-** until enough output has been generated. Then the key_block is
-** partitioned as follows:
-**
-** client_write_MAC_secret[SecurityParameters.hash_size]
-** server_write_MAC_secret[SecurityParameters.hash_size]
-** client_write_key[SecurityParameters.key_material_length]
-** server_write_key[SecurityParameters.key_material_length]
-** client_write_IV[SecurityParameters.IV_size]
-** server_write_IV[SecurityParameters.IV_size]
-*/
+// key_block = PRF(SecurityParameters.master_secret,
+//                    "key expansion",
+//                    SecurityParameters.server_random +
+//                    SecurityParameters.client_random);
+//
+// until enough output has been generated. Then the key_block is
+// partitioned as follows:
+//
+// client_write_MAC_secret[SecurityParameters.hash_size]
+// server_write_MAC_secret[SecurityParameters.hash_size]
+// client_write_key[SecurityParameters.key_material_length]
+// server_write_key[SecurityParameters.key_material_length]
+// client_write_IV[SecurityParameters.IV_size]
+// server_write_IV[SecurityParameters.IV_size]
+//
 _Use_decl_annotations_
 MTERR_T
 ConnectionParameters::SetKeyMaterial(
@@ -1913,11 +1913,11 @@ ConnectionParameters::SetKeyMaterial(
     assert(*GetReadParams()->GetCipher() == *GetWriteParams()->GetCipher());
     assert(*GetReadParams()->GetHash() == *GetWriteParams()->GetHash());
 
-    /*
-    ** client and server hash keys
-    ** client and server keys
-    ** client and server IVs
-    */
+    //
+    // client and server hash keys
+    // client and server keys
+    // client and server IVs
+    //
     cbKeyBlock = (GetReadParams()->GetHash()->cbMACKeySize * 2) +
                  (GetReadParams()->GetCipher()->cbKeyMaterialSize * 2) +
                  (GetReadParams()->GetCipher()->cbIVSize * 2);
@@ -2020,11 +2020,11 @@ error:
     goto done;
 } // end function SetKeyMaterial
 
-/*
-** copies leftover parameters aside from endpoint-specific ones to another
-** connection parameters object. this is used in the last stage of finalizing
-** a handshake, to make a connection the active one
-*/
+//
+// copies leftover parameters aside from endpoint-specific ones to another
+// connection parameters object. this is used in the last stage of finalizing
+// a handshake, to make a connection the active one
+//
 _Use_decl_annotations_
 MTERR_T
 ConnectionParameters::CopyCommonParamsTo(
@@ -2058,12 +2058,12 @@ ConnectionParameters::IsHandshakeInProgress() const
 } // end function IsHandshakeInProgress
 
 
-/*********** crypto stuff *****************/
+// ********* crypto stuff ****************
 
-/*
-** TLS 1.2
-** PRF(secret, label, seed) = P_<hash>(secret, label + seed)
-*/
+//
+// TLS 1.2
+// PRF(secret, label, seed) = P_<hash>(secret, label + seed)
+//
 _Use_decl_annotations_
 MTERR_T
 ComputePRF_TLS12(
@@ -2100,35 +2100,35 @@ error:
     goto done;
 } // end function ComputePRF_TLS12
 
-/*
-** TLS 1.0
-** "
-** TLS's PRF is created by splitting the secret into two halves and
-** using one half to generate data with P_MD5 and the other half to
-** generate data with P_SHA-1, then exclusive-or'ing the outputs of
-** these two expansion functions together.
-**
-** S1 and S2 are the two halves of the secret and each is the same
-** length. S1 is taken from the first half of the secret, S2 from the
-** second half. Their length is created by rounding up the length of the
-** overall secret divided by two; thus, if the original secret is an odd
-** number of bytes long, the last byte of S1 will be the same as the
-** first byte of S2.
-**
-**     L_S = length in bytes of secret;
-**     L_S1 = L_S2 = ceil(L_S / 2);
-**
-** The secret is partitioned into two halves (with the possibility of
-** one shared byte) as described above, S1 taking the first L_S1 bytes
-** and S2 the last L_S2 bytes.
-**
-** The PRF is then defined as the result of mixing the two pseudorandom
-** streams by exclusive-or'ing them together.
-**
-**     PRF(secret, label, seed) = P_MD5(S1, label + seed) XOR
-**                                P_SHA-1(S2, label + seed);
-** "
-*/
+//
+// TLS 1.0
+// "
+// TLS's PRF is created by splitting the secret into two halves and
+// using one half to generate data with P_MD5 and the other half to
+// generate data with P_SHA-1, then exclusive-or'ing the outputs of
+// these two expansion functions together.
+//
+// S1 and S2 are the two halves of the secret and each is the same
+// length. S1 is taken from the first half of the secret, S2 from the
+// second half. Their length is created by rounding up the length of the
+// overall secret divided by two; thus, if the original secret is an odd
+// number of bytes long, the last byte of S1 will be the same as the
+// first byte of S2.
+//
+//     L_S = length in bytes of secret;
+//     L_S1 = L_S2 = ceil(L_S / 2);
+//
+// The secret is partitioned into two halves (with the possibility of
+// one shared byte) as described above, S1 taking the first L_S1 bytes
+// and S2 the last L_S2 bytes.
+//
+// The PRF is then defined as the result of mixing the two pseudorandom
+// streams by exclusive-or'ing them together.
+//
+//     PRF(secret, label, seed) = P_MD5(S1, label + seed) XOR
+//                                P_SHA-1(S2, label + seed);
+// "
+//
 _Use_decl_annotations_
 MTERR_T
 ComputePRF_TLS10(
@@ -2223,12 +2223,12 @@ error:
     goto done;
 } // end function ComputePRF_TLS10
 
-/*
-** TLS 1.0
-** A() is defined as:
-**     A(0) = seed
-**     A(i) = HMAC_hash(secret, A(i-1))
-*/
+//
+// TLS 1.0
+// A() is defined as:
+//     A(0) = seed
+//     A(i) = HMAC_hash(secret, A(i-1))
+//
 _Use_decl_annotations_
 MTERR_T
 PRF_A(
@@ -2268,21 +2268,21 @@ error:
     goto done;
 } // end function PRF_A
 
-/*
-** TLS 1.0
-** "
-** First, we define a data expansion function, P_hash(secret, data)
-** which uses a single hash function to expand a secret and seed into an
-** arbitrary quantity of output:
-**
-**     P_hash(secret, seed) = HMAC_hash(secret, A(1) + seed) +
-**                            HMAC_hash(secret, A(2) + seed) +
-**                            HMAC_hash(secret, A(3) + seed) + ...
-** "
-**
-** this returns >= cbMinimumLengthDesired bytes. the calling function is
-** responsible for throwing away any excess
-*/
+//
+// TLS 1.0
+// "
+// First, we define a data expansion function, P_hash(secret, data)
+// which uses a single hash function to expand a secret and seed into an
+// arbitrary quantity of output:
+//
+//     P_hash(secret, seed) = HMAC_hash(secret, A(1) + seed) +
+//                            HMAC_hash(secret, A(2) + seed) +
+//                            HMAC_hash(secret, A(3) + seed) + ...
+// "
+//
+// this returns >= cbMinimumLengthDesired bytes. the calling function is
+// responsible for throwing away any excess
+//
 _Use_decl_annotations_
 MTERR_T
 PRF_P_hash(
@@ -2335,12 +2335,12 @@ error:
     goto done;
 } // end function PRF_P_hash
 
-/*
-** turns a cipher suite value from the wire (like 0x0005) into a cipher suite
-** info object that has all of the parameters of it, like key length and so on
-**
-** caller can ask for the cipher info, hash info, or both
-*/
+//
+// turns a cipher suite value from the wire (like 0x0005) into a cipher suite
+// info object that has all of the parameters of it, like key length and so on
+//
+// caller can ask for the cipher info, hash info, or both
+//
 _Use_decl_annotations_
 MTERR_T
 CryptoInfoFromCipherSuite(
@@ -2448,7 +2448,7 @@ error:
 } // end function CryptoInfoFromCipherSuite
 
 
-/*********** MT_Structure *****************/
+// ********* MT_Structure ****************
 
 _Use_decl_annotations_
 MTERR_T
@@ -2489,11 +2489,11 @@ MT_Structure::SerializeToVect(
     return SerializeAppendToVect(pvb);
 } // end function SerializeToVect
 
-/*
-** make the vector big enough to also hold this object's serialized contents,
-** but remember the original end. serialize this object just after the original
-** end
-*/
+//
+// make the vector big enough to also hold this object's serialized contents,
+// but remember the original end. serialize this object just after the original
+// end
+//
 _Use_decl_annotations_
 MTERR_T
 MT_Structure::SerializeAppendToVect(
@@ -2510,7 +2510,7 @@ MT_Structure::SerializeAppendToVect(
 } // end function SerializeAppendToVect
 
 
-/*********** MT_Securable *****************/
+// ********* MT_Securable ****************
 
 MT_Securable::MT_Securable()
     : m_pEndpointParams(nullptr)
@@ -2526,7 +2526,7 @@ MT_Securable::CheckSecurity()
 } // end function CheckSecurity
 
 
-/*********** MT_RecordLayerMessage *****************/
+// ********* MT_RecordLayerMessage ****************
 
 _Use_decl_annotations_
 MTERR_T
@@ -2539,7 +2539,7 @@ MT_ConnectionAware::SetConnection(
     return MT_S_OK;
 } // end function SetConnection
 
-/*********** MT_RecordLayerMessage *****************/
+// ********* MT_RecordLayerMessage ****************
 
 MT_RecordLayerMessage::MT_RecordLayerMessage()
     : MT_Structure(),
@@ -2630,7 +2630,7 @@ error:
 } // end function SerializePriv
 
 
-/*********** MT_Handshake *****************/
+// ********* MT_Handshake ****************
 
 MT_Handshake::MT_Handshake()
     : MT_Structure(),
@@ -2792,7 +2792,7 @@ MT_Handshake::HandshakeTypeString() const
 } // end function HandshakeTypeString
 
 
-/*********** MT_ClientHello *****************/
+// ********* MT_ClientHello ****************
 
 MT_ClientHello::MT_ClientHello()
     : MT_Structure(),
@@ -2849,7 +2849,7 @@ MT_ClientHello::Length() const
 } // end function Length
 
 
-/*********** MT_ServerHello *****************/
+// ********* MT_ServerHello ****************
 
 MT_ServerHello::MT_ServerHello()
     : MT_Structure(),
@@ -2913,7 +2913,7 @@ error:
 } // end function SerializePriv
 
 
-/*********** MT_ProtocolVersion *****************/
+// ********* MT_ProtocolVersion ****************
 
 MT_ProtocolVersion::MT_ProtocolVersion()
     : MT_Structure(),
@@ -2984,7 +2984,7 @@ MT_ProtocolVersion::IsKnownVersion(
 } // end function IsKnownVersion
 
 
-/*********** MT_CipherSuite *****************/
+// ********* MT_CipherSuite ****************
 
 MT_CipherSuite::MT_CipherSuite()
     : MT_FixedLengthByteStructure()
@@ -3142,12 +3142,12 @@ const vector<MT_CipherSuiteValue>* GetCipherSuitePreference()
     return &s_veCipherSuiteValues;
 } // end function GetCipherSuitePreference
 
-/*
-** the client advertises its cipher suite preference in the ClientHello
-** message. on the server here, we have an internal ordering of preference, and
-** this function puts the two together and picks the server's favorite that the
-** client also advertises support for
-*/
+//
+// the client advertises its cipher suite preference in the ClientHello
+// message. on the server here, we have an internal ordering of preference, and
+// this function puts the two together and picks the server's favorite that the
+// client also advertises support for
+//
 _Use_decl_annotations_
 MTERR_T
 ChooseBestCipherSuite(
@@ -3182,7 +3182,7 @@ error:
 } // end function ChooseBestCipherSuite
 
 
-/*********** MT_ContentType *****************/
+// ********* MT_ContentType ****************
 
 MT_ContentType::MT_ContentType()
     : MT_Structure(),
@@ -3265,7 +3265,7 @@ MT_ContentType::ToString() const
 } // end function ToString
 
 
-/*********** MT_Random *****************/
+// ********* MT_Random ****************
 
 MT_Random::MT_Random()
     : MT_Structure(),
@@ -3330,9 +3330,8 @@ MT_Random::PopulateNow()
     // ResizeVector fills with a fixed value, for easier debugging
     ResizeVector(GetRandomBytes()->GetData(), c_cbRandomBytes_Length);
 
-    /* or else could fill with actual random bytes
-    CHKOK(WriteRandomBytes(&GetRandomBytes()->front(), GetRandomBytes()->size()));
-    */
+    // or else could fill with actual random bytes
+    // CHKOK(WriteRandomBytes(&GetRandomBytes()->front(), GetRandomBytes()->size()));
 
 done:
     return mr;
@@ -3342,7 +3341,7 @@ error:
 } // end function PopulateNow
 
 
-/*********** MT_CompressionMethod *****************/
+// ********* MT_CompressionMethod ****************
 
 MT_CompressionMethod::MT_CompressionMethod()
     : MT_Structure(),
@@ -3401,7 +3400,7 @@ error:
 } // end function SerializePriv
 
 
-/*********** MT_Certificate *****************/
+// ********* MT_Certificate ****************
 
 MT_Certificate::MT_Certificate()
     : MT_Structure(),
@@ -3442,7 +3441,7 @@ MT_Certificate::AddCertificateFromMemory(
 } // end function AddCertificateFromMemory
 
 
-/*********** MT_SessionID *****************/
+// ********* MT_SessionID ****************
 
 _Use_decl_annotations_
 MTERR_T
@@ -3462,7 +3461,7 @@ error:
 } // end function PopulateWithRandom
 
 
-/*********** MT_Extension *****************/
+// ********* MT_Extension ****************
 
 MT_Extension::MT_Extension()
     : MT_Structure(),
@@ -3528,7 +3527,7 @@ error:
 } // end function SerializePriv
 
 
-/*********** MT_PreMasterSecret *****************/
+// ********* MT_PreMasterSecret ****************
 
 MT_PreMasterSecret::MT_PreMasterSecret()
     : MT_Structure(),
@@ -3590,7 +3589,7 @@ MT_PreMasterSecret::Length() const
 } // end function Length
 
 
-/*********** MT_ChangeCipherSpec *****************/
+// ********* MT_ChangeCipherSpec ****************
 
 MT_ChangeCipherSpec::MT_ChangeCipherSpec()
     : MT_Structure(),
@@ -3649,7 +3648,7 @@ error:
 } // end function SerializePriv
 
 
-/*********** MT_Finished *****************/
+// ********* MT_Finished ****************
 
 MT_Finished::MT_Finished()
     : MT_Structure(),
@@ -3678,12 +3677,12 @@ MT_Finished::SerializePriv(
     return GetVerifyData()->Serialize(pv, cb);
 } // end function SerializePriv
 
-/*
-** using data gathered across the whole handshake, compute some "verify data"
-** that can be used to ensure that the client sent us data encrypted with the
-** correct cipher suite. this is basically a hash of all the handshake messages
-** involved so far
-*/
+//
+// using data gathered across the whole handshake, compute some "verify data"
+// that can be used to ensure that the client sent us data encrypted with the
+// correct cipher suite. this is basically a hash of all the handshake messages
+// involved so far
+//
 _Use_decl_annotations_
 MTERR_T
 MT_Finished::CheckSecurityPriv()
@@ -3712,19 +3711,19 @@ error:
     goto done;
 } // end function CheckSecurityPriv
 
-/*
-** TLS 1.0
-** verify_data
-**     PRF(master_secret, finished_label, MD5(handshake_messages) +
-**     SHA-1(handshake_messages)) [0..11];
-**
-** TLS 1.2
-** verify_data
-**    PRF(master_secret, finished_label, Hash(handshake_messages))
-**       [0..verify_data_length-1];
-**
-** take a hash (or two) of all handshake messages using the master secret
-*/
+//
+// TLS 1.0
+// verify_data
+//     PRF(master_secret, finished_label, MD5(handshake_messages) +
+//     SHA-1(handshake_messages)) [0..11];
+//
+// TLS 1.2
+// verify_data
+//    PRF(master_secret, finished_label, Hash(handshake_messages))
+//       [0..verify_data_length-1];
+//
+// take a hash (or two) of all handshake messages using the master secret
+//
 _Use_decl_annotations_
 MTERR_T
 MT_Finished::ComputeVerifyData(
@@ -3822,7 +3821,7 @@ error:
 } // end function ComputeVerifyData
 
 
-/*********** MT_ServerHelloDone *****************/
+// ********* MT_ServerHelloDone ****************
 
 MT_ServerHelloDone::MT_ServerHelloDone()
     : MT_Structure()
@@ -3844,7 +3843,7 @@ MT_ServerHelloDone::SerializePriv(
 } // end function SerializePriv
 
 
-/*********** MT_HelloRequest *****************/
+// ********* MT_HelloRequest ****************
 
 MT_HelloRequest::MT_HelloRequest()
     : MT_Structure()
@@ -3866,7 +3865,7 @@ MT_HelloRequest::SerializePriv(
 } // end function SerializePriv
 
 
-/*********** MT_TLSCiphertext *****************/
+// ********* MT_TLSCiphertext ****************
 
 MT_TLSCiphertext::MT_TLSCiphertext()
     : MT_RecordLayerMessage(),
@@ -3876,14 +3875,14 @@ MT_TLSCiphertext::MT_TLSCiphertext()
 {
 } // end ctor MT_TLSCiphertext
 
-/*
-** this doubles as a factory that knows how to create the right type of cipher
-** fragment to use for the payload. this pivots on the cipher type and the
-** protocol version
-**
-** note that we pass in "this" when creating the cipher fragment. it calls back
-** up to us to get to the app for questions sometimes
-*/
+//
+// this doubles as a factory that knows how to create the right type of cipher
+// fragment to use for the payload. this pivots on the cipher type and the
+// protocol version
+//
+// note that we pass in "this" when creating the cipher fragment. it calls back
+// up to us to get to the app for questions sometimes
+//
 _Use_decl_annotations_
 MTERR_T
 MT_TLSCiphertext::SetEndpointParams(
@@ -3958,12 +3957,12 @@ MT_TLSCiphertext::Decrypt()
 {
     MTERR mr = MT_S_OK;
 
-    /*
-    ** the resultant ParseFromPriv call does the actual decryption.
-    ** it is crucial that this pass in exactly the fragment assigned to this
-    ** TLSCiphertext--no more, no less--because CipherFragment itself has no
-    ** way to validate the length. it just accepts everything it's given
-    */
+    //
+    // the resultant ParseFromPriv call does the actual decryption.
+    // it is crucial that this pass in exactly the fragment assigned to this
+    // TLSCiphertext--no more, no less--because CipherFragment itself has no
+    // way to validate the length. it just accepts everything it's given
+    //
     CHKOK(GetCipherFragment()->ParseFromVect(GetFragment()));
 
 done:
@@ -4057,15 +4056,15 @@ MT_TLSCiphertext::GetProtocolVersionForSecurity(
 
     MT_ProtocolVersion hashVersion(*GetProtocolVersion());
 
-    /*
-    ** some browsers like chrome and openssl do weird things with version
-    ** negotiation, where they specify the wrong version in a ClientHello
-    ** message for compatibility reasons.
-    **
-    ** if we detect such a mismatch here, we ask the app if it wants to
-    ** reconcile it. the default behavior is to strictly follow the RFC and use
-    ** the record layer version
-    */
+    //
+    // some browsers like chrome and openssl do weird things with version
+    // negotiation, where they specify the wrong version in a ClientHello
+    // message for compatibility reasons.
+    //
+    // if we detect such a mismatch here, we ask the app if it wants to
+    // reconcile it. the default behavior is to strictly follow the RFC and use
+    // the record layer version
+    //
     if (*GetEndpointParams()->GetVersion() != *hashVersion.GetVersion())
     {
         MT_ProtocolVersion::MTPV_Version ver;
@@ -4153,7 +4152,7 @@ MT_TLSCiphertext::GenerateNextIV(ByteVector* pvbIV)
 } // end function GenerateNextIV
 
 
-/*********** MT_CipherFragment *****************/
+// ********* MT_CipherFragment ****************
 
 _Use_decl_annotations_
 MT_CipherFragment::MT_CipherFragment(
@@ -4167,12 +4166,12 @@ MT_CipherFragment::MT_CipherFragment(
 {
 } // end ctor MT_CipherFragment
 
-/*
-** basically just assimilates the whole byte blob. it's important that the
-** containing/calling structure pass in exactly the right size here, because at
-** this point we have no way of determining what the size should be. this
-** EncryptedContent is still ciphered, not plaintext
-*/
+//
+// basically just assimilates the whole byte blob. it's important that the
+// containing/calling structure pass in exactly the right size here, because at
+// this point we have no way of determining what the size should be. this
+// EncryptedContent is still ciphered, not plaintext
+//
 _Use_decl_annotations_
 MTERR_T
 MT_CipherFragment::ParseFromPriv(
@@ -4194,10 +4193,10 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-/*
-** the ciphering for EncryptedContent needs to have been done separately and
-** prior to calling this
-*/
+//
+// the ciphering for EncryptedContent needs to have been done separately and
+// prior to calling this
+//
 _Use_decl_annotations_
 MTERR_T
 MT_CipherFragment::SerializePriv(
@@ -4226,19 +4225,19 @@ MT_CipherFragment::Length() const
     return GetEncryptedContent()->size();
 } // end function Length
 
-/*
-** compute the MAC for this message. this is used both for attaching a MAC to
-** an outgoing message and for comparing against the MAC found in an incoming
-** message.
-**
-** TLS 1.0
-** HMAC_hash(MAC_write_secret, seq_num + TLSCompressed.type +
-**               TLSCompressed.version + TLSCompressed.length +
-**               TLSCompressed.fragment));
-**
-** basically just put a bunch of fields together and hash it with the MAC key,
-** which was generated back with the master secret
-*/
+//
+// compute the MAC for this message. this is used both for attaching a MAC to
+// an outgoing message and for comparing against the MAC found in an incoming
+// message.
+//
+// TLS 1.0
+// HMAC_hash(MAC_write_secret, seq_num + TLSCompressed.type +
+//               TLSCompressed.version + TLSCompressed.length +
+//               TLSCompressed.fragment));
+//
+// basically just put a bunch of fields together and hash it with the MAC key,
+// which was generated back with the master secret
+//
 _Use_decl_annotations_
 MTERR_T
 MT_CipherFragment::ComputeMAC(
@@ -4319,7 +4318,7 @@ error:
 } // end function ComputeMAC
 
 
-/*********** MT_GenericStreamCipher *****************/
+// ********* MT_GenericStreamCipher ****************
 
 _Use_decl_annotations_
 MT_GenericStreamCipher::MT_GenericStreamCipher(
@@ -4344,10 +4343,10 @@ MT_GenericStreamCipher::ParseFromPriv(
 
     CHKOK(MT_CipherFragment::ParseFromPriv(pv, cb));
 
-    /*
-    ** we have to be careful only to call this when we mean it, or else it
-    ** changes the internal state of the cipherer down in cryptapi
-    */
+    //
+    // we have to be careful only to call this when we mean it, or else it
+    // changes the internal state of the cipherer down in cryptapi
+    //
     CHKOK(GetEndpointParams()->GetSymCipherer()->DecryptBuffer(
              GetEncryptedContent(),
              nullptr, // no IV for stream ciphers
@@ -4357,12 +4356,12 @@ MT_GenericStreamCipher::ParseFromPriv(
     pv = &vbDecryptedStruct.front();
     cb = vbDecryptedStruct.size();
 
-    /*
-    ** allows for 0-length content (i.e. content that is only the hash). if the
-    ** subtraction here underflows, the resultant size we try to parse will be
-    ** huge, and therefore fail, so it should be safe. Or we could have used
-    ** MT_SizeTSub().
-    */
+    //
+    // allows for 0-length content (i.e. content that is only the hash). if the
+    // subtraction here underflows, the resultant size we try to parse will be
+    // huge, and therefore fail, so it should be safe. Or we could have used
+    // MT_SizeTSub().
+    //
     PARSEVB(cb - pHashInfo->cbHashSize, GetContent());
 
     assert(cb == pHashInfo->cbHashSize);
@@ -4424,19 +4423,19 @@ error:
     goto done;
 } // end function UpdateWriteSecurity
 
-/*
-** compute the MAC for this message. this is used both for attaching a MAC to
-** an outgoing message and for comparing against the MAC found in an incoming
-** message.
-**
-** TLS 1.0
-** HMAC_hash(MAC_write_secret, seq_num + TLSCompressed.type +
-**               TLSCompressed.version + TLSCompressed.length +
-**               TLSCompressed.fragment));
-**
-** basically just put a bunch of fields together and hash it with the MAC key,
-** which was generated back with the master secret
-*/
+//
+// compute the MAC for this message. this is used both for attaching a MAC to
+// an outgoing message and for comparing against the MAC found in an incoming
+// message.
+//
+// TLS 1.0
+// HMAC_hash(MAC_write_secret, seq_num + TLSCompressed.type +
+//               TLSCompressed.version + TLSCompressed.length +
+//               TLSCompressed.fragment));
+//
+// basically just put a bunch of fields together and hash it with the MAC key,
+// which was generated back with the master secret
+//
 _Use_decl_annotations_
 MTERR_T
 MT_GenericStreamCipher::ComputeSecurityInfo(
@@ -4493,7 +4492,7 @@ error:
 } // end function CheckSecurityPriv
 
 
-/*********** MT_GenericBlockCipher *****************/
+// ********* MT_GenericBlockCipher ****************
 
 _Use_decl_annotations_
 MT_GenericBlockCipher::MT_GenericBlockCipher(
@@ -4522,10 +4521,10 @@ MT_GenericBlockCipher::ParseFromPriv(
 
     CHKOK(MT_CipherFragment::ParseFromPriv(pv, cb));
 
-    /*
-    ** we have to be careful only to call this when we mean it, or else it
-    ** changes the internal state of the cipherer
-    */
+    //
+    // we have to be careful only to call this when we mean it, or else it
+    // changes the internal state of the cipherer
+    //
     CHKOK(GetEndpointParams()->GetSymCipherer()->DecryptBuffer(
              GetEncryptedContent(),
              GetIV(),
@@ -4557,18 +4556,18 @@ MT_GenericBlockCipher::ParseFromPriv(
         goto error;
     }
 
-    /*
-    ** example:
-    ** cbPaddingLength = cbField = 5
-    **
-    ** yy yy yy 05 05 05 05 05 05
-    **          ^           ^  ^
-    **          |           |  padding length
-    **          |           |
-    **          |           pvEnd
-    **          pvEnd -
-    **          cbField + 1
-    */
+    //
+    // example:
+    // cbPaddingLength = cbField = 5
+    //
+    // yy yy yy 05 05 05 05 05 05
+    //          ^           ^  ^
+    //          |           |  padding length
+    //          |           |
+    //          |           pvEnd
+    //          pvEnd -
+    //          cbField + 1
+    //
     GetPadding()->assign(pvEnd - cbField + 1, pvEnd + 1);
 
     {
@@ -4580,18 +4579,18 @@ MT_GenericBlockCipher::ParseFromPriv(
         }
     }
 
-    /*
-    ** not advancing pv, only subtracting from cb, since we've pulled the
-    ** padding off the end
-    */
+    //
+    // not advancing pv, only subtracting from cb, since we've pulled the
+    // padding off the end
+    //
     SAFE_SUB(mr, cb, cbField);
     pvEnd -= cbField;
 
-    /*
-    ** at this point we've stripped out the padding. pv points to the start of
-    ** the payload, and cb is the number of bytes in the payload plus MAC.
-    ** parse out these two things now
-    */
+    //
+    // at this point we've stripped out the padding. pv points to the start of
+    // the payload, and cb is the number of bytes in the payload plus MAC.
+    // parse out these two things now
+    //
 
     PARSEVB(cb - pHashInfo->cbHashSize, GetContent());
 
@@ -4608,10 +4607,10 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-/*
-** this is called to prepare the contents for being serialized. it takes the
-** plaintext payload, attaches the MAC to it, and encrypts it
-*/
+//
+// this is called to prepare the contents for being serialized. it takes the
+// plaintext payload, attaches the MAC to it, and encrypts it
+//
 _Use_decl_annotations_
 MTERR_T
 MT_GenericBlockCipher::UpdateWriteSecurity()
@@ -4641,11 +4640,11 @@ MT_GenericBlockCipher::UpdateWriteSecurity()
         const CipherInfo* pCipherInfo = GetEndpointParams()->GetCipher();
         assert(pCipherInfo->type == CipherType_Block);
 
-        /*
-        ** this check makes sure that GetPadding() was the right size to make
-        ** the total size of the payload a multiple of the block size, which is
-        ** a requirement for block ciphers
-        */
+        //
+        // this check makes sure that GetPadding() was the right size to make
+        // the total size of the payload a multiple of the block size, which is
+        // a requirement for block ciphers
+        //
         assert((cb % pCipherInfo->cbBlockSize) == 0);
     }
 
@@ -4692,11 +4691,11 @@ MT_GenericBlockCipher::PaddingLength() const
     return b;
 } // end function PaddingLength
 
-/*
-** computes the "security info", aka MAC. see
-** MT_GenericStreamCipher::ComputeSecurityInfo for more info. this differs from
-** the stream cipher only in that it also computes the padding for the block
-*/
+//
+// computes the "security info", aka MAC. see
+// MT_GenericStreamCipher::ComputeSecurityInfo for more info. this differs from
+// the stream cipher only in that it also computes the padding for the block
+//
 _Use_decl_annotations_
 MTERR_T
 MT_GenericBlockCipher::ComputeSecurityInfo(
@@ -4815,7 +4814,7 @@ error:
 } // end function CheckSecurityPriv
 
 
-/*********** MT_GenericBlockCipher_TLS10 *****************/
+// ********* MT_GenericBlockCipher_TLS10 ****************
 
 _Use_decl_annotations_
 const ByteVector*
@@ -4825,7 +4824,7 @@ MT_GenericBlockCipher_TLS10::GetIV() const
 } // end function GetIV
 
 
-/*********** MT_GenericBlockCipher_TLS11 *****************/
+// ********* MT_GenericBlockCipher_TLS11 ****************
 
 _Use_decl_annotations_
 MT_GenericBlockCipher_TLS11::MT_GenericBlockCipher_TLS11(
@@ -4846,13 +4845,13 @@ MT_GenericBlockCipher_TLS11::ParseFromPriv(
     MTERR mr = MT_S_OK;
     size_t cbField = 0;
 
-    /*
-    ** the IV is sent in the clear just in front of the ciphertext, which is
-    ** encrypted using this very IV. apparently that's safe and okay? I don't
-    ** really get it, but all right.
-    **
-    ** http://stackoverflow.com/q/3436864
-    */
+    //
+    // the IV is sent in the clear just in front of the ciphertext, which is
+    // encrypted using this very IV. apparently that's safe and okay? I don't
+    // really get it, but all right.
+    //
+    // http://stackoverflow.com/q/3436864
+    //
 
     PARSEVB(GetEndpointParams()->GetCipher()->cbIVSize, GetIV());
 
@@ -4884,13 +4883,13 @@ error:
     goto done;
 } // end function UpdateWriteSecurity
 
-/*
-** at the point this is called, UpdateWriteSecurity security should have
-** already been called, which fills EncryptedContent with the encrypted
-** contents of the payload. for TLS 1.1 and 1.2, the IV is attached
-** un-encrypted to the front, so this is the last thing we do before
-** serializing
-*/
+//
+// at the point this is called, UpdateWriteSecurity security should have
+// already been called, which fills EncryptedContent with the encrypted
+// contents of the payload. for TLS 1.1 and 1.2, the IV is attached
+// un-encrypted to the front, so this is the last thing we do before
+// serializing
+//
 _Use_decl_annotations_
 MTERR_T
 MT_GenericBlockCipher_TLS11::SerializePriv(
@@ -4923,7 +4922,7 @@ MT_GenericBlockCipher_TLS11::Length() const
 } // end function Length
 
 
-/*********** SymmetricCipherer *****************/
+// ********* SymmetricCipherer ****************
 
 SymmetricCipherer::SymmetricCipherer()
     : m_cipherInfo()
@@ -4953,11 +4952,11 @@ error:
     goto done;
 } // end function SetCipherInfo
 
-/*
-** handle null cipher here. MT_S_OK indicates to the caller that some
-** "encryption" was done here. MT_E_NOTIMPL means that the caller needs to
-** handle the encryption itself
-*/
+//
+// handle null cipher here. MT_S_OK indicates to the caller that some
+// "encryption" was done here. MT_E_NOTIMPL means that the caller needs to
+// handle the encryption itself
+//
 _Use_decl_annotations_
 MTERR_T
 SymmetricCipherer::EncryptBuffer(
@@ -4998,7 +4997,7 @@ SymmetricCipherer::DecryptBuffer(
 } // end function DecryptBuffer
 
 
-/*********** Hasher *****************/
+// ********* Hasher ****************
 
 // handle null (0 byte) hash. MT_S_OK means we handled it. MT_E_NOTIMPL otherwise
 _Use_decl_annotations_
@@ -5043,7 +5042,7 @@ Hasher::HMAC(
 } // end function HMAC
 
 
-/*********** MT_Alert *****************/
+// ********* MT_Alert ****************
 
 MT_Alert::MT_Alert()
     : MT_Structure(),
@@ -5240,7 +5239,7 @@ MT_Alert::ToString() const
 } // end function ToString
 
 
-/*********** MT_RenegotiationInfoExtension *****************/
+// ********* MT_RenegotiationInfoExtension ****************
 
 MT_RenegotiationInfoExtension::MT_RenegotiationInfoExtension()
     : MT_Extension(),
@@ -5271,17 +5270,17 @@ error:
     goto done;
 } // end function ParseFromPriv
 
-/*
-** MT_RenegotiationInfoExtension is a subclass of MT_Extension, which means it
-** has to expose GetExtensionData() to get the raw bytes of the extension. but
-** it also keeps track of a higher-level MT_RenegotiatedConnection object for
-** easy examination in code. unfortunately, this means that
-** m_renegotiatedConnection and GetExtensionData() need to be kept in sync.
-**
-** this function is called to set both members together. Elsewhere, there are
-** calls to CheckExtensionDataIntegrity to make sure that the integrity hasn't
-** been tampered with by direct modifications to GetExtensionData().
-*/
+//
+// MT_RenegotiationInfoExtension is a subclass of MT_Extension, which means it
+// has to expose GetExtensionData() to get the raw bytes of the extension. but
+// it also keeps track of a higher-level MT_RenegotiatedConnection object for
+// easy examination in code. unfortunately, this means that
+// m_renegotiatedConnection and GetExtensionData() need to be kept in sync.
+//
+// this function is called to set both members together. Elsewhere, there are
+// calls to CheckExtensionDataIntegrity to make sure that the integrity hasn't
+// been tampered with by direct modifications to GetExtensionData().
+//
 _Use_decl_annotations_
 MTERR_T
 MT_RenegotiationInfoExtension::SetRenegotiatedConnection(
@@ -5301,11 +5300,11 @@ error:
     goto done;
 } // end function SetRenegotiatedConnection
 
-/*
-** see alos: the comment for SetRenegotiatedConnection. this immediately sets
-** the m_renegotiatedConnection object as well as the raw bytes, so they are
-** kept in sync
-*/
+//
+// see alos: the comment for SetRenegotiatedConnection. this immediately sets
+// the m_renegotiatedConnection object as well as the raw bytes, so they are
+// kept in sync
+//
 _Use_decl_annotations_
 MTERR_T
 MT_RenegotiationInfoExtension::SetExtensionData(
@@ -5324,10 +5323,10 @@ error:
     goto done;
 } // end function SetExtensionData
 
-/*
-** serialize the renegotiated connection member and check that it matches
-** GetExtensionData. they should always be in sync
-*/
+//
+// serialize the renegotiated connection member and check that it matches
+// GetExtensionData. they should always be in sync
+//
 _Use_decl_annotations_
 MTERR_T
 MT_RenegotiationInfoExtension::CheckExtensionDataIntegrity() const
@@ -5371,7 +5370,7 @@ MT_RenegotiationInfoExtension::GetRenegotiatedConnection() const
 
 
 // boilerplate code for quickly creating new structures
-/*********** MT_Thingy *****************/
+// ********* MT_Thingy ****************
 
 /*
 MT_Thingy::MT_Thingy()

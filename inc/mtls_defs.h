@@ -74,11 +74,11 @@ const MTERR MT_E_INVALIDARG                               = 0x80230057;
     }                                                       \
 }                                                           \
 
-/*
-** if we did extra validation and stuff in these accessors, we'd want to avoid
-** code duplication by using Effective C++ Item 3's technique. look it up if
-** you want to see some cool trickery
-*/
+//
+// if we did extra validation and stuff in these accessors, we'd want to avoid
+// code duplication by using Effective C++ Item 3's technique. look it up if
+// you want to see some cool trickery
+//
 
 // accessors for regular non-pointer members.
 #define ACCESSOR_GETTER_RO(returnType, name, member)                          \
@@ -126,10 +126,10 @@ const MTERR MT_E_INVALIDARG                               = 0x80230057;
     ACCESSOR_SETTERS(returnType, name, member)                                \
 
 
-/*
-** accessors for pointers. doesn't allow assigning to the pointer itself, only
-** the referent
-*/
+//
+// accessors for pointers. doesn't allow assigning to the pointer itself, only
+// the referent
+//
 #define ACCESSOR_PTR_GETTER_RO(returnType, name, member)                      \
     virtual                                                                   \
     _Check_return_                                                            \

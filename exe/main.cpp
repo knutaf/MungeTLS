@@ -17,10 +17,10 @@
 using namespace std;
 using namespace MungeTLS;
 
-/*
-** Some of this is taken with little modification from an MSDN sockets sample,
-** so the coding style differs a little from all the other code in the project.
-*/
+//
+// Some of this is taken with little modification from an MSDN sockets sample,
+// so the coding style differs a little from all the other code in the project.
+//
 int __cdecl wmain(_In_ int argc, _In_reads_(argc) wchar_t* argv[])
 {
     UNREFERENCED_PARAMETER(argc);
@@ -97,10 +97,10 @@ int __cdecl wmain(_In_ int argc, _In_reads_(argc) wchar_t* argv[])
         }
 
         {
-            /*
-            ** this simple web server is attached to the TLS connection and
-            ** implements all its callbacks
-            */
+            //
+            // this simple web server is attached to the TLS connection and
+            // implements all its callbacks
+            //
             SimpleHTTPServer server(sockAccept);
             hr = server.ProcessConnection();
             if (hr != S_OK)
@@ -142,11 +142,11 @@ StringFromInt(
     return s.str();
 } // end function StringFromInt
 
-/*
-** log traffic with a specific format that makes it suitable for parsing by
-** the "munge2netmon" companion tool, which can take the raw traffic and turn
-** it into a netmon capture, which can be viewed for debugging goodness
-*/
+//
+// log traffic with a specific format that makes it suitable for parsing by
+// the "munge2netmon" companion tool, which can take the raw traffic and turn
+// it into a netmon capture, which can be viewed for debugging goodness
+//
 HRESULT
 LogTraffic(
     _In_ ULONG nFile,
@@ -228,10 +228,10 @@ error:
     goto done;
 } // end function LogTraffic
 
-/*
-** expects a TCP connection to have already been established, and processes all
-** data on it.
-*/
+//
+// expects a TCP connection to have already been established, and processes all
+// data on it.
+//
 HRESULT SimpleHTTPServer::ProcessConnection()
 {
     const size_t c_cbReadBuffer = 5000;
@@ -280,11 +280,11 @@ HRESULT SimpleHTTPServer::ProcessConnection()
         hr = GetConnection()->HandleMessage(&vbData);
         while (hr == S_OK)
         {
-            /*
-            ** HandleMessage reenters SimpleHTTPServer in callbacks, which can
-            ** result in queuing up traffic to send. check right now and
-            ** send any pending traffic
-            */
+            //
+            // HandleMessage reenters SimpleHTTPServer in callbacks, which can
+            // result in queuing up traffic to send. check right now and
+            // send any pending traffic
+            //
             while (!GetPendingSends()->empty())
             {
                 ByteVector vb(GetPendingSends()->front());
@@ -350,18 +350,18 @@ HRESULT SimpleHTTPServer::ProcessConnection()
 
         assert(vbData.size() <= c_cbReadBuffer);
 
-        /*
-        ** SUCCEEDED instead of S_OK because HandleMessage returns S_FALSE
-        ** if it handles an empty message
-        */
+        //
+        // SUCCEEDED instead of S_OK because HandleMessage returns S_FALSE
+        // if it handles an empty message
+        //
         assert(SUCCEEDED(hr));
         hr = S_OK;
 
-        /*
-        ** HandleMessage, if it succeeds, resizes vector, so update our
-        ** current knowledge of the consumed size of the vector, then
-        ** inflate it to the buffer size
-        */
+        //
+        // HandleMessage, if it succeeds, resizes vector, so update our
+        // current knowledge of the consumed size of the vector, then
+        // inflate it to the buffer size
+        //
         cbConsumedBuffer = vbData.size();
         ResizeVector(&vbData, c_cbReadBuffer);
 
@@ -468,11 +468,11 @@ MTERR_T SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             "\n\n"
         };
 
-        /*
-        ** try all the terminators to see if the request is complete. this is
-        ** simplistic because it doesn't handle things like content-length in
-        ** the request, so the client can't send any request body
-        */
+        //
+        // try all the terminators to see if the request is complete. this is
+        // simplistic because it doesn't handle things like content-length in
+        // the request, so the client can't send any request body
+        //
 
         // iterator to search for end of request headers
         string::iterator itEndRequest(GetPendingRequest()->begin());
@@ -482,27 +482,27 @@ MTERR_T SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
             // find the end terminator
             string::size_type posEndRequest = GetPendingRequest()->find(c_rgszHTTPHeadersTerminators[i]);
 
-            /*
-            ** found terminator. posEndRequest is the index of the first char
-            ** of the terminator string
-            */
+            //
+            // found terminator. posEndRequest is the index of the first char
+            // of the terminator string
+            //
             if (posEndRequest != string::npos)
             {
-                /*
-                ** if it's found, set an iterator for the spot 1 past the end
-                ** of the terminating string.
-                */
+                //
+                // if it's found, set an iterator for the spot 1 past the end
+                // of the terminating string.
+                //
                 itEndRequest = GetPendingRequest()->begin() + posEndRequest + strlen(c_rgszHTTPHeadersTerminators[i]);
                 break;
             }
         }
 
-        /*
-        ** this simple web server echoes back the request headers in the
-        ** response body. if we've found a non-empty request at this point--
-        ** i.e. the previous search for a terminator succeeded--construct and
-        ** send the response now.
-        */
+        //
+        // this simple web server echoes back the request headers in the
+        // response body. if we've found a non-empty request at this point--
+        // i.e. the previous search for a terminator succeeded--construct and
+        // send the response now.
+        //
         if (itEndRequest - GetPendingRequest()->begin() > 0)
         {
             ByteVector vbApplicationData;
@@ -514,14 +514,14 @@ MTERR_T SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
                 "Connection: Keep-Alive\r\n"
                 "\r\n";
 
-            /*
-            ** reserve (more than) enough space, and trim down later. the *2
-            ** is the generous part of the size, and accounts for the content
-            ** length in the string above. it is really *very* generous.
-            **
-            ** we don't resize() at this point, because that would change
-            ** begin(), end(), etc.. those will get updated as we insert/append
-            */
+            //
+            // reserve (more than) enough space, and trim down later. the *2
+            // is the generous part of the size, and accounts for the content
+            // length in the string above. it is really *very* generous.
+            //
+            // we don't resize() at this point, because that would change
+            // begin(), end(), etc.. those will get updated as we insert/append
+            //
             vbApplicationData.reserve(
                 ARRAYSIZE(szApplicationDataTemplate) * 2 +
                 (itEndRequest - GetPendingRequest()->begin()));
@@ -552,16 +552,16 @@ MTERR_T SimpleHTTPServer::OnReceivedApplicationData(const ByteVector* pvb)
 
             m_cRequestsReceived++;
 
-            /*
-            ** if we reach this point, we have received a request and prepared
-            ** a response to send. however, since this is a test server, on the
-            ** second and subsequent requests we receive, first do a
-            ** renegotiation, THEN send the response. hee hee
-            **
-            ** the renegotiation process is not synchronous right here, so we
-            ** have to save off that response and send it after it's indicated
-            ** that the handshake is complete (OnHandshakeComplete).
-            */
+            //
+            // if we reach this point, we have received a request and prepared
+            // a response to send. however, since this is a test server, on the
+            // second and subsequent requests we receive, first do a
+            // renegotiation, THEN send the response. hee hee
+            //
+            // the renegotiation process is not synchronous right here, so we
+            // have to save off that response and send it after it's indicated
+            // that the handshake is complete (OnHandshakeComplete).
+            //
             if (m_cRequestsReceived > 1)
             {
                 CHKOK(GetConnection()->EnqueueStartRenegotiation());
@@ -594,10 +594,10 @@ error:
     goto done;
 } // end function OnReceivedApplicationData
 
-/*
-** called during handshake to choose the protocol version to use in ServerHello
-** default is to use ClientHello.version
-*/
+//
+// called during handshake to choose the protocol version to use in ServerHello
+// default is to use ClientHello.version
+//
 _Use_decl_annotations_
 MTERR_T SimpleHTTPServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolVersion)
 {
@@ -605,14 +605,14 @@ MTERR_T SimpleHTTPServer::OnSelectProtocolVersion(MT_ProtocolVersion* pProtocolV
     return MT_S_LISTENER_IGNORED;
 } // end function OnSelectProtocolVersion
 
-/*
-** called during handshake to pick the cipher suite to send in the ServerHello.
-** the default is to take a hard-coded server preference that the client also
-** advertises.
-**
-** this client implementation helps testing renegotation by choosing a
-** different cipher suite round-robin from a list of choices.
-*/
+//
+// called during handshake to pick the cipher suite to send in the ServerHello.
+// the default is to take a hard-coded server preference that the client also
+// advertises.
+//
+// this client implementation helps testing renegotation by choosing a
+// different cipher suite round-robin from a list of choices.
+//
 _Use_decl_annotations_
 MTERR_T SimpleHTTPServer::OnSelectCipherSuite(const MT_ClientHello* pClientHello, MT_CipherSuite* pCipherSuite)
 {
@@ -648,17 +648,17 @@ error:
     goto done;
 } // end function OnSelectCipherSuite
 
-/*
-** called when initializing the cryptographic objects needed for a new
-** handshake. for this simple server, we need to fetch the certificate chain
-** and configure the public key cipherer with the certificate private key. on
-** other platforms they may also need to configure the symmetric cipherers or
-** hasher.
-**
-** for now we have a hard-coded certificate name. Note that LookupCertificate
-** is Windows-specific code, but that's okay, because it's contained in the
-** application (rather than lib) portion.
-*/
+//
+// called when initializing the cryptographic objects needed for a new
+// handshake. for this simple server, we need to fetch the certificate chain
+// and configure the public key cipherer with the certificate private key. on
+// other platforms they may also need to configure the symmetric cipherers or
+// hasher.
+//
+// for now we have a hard-coded certificate name. Note that LookupCertificate
+// is Windows-specific code, but that's okay, because it's contained in the
+// application (rather than lib) portion.
+//
 _Use_decl_annotations_
 MTERR_T
 SimpleHTTPServer::OnInitializeCrypto(
@@ -687,10 +687,10 @@ SimpleHTTPServer::OnInitializeCrypto(
 
     spPubKeyCipherer = shared_ptr<WindowsPublicKeyCipherer>(new WindowsPublicKeyCipherer());
 
-    /*
-    ** the root cert context in the chain. it knows how to lookup the private
-    ** key from this.
-    */
+    //
+    // the root cert context in the chain. it knows how to lookup the private
+    // key from this.
+    //
     CHKOK(spPubKeyCipherer->Initialize(pCertChainCtx->rgpChain[0]->rgpElement[0]->pCertContext));
 
     spClientSymCipherer = shared_ptr<WindowsSymmetricCipherer>(new WindowsSymmetricCipherer());
@@ -721,12 +721,12 @@ error:
     goto done;
 } // end function OnInitializeCrypto
 
-/*
-** called when creating each handshake message for sending. we could package
-** each message in a separate record layer message, or combine several into the
-** same record layer message, since they're all of the same content type
-** default is to do separate records
-*/
+//
+// called when creating each handshake message for sending. we could package
+// each message in a separate record layer message, or combine several into the
+// same record layer message, since they're all of the same content type
+// default is to do separate records
+//
 _Use_decl_annotations_
 MTERR_T SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, MT_UINT32* pfFlags)
 {
@@ -736,11 +736,11 @@ MTERR_T SimpleHTTPServer::OnCreatingHandshakeMessage(MT_Handshake* pHandshake, M
     return MT_S_LISTENER_HANDLED;
 } // end function OnCreatingHandshakeMessage
 
-/*
-** called whenever the server has readied a plaintext message for the purpose
-** of being sent, either in its plaintext form or after conversion to
-** ciphertext. this is primarily used for logging traffic
-*/
+//
+// called whenever the server has readied a plaintext message for the purpose
+// of being sent, either in its plaintext form or after conversion to
+// ciphertext. this is primarily used for logging traffic
+//
 _Use_decl_annotations_
 MTERR_T SimpleHTTPServer::OnEnqueuePlaintext(const MT_TLSPlaintext* pPlaintext, bool fActuallyEncrypted)
 {
@@ -794,11 +794,11 @@ error:
     goto done;
 } // end function OnReceivingPlaintext
 
-/*
-** notifies the application that a handshake is complete, and it's safe to send
-** application data. here we send the data we saved off back in
-** OnReceivedApplicationData before the renegotiation.
-*/
+//
+// notifies the application that a handshake is complete, and it's safe to send
+// application data. here we send the data we saved off back in
+// OnReceivedApplicationData before the renegotiation.
+//
 _Use_decl_annotations_
 MTERR_T
 SimpleHTTPServer::OnHandshakeComplete()
@@ -821,16 +821,16 @@ error:
     goto done;
 } // end function OnHandshakeComplete
 
-/*
-** if we ever encounter a record with a different version specified than the
-** currently negotiated version, the application has a chance to reconcile it
-** and choose the version that's used for "security" operations like MAC
-** computation.
-**
-** In particular, many browsers handle version negotiation differently. we
-** always set to whatever higher version was previously negotiated if the
-** versions differ
-*/
+//
+// if we ever encounter a record with a different version specified than the
+// currently negotiated version, the application has a chance to reconcile it
+// and choose the version that's used for "security" operations like MAC
+// computation.
+//
+// In particular, many browsers handle version negotiation differently. we
+// always set to whatever higher version was previously negotiated if the
+// versions differ
+//
 _Use_decl_annotations_
 MTERR_T
 SimpleHTTPServer::OnReconcileSecurityVersion(

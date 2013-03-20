@@ -9,23 +9,23 @@
 #include "mtls_helper.h"
 #include "mtls_plat_windows.h"
 
-/*
-** All the functions in this file are Windows implementations/wrappers of
-** crypto related functions needed for TLS. MungeTLS as a whole abstracts the
-** platform-specific portions so that none of these structures or functions are
-** called directly in the code
-*/
+//
+// All the functions in this file are Windows implementations/wrappers of
+// crypto related functions needed for TLS. MungeTLS as a whole abstracts the
+// platform-specific portions so that none of these structures or functions are
+// called directly in the code
+//
 
 namespace MungeTLS
 {
 
 using namespace std;
 
-/*
-** taken from the comments for CryptImportKey (http://msdn.microsoft.com/en-us/library/windows/desktop/aa380207(v=vs.85).aspx)
-** and is used to pass data to and from key import/export functions. hdr.type
-** is PLAINTEXTKEYBLOB
-*/
+//
+// taken from the comments for CryptImportKey (http://msdn.microsoft.com/en-us/library/windows/desktop/aa380207(v=vs.85).aspx)
+// and is used to pass data to and from key import/export functions. hdr.type
+// is PLAINTEXTKEYBLOB
+//
 struct PlaintextKey
 {
     BLOBHEADER hdr;
@@ -40,7 +40,7 @@ ReverseByteOrder(
 );
 
 
-/*********** KeyAndProv *****************/
+// ********* KeyAndProv ****************
 
 KeyAndProv::KeyAndProv()
     : m_hProv(NULL),
@@ -108,13 +108,13 @@ void KeyAndProv::SetKey(HCRYPTKEY hKey)
     m_hKey = hKey;
 } // end function SetKey
 
-/*********** utility functions *****************/
+// ********* utility functions ****************
 
-/*
-** due to the massive amount of configuration and setup required in CryptAPI,
-** the functions to encrypt and decrypt data, once you actually get to this
-** point, are the same for pretty much all cipher types
-*/
+//
+// due to the massive amount of configuration and setup required in CryptAPI,
+// the functions to encrypt and decrypt data, once you actually get to this
+// point, are the same for pretty much all cipher types
+//
 _Use_decl_annotations_
 HRESULT
 EncryptBuffer(
@@ -135,10 +135,10 @@ EncryptBuffer(
     wprintf(L"encrypting plaintext:\n");
     PrintByteVector(pvbCleartext);
 
-    /*
-    ** asymmetric block, e.g. RSA public key encryption. we encypt one block,
-    ** and that's it, so we set fFinal to true
-    */
+    //
+    // asymmetric block, e.g. RSA public key encryption. we encypt one block,
+    // and that's it, so we set fFinal to true
+    //
     switch (cipherType)
     {
         case CipherType_Asymmetric_Block:
@@ -147,20 +147,20 @@ EncryptBuffer(
         }
         break;
 
-        /*
-        ** block ciphers, e.g. AES-128. Unfortunately, I have no idea why you
-        ** need to set fFinal to false for this. I figured it out through trial
-        ** and error.
-        **
-        ** we have to do a trick for setting the IV that's documented along
-        ** with CryptEncryptBuffer
-        * (http://msdn.microsoft.com/en-us/library/windows/desktop/aa379924(v=vs.85).aspx)
-        **
-        ** that is, the state of the key with respect to IV is not set until a
-        ** "final" block has been encrypted, normally. to get around this, we
-        ** can set the IV, then duplicate the key, which copies all pending
-        ** changes into the new key.
-        */
+        //
+        // block ciphers, e.g. AES-128. Unfortunately, I have no idea why you
+        // need to set fFinal to false for this. I figured it out through trial
+        // and error.
+        //
+        // we have to do a trick for setting the IV that's documented along
+        // with CryptEncryptBuffer
+        // (http://msdn.microsoft.com/en-us/library/windows/desktop/aa379924(v=vs.85).aspx)
+        //
+        // that is, the state of the key with respect to IV is not set until a
+        // "final" block has been encrypted, normally. to get around this, we
+        // can set the IV, then duplicate the key, which copies all pending
+        // changes into the new key.
+        //
         case CipherType_Block:
         {
             fFinal = FALSE;
@@ -190,10 +190,10 @@ EncryptBuffer(
         }
         break;
 
-        /*
-        ** stream ciphers, by definition, won't have any "final" data. we set
-        ** this to false to keep the stream from resetting any internal state.
-        */
+        //
+        // stream ciphers, by definition, won't have any "final" data. we set
+        // this to false to keep the stream from resetting any internal state.
+        //
         case CipherType_Stream:
         {
             assert(pvbIV == nullptr);
@@ -230,10 +230,10 @@ EncryptBuffer(
         goto error;
     }
 
-    /*
-    ** pvbEncrypted is used as an in-out parameter that, ironically, starts as
-    ** the cleartext on input and ends up as the ciphertext on output
-    */
+    //
+    // pvbEncrypted is used as an in-out parameter that, ironically, starts as
+    // the cleartext on input and ends up as the ciphertext on output
+    //
     *pvbEncrypted = *pvbCleartext;
     ResizeVector(pvbEncrypted, cb);
 
@@ -256,12 +256,12 @@ EncryptBuffer(
 
     assert(cb == pvbEncrypted->size());
 
-    /*
-    ** CryptEncrypt returns in little-endian. not sure why we don't need to do
-    ** this for regular block ciphers, but I guess maybe it has something to do
-    ** with fFinal being FALSE for them? I've experimented, but I'm not sure.
-    ** All I know is this happens to work. Ugh.
-    */
+    //
+    // CryptEncrypt returns in little-endian. not sure why we don't need to do
+    // this for regular block ciphers, but I guess maybe it has something to do
+    // with fFinal being FALSE for them? I've experimented, but I'm not sure.
+    // All I know is this happens to work. Ugh.
+    //
     if (cipherType == CipherType_Asymmetric_Block)
     {
         *pvbEncrypted = ReverseByteOrder(pvbEncrypted);
@@ -300,10 +300,10 @@ DecryptBuffer(
     wprintf(L"decrypting. ciphertext (%Iu bytes):\n", pvbEncrypted->size());
     PrintByteVector(pvbEncrypted);
 
-    /*
-    ** during this we set pvbDecrypted to pvbEncrypted, because the subsequent
-    ** CryptDecrypt call will decrypt it in-place.
-    */
+    //
+    // during this we set pvbDecrypted to pvbEncrypted, because the subsequent
+    // CryptDecrypt call will decrypt it in-place.
+    //
     switch (pCipherInfo->type)
     {
         case CipherType_Asymmetric_Block:
@@ -316,10 +316,10 @@ DecryptBuffer(
         }
         break;
 
-        /*
-        ** what really makes me rage is that fFinal is TRUE for *decrypting*
-        ** block ciphers, but FALSE for *encrypting* them. what is going on!?
-        */
+        //
+        // what really makes me rage is that fFinal is TRUE for *decrypting*
+        // block ciphers, but FALSE for *encrypting* them. what is going on!?
+        //
         case CipherType_Block:
         {
             fFinal = TRUE;
@@ -382,22 +382,22 @@ DecryptBuffer(
     wprintf(L"done initial decrypt: cb=%u, size=%Iu\n", cb, pvbDecrypted->size());
     PrintByteVector(pvbDecrypted);
 
-    /*
-    ** CryptDecrypt recognizes when the trailing end of a block is comprised of
-    ** padding bytes, and sets cb (out-parameter from CryptDecrypt) to the
-    ** length of the plaintext + 1, where that extra 1 contains the padding
-    ** length value. Actually, it has filled through the end of the whole
-    ** buffer with the correct padding string, and we'll want to return this
-    ** whole buffer to present a consistent view with respect to block cipher
-    ** padding.
-    **
-    ** so in this next section, we verify that we have the correct padding
-    ** format. As a reminder, the padding format is for the *value* of each
-    ** padding byte to be the *number* of padding bytes needed, e.g. if 7 bytes
-    ** of padding are needed, each of those padding bytes will contain the
-    ** value 7. and there is a final byte on the end that also has 7, the
-    ** number of padding bytes needed.
-    */
+    //
+    // CryptDecrypt recognizes when the trailing end of a block is comprised of
+    // padding bytes, and sets cb (out-parameter from CryptDecrypt) to the
+    // length of the plaintext + 1, where that extra 1 contains the padding
+    // length value. Actually, it has filled through the end of the whole
+    // buffer with the correct padding string, and we'll want to return this
+    // whole buffer to present a consistent view with respect to block cipher
+    // padding.
+    //
+    // so in this next section, we verify that we have the correct padding
+    // format. As a reminder, the padding format is for the *value* of each
+    // padding byte to be the *number* of padding bytes needed, e.g. if 7 bytes
+    // of padding are needed, each of those padding bytes will contain the
+    // value 7. and there is a final byte on the end that also has 7, the
+    // number of padding bytes needed.
+    //
     if (pCipherInfo->type == CipherType_Block)
     {
         // get the padding length, which will also be the value
@@ -405,10 +405,10 @@ DecryptBuffer(
         size_t cbPaddingBytes = paddingByteValue;
         wprintf(L"looking for %Iu padding bytes\n", cbPaddingBytes);
 
-        /*
-        ** we'll now walk backwards from the end (skipping the padding length
-        ** byte, verifying each byte has the correct value.
-        */
+        //
+        // we'll now walk backwards from the end (skipping the padding length
+        // byte, verifying each byte has the correct value.
+        //
         auto rit = pvbDecrypted->end() - 2;
         cb--;
         for (; rit >= pvbDecrypted->begin() && cbPaddingBytes > 0; rit--, cbPaddingBytes--)
@@ -421,22 +421,22 @@ DecryptBuffer(
             }
         }
 
-        /*
-        ** our iterator should stop when cbPaddingBytes hits 0 normally, since
-        ** typically there is at least one byte of padding.
-        */
+        //
+        // our iterator should stop when cbPaddingBytes hits 0 normally, since
+        // typically there is at least one byte of padding.
+        //
         if (cbPaddingBytes != 0)
         {
             hr = MR2HR(MT_E_BAD_PADDING);
             goto error;
         }
 
-        /*
-        ** begin() + cb should point to the first byte of padding.
-        ** begin() + cb - 1 should therefore be the last byte of plaintext. the
-        ** iterator should land exactly on this spot, if we found the right
-        ** number of padding bytes.
-        */
+        //
+        // begin() + cb should point to the first byte of padding.
+        // begin() + cb - 1 should therefore be the last byte of plaintext. the
+        // iterator should land exactly on this spot, if we found the right
+        // number of padding bytes.
+        //
         if (rit != pvbDecrypted->begin() + cb - 1)
         {
             hr = MR2HR(MT_E_BAD_PADDING);
@@ -464,16 +464,16 @@ error:
     goto done;
 } // end function DecryptBuffer
 
-/*
-** dwCertStoreFlags tells user/machine store, like
-** CERT_SYSTEM_STORE_CURRENT_USER
-**
-** wszStoreName is like "my"
-** wszSubjectName is the subject the certificat is issued to
-**
-** I'm not sure this handles multiple certificates with the same subject well.
-** from this, you get the whole cert chain that can be walked up to the root.
-*/
+//
+// dwCertStoreFlags tells user/machine store, like
+// CERT_SYSTEM_STORE_CURRENT_USER
+//
+// wszStoreName is like "my"
+// wszSubjectName is the subject the certificat is issued to
+//
+// I'm not sure this handles multiple certificates with the same subject well.
+// from this, you get the whole cert chain that can be walked up to the root.
+//
 _Use_decl_annotations_
 HRESULT
 LookupCertificate(
@@ -547,10 +547,10 @@ error:
     goto done;
 } // end function LookupCertificate
 
-/*
-** given a cert context, fetch a crypto provider + the private key. Of course,
-** you have to have imported the private key previously for this to work.
-*/
+//
+// given a cert context, fetch a crypto provider + the private key. Of course,
+// you have to have imported the private key previously for this to work.
+//
 _Use_decl_annotations_
 HRESULT
 GetPrivateKeyFromCertificate(
@@ -608,17 +608,17 @@ error:
     goto done;
 } // end function GetPrivateKeyFromCertificate
 
-/*
-** the hoops this function has to jump through to get the public key are just
-** silly.
-**
-** 1. acquire the private key provider
-** 2. use that to get the associated public key (???)
-** 3. export the public key as a blob
-** 4. import the public key into an ephemeral key container
-**
-** why can't we just get at the public key directly? I don't get it.
-*/
+//
+// the hoops this function has to jump through to get the public key are just
+// silly.
+//
+// 1. acquire the private key provider
+// 2. use that to get the associated public key (???)
+// 3. export the public key as a blob
+// 4. import the public key into an ephemeral key container
+//
+// why can't we just get at the public key directly? I don't get it.
+//
 _Use_decl_annotations_
 HRESULT
 GetPublicKeyFromCertificate(
@@ -686,11 +686,11 @@ GetPublicKeyFromCertificate(
 
     PrintByteVector(&vbPublicKeyInfo);
 
-    /*
-    ** CRYPT_VERIFYCONTEXT, intuitively (/sarcasm), creates an ephemeral key
-    ** container, perfect for holding these temporary keys for the lifetime of
-    ** just this process
-    */
+    //
+    // CRYPT_VERIFYCONTEXT, intuitively (/sarcasm), creates an ephemeral key
+    // container, perfect for holding these temporary keys for the lifetime of
+    // just this process
+    //
     CHKWIN(CryptAcquireContextW(
              &hPubProv,
              NULL,
@@ -822,7 +822,7 @@ error:
 } // end function ImportSymmetricKey
 
 
-/*********** WindowsPublicKeyCipherer *****************/
+// ********* WindowsPublicKeyCipherer ****************
 
 WindowsPublicKeyCipherer::WindowsPublicKeyCipherer(
 )
@@ -945,7 +945,7 @@ error:
 } // end function EncryptBufferWithPrivateKey
 
 
-/*********** WindowsSymmetricCipherer *****************/
+// ********* WindowsSymmetricCipherer ****************
 
 WindowsSymmetricCipherer::WindowsSymmetricCipherer()
     : SymmetricCipherer(),
@@ -1130,7 +1130,7 @@ error:
 } // end function WindowsCipherAlgFromMTCipherAlg
 
 
-/*********** WindowsHasher *****************/
+// ********* WindowsHasher ****************
 
 _Use_decl_annotations_
 MTERR_T
@@ -1157,10 +1157,10 @@ WindowsHasher::Hash(
 
     CHKWINOKM(WindowsHashAlgFromMTHashInfo(pHashInfo, &algID));
 
-    /*
-    ** use the RSA/AES provider, the most fully featured one, and an ephemeral
-    ** key container (as specified by CRYPT_VERIFYCONTEXT).
-    */
+    //
+    // use the RSA/AES provider, the most fully featured one, and an ephemeral
+    // key container (as specified by CRYPT_VERIFYCONTEXT).
+    //
     CHKWINM(CryptAcquireContextW(
                 &hProv,
                 NULL,

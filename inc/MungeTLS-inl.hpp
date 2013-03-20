@@ -12,12 +12,12 @@ namespace MungeTLS
 
 using namespace std;
 
-/*********** Utility functions *****************/
+// ********* Utility functions ****************
 
-/*
-** Serializes a number of structures to a vector, contiguously. "T" here should
-** typically be a subclass of MT_Structure.
-*/
+//
+// Serializes a number of structures to a vector, contiguously. "T" here should
+// typically be a subclass of MT_Structure.
+//
 template <typename T>
 MTERR
 SerializeMessagesToVector(
@@ -77,10 +77,10 @@ SerializeMessagesToVector(
     return mr;
 } // end function SerializeMessagesToVector
 
-/*
-** considers pvb as a byte blob containing one or more structures of type T.
-** tries to parse all of the contiguous structures out of it
-*/
+//
+// considers pvb as a byte blob containing one or more structures of type T.
+// tries to parse all of the contiguous structures out of it
+//
 template <typename T>
 MTERR
 ParseStructures(
@@ -137,7 +137,7 @@ error:
 } // end function ParseStructures
 
 
-/*********** MT_VariableLengthFieldBase *****************/
+// ********* MT_VariableLengthFieldBase ****************
 
 template <typename T,
           size_t LengthFieldSize,
@@ -188,12 +188,12 @@ MT_VariableLengthFieldBase
 } // end function at
 
 
-/*********** MT_VariableLengthField *****************/
+// ********* MT_VariableLengthField ****************
 
-/*
-** parse a number of structures of type T out of a chunk of bytes. essentially,
-** T needs to be a subclass of MT_Structure
-*/
+//
+// parse a number of structures of type T out of a chunk of bytes. essentially,
+// T needs to be a subclass of MT_Structure
+//
 template <typename T,
           size_t LengthFieldSize,
           size_t MinSize,
@@ -237,10 +237,10 @@ MT_VariableLengthField
     {
         T elem;
 
-        /*
-        ** the overall vector declares that it's only taking up
-        ** cbTotalElementsSize bytes, so don't consume anything beyond that.
-        */
+        //
+        // the overall vector declares that it's only taking up
+        // cbTotalElementsSize bytes, so don't consume anything beyond that.
+        //
         CHKOK(elem.ParseFrom(pv, cbTotalElementsSize));
 
         GetData()->push_back(elem);
@@ -318,7 +318,7 @@ error:
 } // end function SerializePriv
 
 
-/*********** MT_VariableLengthByteField *****************/
+// ********* MT_VariableLengthByteField ****************
 
 template <size_t LengthFieldSize,
           size_t MinSize,
@@ -406,7 +406,7 @@ error:
 } // end function SerializePriv
 
 
-/*********** MT_FixedLengthStructureBase *****************/
+// ********* MT_FixedLengthStructureBase ****************
 
 template <typename T, size_t Size>
 MT_FixedLengthStructureBase<T, Size>::MT_FixedLengthStructureBase()
@@ -434,7 +434,7 @@ MT_FixedLengthStructureBase<T, Size>::at(
 } // end function at
 
 
-/*********** MT_FixedLengthStructure *****************/
+// ********* MT_FixedLengthStructure ****************
 
 template <typename T, size_t Size>
 _Use_decl_annotations_
@@ -521,7 +521,7 @@ MT_FixedLengthStructure<T, Size>::Length() const
 } // end function Length
 
 
-/*********** MT_FixedLengthByteStructure *****************/
+// ********* MT_FixedLengthByteStructure ****************
 
 template <size_t Size>
 _Use_decl_annotations_
@@ -575,7 +575,7 @@ MT_FixedLengthByteStructure<Size>::Length() const
 } // end function Length
 
 
-/*********** MT_PublicKeyEncryptedStructure *****************/
+// ********* MT_PublicKeyEncryptedStructure ****************
 
 template <typename T>
 MT_PublicKeyEncryptedStructure<T>::MT_PublicKeyEncryptedStructure()
@@ -643,7 +643,7 @@ error:
 } // end function DecryptStructure
 
 
-/*********** MT_ClientKeyExchange *****************/
+// ********* MT_ClientKeyExchange ****************
 
 template <typename KeyType>
 MT_ClientKeyExchange<KeyType>::MT_ClientKeyExchange()

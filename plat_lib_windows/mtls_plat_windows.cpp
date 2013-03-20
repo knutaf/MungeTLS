@@ -38,11 +38,11 @@ error:
     goto done;
 } // end function GetCurrentGMTTime
 
-/*
-** translates a SYSTEMTIME object into a 32-bit time value representing seconds
-** since midnight on Jan 1 1970 GMT, which is suitable for inclusion in the
-** "gmt_unix_time" field in the TLS RFC.
-*/
+//
+// translates a SYSTEMTIME object into a 32-bit time value representing seconds
+// since midnight on Jan 1 1970 GMT, which is suitable for inclusion in the
+// "gmt_unix_time" field in the TLS RFC.
+//
 _Use_decl_annotations_
 HRESULT
 EpochTimeFromSystemTime(

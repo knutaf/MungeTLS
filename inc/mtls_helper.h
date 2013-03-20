@@ -6,31 +6,31 @@
 namespace MungeTLS
 {
 
-/*
-** PLATFORM: needs to be implemented
-** same contract as SizeTToByte on Windows, but returning an MTERR
-*/
+//
+// PLATFORM: needs to be implemented
+// same contract as SizeTToByte on Windows, but returning an MTERR
+//
 MTERR
 MT_SizeTToByte(
     _In_ size_t s,
     _Out_ MT_BYTE* pb);
 
-/*
-** PLATFORM: needs to be implemented
-** same contract as SizeTSub on Windows, but returning an MTERR
-*/
+//
+// PLATFORM: needs to be implemented
+// same contract as SizeTSub on Windows, but returning an MTERR
+//
 MTERR
 MT_SizeTSub(
     _In_ size_t l,
     _In_ size_t r,
     _Out_ size_t* pOut);
 
-/*
-** PLATFORM: needs to be implemented
-** pTime should receive a 32-bit time value representing seconds since midnight
-** on Jan 1 1970 GMT, which is suitable for inclusion in the "gmt_unix_time"
-** field in the TLS RFC.
-*/
+//
+// PLATFORM: needs to be implemented
+// pTime should receive a 32-bit time value representing seconds since midnight
+// on Jan 1 1970 GMT, which is suitable for inclusion in the "gmt_unix_time"
+// field in the TLS RFC.
+//
 MTERR
 GetCurrentGMTTime(
     _Out_ MT_UINT32* pTime);
@@ -74,7 +74,7 @@ ResizeVector(
     _In_ typename ByteVector::size_type cb);
 
 
-/**************** Serializing helper functions and macros ****************/
+// ************* Serializing helper functions and macros ***************
 
 MTERR
 ParseByteVector(

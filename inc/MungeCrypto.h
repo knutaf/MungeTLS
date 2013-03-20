@@ -17,11 +17,11 @@ enum CipherAlg
     CipherAlg_AES_256
 };
 
-/*
-** stream, e.g. RC4
-** block, e.g. AES
-** asymmetric block, e.g. RSA
-*/
+//
+// stream, e.g. RC4
+// block, e.g. AES
+// asymmetric block, e.g. RSA
+//
 enum CipherType
 {
     CipherType_Stream,
@@ -29,11 +29,11 @@ enum CipherType
     CipherType_Asymmetric_Block
 };
 
-/*
-** cbKeyMaterialSize - size of the encryption key in bytes
-** cbIVSize - size of the initialization vector in bytes
-** cbBlockSize - size of the block produced by encrypting
-*/
+//
+// cbKeyMaterialSize - size of the encryption key in bytes
+// cbIVSize - size of the initialization vector in bytes
+// cbBlockSize - size of the block produced by encrypting
+//
 struct CipherInfo
 {
     CipherAlg alg;
@@ -60,11 +60,11 @@ enum HashAlg
     HashAlg_SHA256
 };
 
-/*
-** cbHashSize - size of the data produced by the hash
-** cbMACKeySize - size of the key used as input to a MAC using this hash algo
-**                (usually the same as the hash size)
-*/
+//
+// cbHashSize - size of the data produced by the hash
+// cbMACKeySize - size of the key used as input to a MAC using this hash algo
+//                (usually the same as the hash size)
+//
 struct HashInfo
 {
     HashAlg alg;
@@ -153,13 +153,13 @@ const HashInfo c_HashInfo_SHA256 =
     32,                               // MAC key size
 };
 
-/*
-** an interface used for encrypting and decrypting using public key
-** cryptography, e.g. RSA.
-**
-** PLATFORM: the app should implement these in an object for their specific
-** platform
-*/
+//
+// an interface used for encrypting and decrypting using public key
+// cryptography, e.g. RSA.
+//
+// PLATFORM: the app should implement these in an object for their specific
+// platform
+//
 class PublicKeyCipherer
 {
     public:
@@ -182,14 +182,14 @@ class PublicKeyCipherer
         _Out_ ByteVector* pvbEncrypted) const = 0;
 };
 
-/*
-** an interface used for simply encrypting and decrypting data using symmetric
-** encryption, such as RC4 or AES. In the RFC this is referred to as a "bulk
-** cipher".
-**
-** PLATFORM: the app should implement these in an object for their specific
-** platform
-*/
+//
+// an interface used for simply encrypting and decrypting data using symmetric
+// encryption, such as RC4 or AES. In the RFC this is referred to as a "bulk
+// cipher".
+//
+// PLATFORM: the app should implement these in an object for their specific
+// platform
+//
 class SymmetricCipherer
 {
     public:
@@ -222,13 +222,13 @@ class SymmetricCipherer
     CipherInfo m_cipherInfo;
 };
 
-/*
-** an interface for hashing data and performing a HMAC (hashed message
-** authentication code).
-**
-** PLATFORM: the app should implement these in an object for their specific
-** platform
-*/
+//
+// an interface for hashing data and performing a HMAC (hashed message
+// authentication code).
+//
+// PLATFORM: the app should implement these in an object for their specific
+// platform
+//
 class Hasher
 {
     public:
