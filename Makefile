@@ -2,7 +2,8 @@
 #   later
 C_FLAGS=\
     $(C_FLAGS) \
-    /wd4505 \
+    /W4        \
+    /wd4505    \
 
     # to enable static analysis
     #/analyze:log analyze.xml \
