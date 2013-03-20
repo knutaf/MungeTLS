@@ -8,6 +8,11 @@
 #include "MungeCrypto.h"
 
 /*
+** For callers of MungeTLS, the contract that must be implemented by the
+** calling app is ITLSListener (see below).
+*/
+
+/*
 ** implementation notes:
 ** - I am sacrificing a lot in terms of const-ability in favor of being
 **   generous about the const-ness of crypto operations like hashing and
@@ -1255,7 +1260,8 @@ class ITLSListener
     /*
     ** called during the handshake when filling in ServerHello.server_version
     ** app should modify pProtocolVersion to set the version they want, or
-    ** return MT_S_LISTENER_IGNORED to use ClientHello.client_version
+    ** return MT_S_LISTENER_IGNORED to automatically use
+    ** ClientHello.client_version
     */
     virtual
     MTERR
@@ -1266,8 +1272,8 @@ class ITLSListener
     ** called during handshake to choose the cipher suite to be used in the
     ** TLS connection. the app should set pCipherSuite to indicate which
     ** to use. the ClientHello message is passed in so the app can see the
-    ** available options. Of course, it can pick something out of the list for
-    ** testing if it wants
+    ** available options advertised by the client. Of course, it can pick
+    ** something outside of the list for testing if it wants
     **
     ** if the app returns MT_S_LISTENER_IGNORED, MTLS chooses from a built-in
     ** list (c_rgeCipherSuitePreference)
@@ -1278,9 +1284,11 @@ class ITLSListener
         _Out_ MT_CipherSuite* pCipherSuite) = 0;
 
     /*
-    ** caller can choose flags for handshake messages. at this point the only
-    ** choice is whether consecutive handshake messages should be combined into
-    ** a single record layer message or separate ones
+    ** caller can change some behavior for handshake messages. see the
+    ** available MT_CREATINGHANDSHAKE_* flags. at this point the only choice is
+    ** whether consecutive handshake messages should be combined into a single
+    ** record layer message or separate ones. caller can return
+    ** MT_S_LISTENER_IGNORED to use safe defaults.
     */
     virtual
     MTERR
@@ -1289,16 +1297,16 @@ class ITLSListener
         _Inout_ MT_UINT32* pfFlags) = 0;
 
     /*
-    ** tells the app that the handshake is complete, and they can start sending
-    ** application layer data. of course, they could always try to send app
-    ** data messages earlier for testing purposes
+    ** tells the app that the handshake is complete, and it can start sending
+    ** application layer data using EnqueueSendApplicationData. of course, it
+    ** could always try to send app data messages earlier for testing purposes
     */
     virtual MTERR OnHandshakeComplete() = 0;
 
     /*
     ** called when MTLS has readied a record layer message to be sent. this is
     ** called with the plaintext version of the message regardless of whether
-    ** it is going to be transmitted as encrypted, generally for logging
+    ** it is going to be transmitted as ciphertext--useful for logging
     ** purposes
     */
     virtual
@@ -1316,7 +1324,7 @@ class ITLSListener
 
     /*
     ** called when a record layer message is received with a different version
-    ** than the current connection parameters know about. usually indicates a
+    ** than the current connection parameters are using. sometimes indicates a
     ** bug in the other side's TLS implementation
     */
     virtual

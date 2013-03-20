@@ -155,8 +155,10 @@ const HashInfo c_HashInfo_SHA256 =
 
 /*
 ** an interface used for encrypting and decrypting using public key
-** cryptography, e.g. RSA. the app should implement these in an object for
-** their specific platform
+** cryptography, e.g. RSA.
+**
+** PLATFORM: the app should implement these in an object for their specific
+** platform
 */
 class PublicKeyCipherer
 {
@@ -183,7 +185,10 @@ class PublicKeyCipherer
 /*
 ** an interface used for simply encrypting and decrypting data using symmetric
 ** encryption, such as RC4 or AES. In the RFC this is referred to as a "bulk
-** cipher". apps will implement this interface for their platform
+** cipher".
+**
+** PLATFORM: the app should implement these in an object for their specific
+** platform
 */
 class SymmetricCipherer
 {
@@ -219,8 +224,10 @@ class SymmetricCipherer
 
 /*
 ** an interface for hashing data and performing a HMAC (hashed message
-** authentication code). an app should implement this for their platform. Since
-** hashing is usually stateless, there is no Initialize function here.
+** authentication code).
+**
+** PLATFORM: the app should implement these in an object for their specific
+** platform
 */
 class Hasher
 {

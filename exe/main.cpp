@@ -18,7 +18,7 @@ using namespace std;
 using namespace MungeTLS;
 
 /*
-** Much of this is taken with little modification from an MSDN sockets sample,
+** Some of this is taken with little modification from an MSDN sockets sample,
 ** so the coding style differs a little from all the other code in the project.
 */
 int __cdecl wmain(_In_ int argc, _In_reads_(argc) wchar_t* argv[])

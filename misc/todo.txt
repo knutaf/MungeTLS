@@ -3,6 +3,12 @@ BUGS:
 - tls 1.2 openssl doesn't renegotiate properly, but only when using MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
 
 WORK:
+- rename ITLSListener as ITLSServerListener
+  - and accompanying functions
+- change comment style to // instead of **
+- make OnEnqueuePlaintext and OnReceivingPlaintext allow modifying the message. as part of this I'll need to make sure it's called BEFORE encryption
+- consolidate coding style of main.cpp
+- add lots of comments to main.cpp
 
 - TLS CLIENT
   - if we have our own client impl, we can also implement some wonky compression scheme
