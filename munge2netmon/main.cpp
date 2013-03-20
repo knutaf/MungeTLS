@@ -176,8 +176,6 @@ HRESULT ConvertTrafficFiles(PCWSTR wszDir)
         wsFilePath += L"\\";
         wsFilePath += pFindData->cFileName;
 
-        hr = GetFileContents(wsFilePath.c_str(), pFindData->nFileSizeLow, &vbFrame);
-
         if (regex_match(wsFilePath, c_rxRead))
         {
             bFrameFlags |= c_bFlags_Receive;
@@ -188,7 +186,9 @@ HRESULT ConvertTrafficFiles(PCWSTR wszDir)
         }
         else
         {
-            assert(false);
+            wprintf(L"skipping unrecognized file %s\n", wsFilePath.c_str());
+            hr = S_FALSE;
+            goto done;
         }
 
         if (regex_match(wsFilePath, c_rxEncrypted))
@@ -197,6 +197,12 @@ HRESULT ConvertTrafficFiles(PCWSTR wszDir)
         }
 
         wprintf(L"flags: %02X\n", bFrameFlags);
+
+        hr = GetFileContents(wsFilePath.c_str(), pFindData->nFileSizeLow, &vbFrame);
+        if (hr != S_OK)
+        {
+            goto error;
+        }
 
         vbFrame.insert(vbFrame.begin(), bFrameFlags);
 
@@ -224,7 +230,7 @@ HRESULT ConvertTrafficFiles(PCWSTR wszDir)
 
         nFile++;
 
-error:
+done:
         if (hFrame != NULL)
         {
             NmCloseHandle(hFrame);
@@ -232,6 +238,9 @@ error:
         }
 
         return hr;
+
+error:
+        goto done;
     });
 
 error:
