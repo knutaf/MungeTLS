@@ -726,7 +726,7 @@ error:
 // convert between windows specific type and MungeTLS platform agnostic one
 _Use_decl_annotations_
 HRESULT
-MTCertChainFromWinChain(
+MTCertChainFromWinCertChain(
     PCCERT_CHAIN_CONTEXT pWinChain,
     MT_CertificateList* pMTChain
 )
@@ -753,7 +753,7 @@ MTCertChainFromWinChain(
     }
 
     return S_OK;
-} // end function MTCertChainFromWinChain
+} // end function MTCertChainFromWinCertChain
 
 _Use_decl_annotations_
 HRESULT

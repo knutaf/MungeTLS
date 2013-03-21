@@ -138,7 +138,7 @@ GetPublicKeyFromCertificate(
     _Out_ KeyAndProv* pPublicKey);
 
 HRESULT
-MTCertChainFromWinChain(
+MTCertChainFromWinCertChain(
     _In_ PCCERT_CHAIN_CONTEXT pWinChain,
     _Out_ MT_CertificateList* pMTChain);
 

@@ -143,6 +143,7 @@ error:
 // - generate one or more synchronous callbacks to the app to request input
 //   into the handshake process
 // - pass on application data to the app
+// - if we consumed any data from pvb, erase it from the front of the vector
 //
 _Use_decl_annotations_
 MTERR_T
