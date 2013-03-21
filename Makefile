@@ -40,7 +40,7 @@ all:
 	$(MAKE)
 	cd ..
 
-clean:
+clean: cleanup
 	set H_FILES=$(H_FILES)
 	set INCLUDES=$(INCLUDES)
 	set C_DEFINES=$(C_DEFINES)
@@ -57,3 +57,7 @@ clean:
 
 cleanup:
 	del /s *.ilk vc11* *.obj *.pch *.pchast analyze.xml
+	del /q out\*_
+	del *.log
+	del *.cap
+	del changedesc.txt
