@@ -11,8 +11,9 @@
 
 <p>certutil.exe should already be in your PATH, since it comes with Windows.</p>
 
-<p>Run <code>misc\create_cert.cmd</code><br />
-accept whatever warnings it pops up</p>
+<p>Run <code>misc\add_certs.cmd</code><br />
+This adds some test certificates for the server. Accept whatever warnings it pops up<br />
+You should delete the certificates later by running <code>misc\del_certs.cmd</code>.</p>
 
 <p>Add the following line to your hosts file (on Windows, <code>%windir%\system32\drivers\etc\hosts</code>):<br />
 <code>127.0.0.1 mtls-test</code></p>
