@@ -31,6 +31,8 @@ StringFromInt(
     _In_ N n
 );
 
+void Usage();
+
 int
 __cdecl
 wmain(
@@ -38,21 +40,46 @@ wmain(
     _In_reads_(argc) wchar_t* argv[]
 )
 {
-    UNREFERENCED_PARAMETER(argc);
-    UNREFERENCED_PARAMETER(argv);
-
     HRESULT hr = S_OK;
+    WORD wPort = 0;
 
     SOCKET sockListen = INVALID_SOCKET;
 
-    // standard winsock initialization
-    WSADATA wsaData = {0};
-    int iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
-    if (iResult != NO_ERROR)
+    if (argc > 2)
     {
-        wprintf(L"Error at WSAStartup(): %d\n", iResult);
-        hr = HRESULT_FROM_WIN32(iResult);
+        if (wcscmp(argv[1], L"-p") == 0)
+        {
+            DWORD dwPort = _wtoi(argv[2]);
+            if (dwPort > 65535)
+            {
+                wprintf(L"invalid port number\n");
+                goto error;
+            }
+
+            wPort = static_cast<WORD>(dwPort);
+        }
+        else
+        {
+            Usage();
+            goto error;
+        }
+    }
+    else
+    {
+        Usage();
         goto error;
+    }
+
+    {
+        // standard winsock initialization
+        WSADATA wsaData = {0};
+        int iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
+        if (iResult != NO_ERROR)
+        {
+            wprintf(L"Error at WSAStartup(): %d\n", iResult);
+            hr = HRESULT_FROM_WIN32(iResult);
+            goto error;
+        }
     }
 
     // TCP socket
@@ -68,7 +95,7 @@ wmain(
     sockaddr_in service;
     service.sin_family = AF_INET;
     service.sin_addr.s_addr = 0;
-    service.sin_port = htons(8879);
+    service.sin_port = htons(wPort);
 
     if (bind(
           sockListen,
@@ -91,7 +118,7 @@ wmain(
     for(;;)
     {
         // blocks until an incoming connection occurs
-        wprintf(L"Waiting for client to connect...\n");
+        wprintf(L"Waiting for client to connect on port %u...\n", wPort);
         SOCKET sockAccept = accept( sockListen, NULL, NULL );
 
         if (sockAccept == INVALID_SOCKET)
@@ -994,3 +1021,9 @@ StringFromInt(
     s << n;
     return s.str();
 } // end function StringFromInt
+
+void Usage()
+{
+    wprintf(L"Usage: MungeTLS.exe -p port_number\n"
+            L"    starts the web server listening on the specified port\n");
+}
