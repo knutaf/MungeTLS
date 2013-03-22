@@ -57,7 +57,6 @@ clean: cleanup
 
 cleanup:
 	del /s *.ilk vc11* *.obj *.pch *.pchast analyze.xml
-	del /q out\*_
 	del *.log
 	del *.cap
 	del changedesc.txt
