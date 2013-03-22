@@ -17,13 +17,6 @@
 using namespace std;
 using namespace MungeTLS;
 
-HRESULT
-LogTraffic(
-    _In_ ULONG nFile,
-    _In_ const wstring* pwsSuffix,
-    _In_ bool fActuallyEncrypted,
-    _In_ const ByteVector* pvb);
-
 template <typename N>
 _Check_return_
 wstring
@@ -32,6 +25,18 @@ StringFromInt(
 );
 
 void Usage();
+
+BOOL
+WINAPI
+MtlsMainCtrlHandler(
+  _In_ DWORD dwCtrlType
+);
+
+_Check_return_
+bool
+IsNetmonInstalled();
+
+SimpleHTTPConnection* g_pCurrentConnection = nullptr;
 
 int
 __cdecl
@@ -69,6 +74,9 @@ wmain(
         Usage();
         goto error;
     }
+
+    // this lets us clean up cleanly when the user does a CTRL-C
+    CHKWIN(SetConsoleCtrlHandler(MtlsMainCtrlHandler, TRUE));
 
     {
         // standard winsock initialization
@@ -136,12 +144,18 @@ wmain(
             // otherwise closed (say, forcibly closed due to an error on this
             // side).
             //
-            SimpleHTTPServer server(sockAccept);
-            hr = server.ProcessConnection();
+            assert(g_pCurrentConnection == nullptr);
+
+            g_pCurrentConnection = new SimpleHTTPConnection(sockAccept);
+
+            hr = g_pCurrentConnection->ProcessConnection();
             if (hr != S_OK)
             {
                 wprintf(L"warning: failed in ProcessConnection: %08LX\n", hr);
             }
+
+            delete g_pCurrentConnection;
+            g_pCurrentConnection = nullptr;
         }
 
         if (sockAccept != INVALID_SOCKET)
@@ -174,7 +188,7 @@ error:
 // call in this function.
 //
 HRESULT
-SimpleHTTPServer::ProcessConnection()
+SimpleHTTPConnection::ProcessConnection()
 {
     const size_t c_cbReadBuffer = 5000;
     const size_t c_cbMaxRecvSize = 5000;
@@ -187,6 +201,17 @@ SimpleHTTPServer::ProcessConnection()
     int cbAvailable;
     MTERR mr = MT_S_OK;
     HRESULT hr = S_OK;
+
+#ifdef WITH_NETMON
+    if (IsNetmonInstalled())
+    {
+        hr = GetNMLogger()->Initialize(L"cap.cap");
+        if (hr != S_OK)
+        {
+            wprintf(L"failed to initialize Netmon logger. no traffic logging will occur. err=%08LX\n", hr);
+        }
+    }
+#endif
 
     CHKOK(GetConnection()->Initialize());
 
@@ -230,7 +255,7 @@ SimpleHTTPServer::ProcessConnection()
         while (mr == MT_S_OK)
         {
             //
-            // HandleMessage reenters SimpleHTTPServer in callbacks, which can
+            // HandleMessage reenters SimpleHTTPConnection in callbacks, which can
             // result in queuing up traffic to send. check right now and
             // send any pending traffic
             //
@@ -351,7 +376,7 @@ error:
 //
 _Use_decl_annotations_
 MTERR_T
-SimpleHTTPServer::OnSend(
+SimpleHTTPConnection::OnSend(
     const ByteVector* pvb
 )
 {
@@ -373,7 +398,7 @@ SimpleHTTPServer::OnSend(
 //
 _Use_decl_annotations_
 MTERR_T
-SimpleHTTPServer::OnInitializeCrypto(
+SimpleHTTPConnection::OnInitializeCrypto(
     MT_CertificateList* pCertChain,
     shared_ptr<PublicKeyCipherer>* pspPubKeyCipherer,
     shared_ptr<SymmetricCipherer>* pspClientSymCipherer,
@@ -446,7 +471,7 @@ error:
 //
 _Use_decl_annotations_
 MTERR_T
-SimpleHTTPServer::OnSelectProtocolVersion(
+SimpleHTTPConnection::OnSelectProtocolVersion(
     MT_ProtocolVersion* pProtocolVersion
 )
 {
@@ -464,7 +489,7 @@ SimpleHTTPServer::OnSelectProtocolVersion(
 //
 _Use_decl_annotations_
 MTERR_T
-SimpleHTTPServer::OnSelectCipherSuite(
+SimpleHTTPConnection::OnSelectCipherSuite(
     const MT_ClientHello* pClientHello,
     MT_CipherSuite* pCipherSuite
 )
@@ -521,7 +546,7 @@ error:
 //
 _Use_decl_annotations_
 MTERR_T
-SimpleHTTPServer::OnCreatingHandshakeMessage(
+SimpleHTTPConnection::OnCreatingHandshakeMessage(
     MT_Handshake* pHandshake,
     MT_UINT32* pfFlags
 )
@@ -545,7 +570,7 @@ SimpleHTTPServer::OnCreatingHandshakeMessage(
 //
 _Use_decl_annotations_
 MTERR_T
-SimpleHTTPServer::OnHandshakeComplete()
+SimpleHTTPConnection::OnHandshakeComplete()
 {
     MTERR mr = MT_S_OK;
 
@@ -571,7 +596,7 @@ error:
 //
 _Use_decl_annotations_
 HRESULT
-SimpleHTTPServer::EnqueueSendApplicationData(
+SimpleHTTPConnection::EnqueueSendApplicationData(
     const ByteVector* pvb
 )
 {
@@ -632,7 +657,7 @@ error:
 //
 _Use_decl_annotations_
 MTERR_T
-SimpleHTTPServer::OnReceivedApplicationData(
+SimpleHTTPConnection::OnReceivedApplicationData(
     const ByteVector* pvb
 )
 {
@@ -797,29 +822,56 @@ error:
 // the application has a last chance to modify the message prior to it being
 // sealed for encryption. it is also a useful place to log the message
 //
-// for this server, we actually log the raw bytes of the message in a special
-// format. see the notes for LogTraffic
+// for this server, we actually log the payload of the message in a Netmon
+// capture file, if Netmon is installed on the system.
 //
 _Use_decl_annotations_
 MTERR_T
-SimpleHTTPServer::OnEnqueuePlaintext(
+SimpleHTTPConnection::OnEnqueuePlaintext(
     MT_TLSPlaintext* pPlaintext,
     bool fActuallyEncrypted
 )
 {
+    return LogTraffic(false, fActuallyEncrypted, pPlaintext);
+} // end function OnEnqueuePlaintext
+
+//
+// MungeTLS calls this when it has just decrypted a message, before doing any
+// other processing on it. The application can modify the message (though
+// doing so indiscriminately can cause the TLS protocol to fail), but here we
+// just log the traffic in a Netmon capture file if Netmon is installed on the
+// system
+//
+_Use_decl_annotations_
+MTERR_T
+SimpleHTTPConnection::OnReceivingPlaintext(
+    MT_TLSPlaintext* pPlaintext,
+    bool fActuallyEncrypted
+)
+{
+    return LogTraffic(true, fActuallyEncrypted, pPlaintext);
+} // end function OnReceivingPlaintext
+
+_Use_decl_annotations_
+MTERR_T
+SimpleHTTPConnection::LogTraffic(
+    bool fClientToServer,
+    bool fActuallyEncrypted,
+    const MT_TLSPlaintext* pPlaintext)
+{
+#ifdef WITH_NETMON
     MTERR mr = MT_S_OK;
-    ByteVector vb;
 
-    //
-    // "w" means "write", as in, from the server's point of view, we are
-    // writing data back to the client
-    //
-    wstring wsLogPrefix(L"w");
+    if (IsNetmonInstalled())
+    {
+        ByteVector vb;
+        CHKOK(pPlaintext->SerializeToVect(&vb));
 
-    CHKOK(pPlaintext->SerializeToVect(&vb));
-
-    LogTraffic(m_cMessages, &wsLogPrefix, fActuallyEncrypted, &vb);
-    m_cMessages++;
+        (void)GetNMLogger()->LogTraffic(
+                                 fClientToServer,
+                                 fActuallyEncrypted,
+                                 &vb);
+    }
 
 done:
     //
@@ -827,44 +879,18 @@ done:
     // structure that I forgot to implement SerializePriv() for
     //
     assert(mr != MT_E_NOTIMPL);
-
     return mr;
 
 error:
     goto done;
-} // end function OnEnqueuePlaintext
 
-//
-// MungeTLS calls this when it has just decrypted a message, before doing any
-// other processing on it. The application can modify the message (though
-// doing so indiscriminately can cause the TLS protocol to fail), but here we
-// just log the traffic. See notes for LogTraffic on the special format we log
-// it in
-//
-_Use_decl_annotations_
-MTERR_T
-SimpleHTTPServer::OnReceivingPlaintext(
-    MT_TLSPlaintext* pPlaintext,
-    bool fActuallyEncrypted
-)
-{
-    MTERR mr = MT_S_OK;
-    ByteVector vb;
-    wstring wsLogPrefix(L"r");
-
-    CHKOK(pPlaintext->SerializeToVect(&vb));
-
-    LogTraffic(m_cMessages, &wsLogPrefix, fActuallyEncrypted, &vb);
-    m_cMessages++;
-
-done:
-    // debugger break when I've forgotten to implement serialization for struct
-    assert(mr != MT_E_NOTIMPL);
-    return mr;
-
-error:
-    goto done;
-} // end function OnReceivingPlaintext
+#else // ifdef WITH_NETMON
+    UNREFERENCED_PARAMETER(fClientToServer);
+    UNREFERENCED_PARAMETER(fActuallyEncrypted);
+    UNREFERENCED_PARAMETER(pPlaintext);
+    return MT_S_OK;
+#endif // ifdef WITH_NETMON
+} // end function LogTraffic
 
 //
 // MungeTLS calls this if it is about to check the security of a record it has
@@ -882,7 +908,7 @@ error:
 //
 _Use_decl_annotations_
 MTERR_T
-SimpleHTTPServer::OnReconcileSecurityVersion(
+SimpleHTTPConnection::OnReconcileSecurityVersion(
     const MT_TLSCiphertext* pCiphertext,
     MT_ProtocolVersion::MTPV_Version connVersion,
     MT_ProtocolVersion::MTPV_Version recordVersion,
@@ -908,107 +934,61 @@ SimpleHTTPServer::OnReconcileSecurityVersion(
 } // end function OnReconcileSecurityVersion
 
 //
-// The server calls this function to log the raw bytes of inbound and outbound
-// traffic. We log it with a specific format that makes it suitable for
-// parsing by the "munge2netmon" companion tool, which can take the raw traffic
-// and turn it into a Netmon capture, which can be viewed for easy traffic
-// parsing and inspection
+// The runtime calls this function if the user presses CTRL-C, CTRL-BREAK, or
+// if the console window is being closed. This gives us the chance to cleanly
+// delete the current connection in progress before exiting.
+//
+// Specifically, we need to make sure to close any Netmon capture file we have
+// open, or the latest frames we've written may not be flushed.
 //
 _Use_decl_annotations_
-HRESULT
-LogTraffic(
-    ULONG nFile,
-    const wstring* pwsSuffix,
-    bool fActuallyEncrypted,
-    const ByteVector* pvb
+BOOL
+WINAPI
+MtlsMainCtrlHandler(
+    DWORD dwCtrlType
 )
 {
-    HRESULT hr = S_OK;
+    UNREFERENCED_PARAMETER(dwCtrlType);
 
-    // dump log file in the "out" subdirectory
-    wstring wsFilename(L"out\\");
-    HANDLE hOutfile = INVALID_HANDLE_VALUE;
-
-    // supports up to 1000 messages
-    for (ULONG i = nFile; i < 1000; i *= 10)
+    if (g_pCurrentConnection != nullptr)
     {
-        if (i == 0)
+        wprintf(L"closing current SimpleHTTPConnection\n");
+        delete g_pCurrentConnection;
+        g_pCurrentConnection = nullptr;
+    }
+
+    return FALSE;
+} // end function MtlsMainCtrlHandler
+
+//
+// Runtime detection of whether Netmon is installed, by trying to LoadLibrary
+// on NMAPI.dll. We need to detect this before trying to call any of the
+// Netmon-related functionality to avoid an exception in the delayload handler
+//
+_Use_decl_annotations_
+bool
+IsNetmonInstalled()
+{
+    static bool fDetected = false;
+    static bool fHasSupport = false;
+
+    if (!fDetected)
+    {
+        HMODULE hNMAPI = LoadLibraryW(L"nmapi.dll");
+        if (hNMAPI != NULL)
         {
-            i++;
+            fHasSupport = true;
+            FreeLibrary(hNMAPI);
+            hNMAPI = NULL;
         }
 
-        wsFilename += L"0";
+        fDetected = true;
+
+        wprintf(L"Netmon logging is%s available\n", fHasSupport ? L"" : L" not");
     }
 
-    wsFilename += StringFromInt(nFile);
-    wsFilename += L"_";
-    wsFilename += *pwsSuffix;
-
-    if (fActuallyEncrypted)
-    {
-        wsFilename += L"_c";
-    }
-
-    wsFilename += L"_";
-
-    hOutfile = CreateFileW(
-                   wsFilename.c_str(),
-                   GENERIC_WRITE,
-                   0,
-                   NULL,
-                   CREATE_ALWAYS,
-                   FILE_ATTRIBUTE_NORMAL,
-                   NULL);
-
-    if (hOutfile != INVALID_HANDLE_VALUE)
-    {
-        // lazy code - fail if we can't write the whole message at once
-        DWORD cbWritten = 0;
-
-        CHKWIN(WriteFile(
-                 hOutfile,
-                 &pvb->front(),
-                 static_cast<DWORD>(pvb->size()),
-                 &cbWritten,
-                 NULL));
-
-        if (cbWritten != pvb->size())
-        {
-            wprintf(L"only wrote %u bytes of %Iu\n", cbWritten, pvb->size());
-            hr = E_FAIL;
-            goto error;
-        }
-
-        wprintf(L"logged %u bytes of traffic '%s' to %s\n", cbWritten, pwsSuffix->c_str(), wsFilename.c_str());
-    }
-
-    // most common cause of failing is the "out" directory not existing
-    else
-    {
-        hr = HRESULT_FROM_WIN32(GetLastError());
-
-        static bool fWarnedAboutLogFile = false;
-
-        if (!fWarnedAboutLogFile)
-        {
-            wprintf(L"warning: failed to create traffic log file: %s (%08LX)\n", wsFilename.c_str(), hr);
-            fWarnedAboutLogFile = true;
-        }
-        goto error;
-    }
-
-done:
-    if (hOutfile != INVALID_HANDLE_VALUE)
-    {
-        CloseHandle(hOutfile);
-        hOutfile = INVALID_HANDLE_VALUE;
-    }
-
-    return hr;
-
-error:
-    goto done;
-} // end function LogTraffic
+    return fHasSupport;
+} // end function IsNetmonInstalled
 
 template <typename N>
 _Check_return_
@@ -1025,5 +1005,6 @@ StringFromInt(
 void Usage()
 {
     wprintf(L"Usage: MungeTLS.exe -p port_number\n"
-            L"    starts the web server listening on the specified port\n");
-}
+            L"    starts the web server listening on the specified port\n"
+            L"    If Netmon 3.4 is installed, it will automatically log traffic to .\\cap.cap\n");
+} // end function Usage

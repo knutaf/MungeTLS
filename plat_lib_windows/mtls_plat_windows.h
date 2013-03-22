@@ -13,57 +13,68 @@ namespace MungeTLS
 MTERR HR2MR(_In_ HRESULT hr);
 HRESULT MR2HR(_In_ MTERR mr);
 
-#define CHKNUL(stmt)                                        \
-{                                                           \
-    if (NULL == (stmt))                                     \
-    {                                                       \
-        hr = HRESULT_FROM_WIN32(GetLastError());            \
-        LOGFAIL(L"NULL", (stmt), hr);                       \
-        goto error;                                         \
-    }                                                       \
-}                                                           \
+#define CHKNUL(stmt)                                                      \
+{                                                                         \
+    if (NULL == (stmt))                                                   \
+    {                                                                     \
+        hr = HRESULT_FROM_WIN32(GetLastError());                          \
+        LOGFAIL(L"NULL", (stmt), hr);                                     \
+        goto error;                                                       \
+    }                                                                     \
+}                                                                         \
 
-#define CHKWINOK(stmt)                                      \
-{                                                           \
-    hr = (stmt);                                            \
-    if (hr != S_OK)                                         \
-    {                                                       \
-        LOGFAIL(L"!= S_OK", (stmt), hr);                    \
-        goto error;                                         \
-    }                                                       \
-}                                                           \
+#define CHKWINOK(stmt)                                                    \
+{                                                                         \
+    hr = (stmt);                                                          \
+    if (hr != S_OK)                                                       \
+    {                                                                     \
+        LOGFAIL(L"!= S_OK", (stmt), hr);                                  \
+        goto error;                                                       \
+    }                                                                     \
+}                                                                         \
 
-#define CHKWINOKM(stmt)                                     \
-{                                                           \
-    hr = (stmt);                                            \
-    mr = HR2MR(hr);                                         \
-    if (hr != S_OK)                                         \
-    {                                                       \
-        LOGFAIL(L"!= S_OK", (stmt), hr);                    \
-        goto error;                                         \
-    }                                                       \
-}                                                           \
+#define CHKWINOKM(stmt)                                                   \
+{                                                                         \
+    hr = (stmt);                                                          \
+    mr = HR2MR(hr);                                                       \
+    if (hr != S_OK)                                                       \
+    {                                                                     \
+        LOGFAIL(L"!= S_OK", (stmt), hr);                                  \
+        goto error;                                                       \
+    }                                                                     \
+}                                                                         \
 
-#define CHKWIN(stmt)                                        \
-{                                                           \
-    if (!(stmt))                                            \
-    {                                                       \
-        hr = HRESULT_FROM_WIN32(GetLastError());            \
-        LOGFAIL(L"FALSE", (stmt), hr);                      \
-        goto error;                                         \
-    }                                                       \
-}                                                           \
+#define CHKWIN(stmt)                                                      \
+{                                                                         \
+    if (!(stmt))                                                          \
+    {                                                                     \
+        hr = HRESULT_FROM_WIN32(GetLastError());                          \
+        LOGFAIL(L"FALSE", (stmt), hr);                                    \
+        goto error;                                                       \
+    }                                                                     \
+}                                                                         \
 
-#define CHKWINM(stmt)                                       \
-{                                                           \
-    if (!(stmt))                                            \
-    {                                                       \
-        hr = HRESULT_FROM_WIN32(GetLastError());            \
-        mr = HR2MR(hr);                                     \
-        LOGFAIL(L"FALSE", (stmt), hr);                      \
-        goto error;                                         \
-    }                                                       \
-}                                                           \
+#define CHKWINERROR(stmt)                                                 \
+{                                                                         \
+    DWORD dwChkWinerrorTmp = (stmt);                                      \
+    if (dwChkWinerrorTmp != ERROR_SUCCESS)                                \
+    {                                                                     \
+        hr = HRESULT_FROM_WIN32(dwChkWinerrorTmp);                        \
+        LOGFAIL(L"!= ERROR_SUCCESS", (stmt), dwChkWinerrorTmp);           \
+        goto error;                                                       \
+    }                                                                     \
+}                                                                         \
+
+#define CHKWINM(stmt)                                                     \
+{                                                                         \
+    if (!(stmt))                                                          \
+    {                                                                     \
+        hr = HRESULT_FROM_WIN32(GetLastError());                          \
+        mr = HR2MR(hr);                                                   \
+        LOGFAIL(L"FALSE", (stmt), hr);                                    \
+        goto error;                                                       \
+    }                                                                     \
+}                                                                         \
 
 class KeyAndProv
 {

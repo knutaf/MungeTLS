@@ -7,23 +7,29 @@
 #include "MungeTLS.h"
 #include "mtls_plat_windows.h"
 
+#ifdef WITH_NETMON
+#include "NetmonLogger.h"
+#endif
+
 using namespace MungeTLS;
 
-class SimpleHTTPServer : public ITLSServerListener
+class SimpleHTTPConnection : public ITLSServerListener
 {
     public:
-    SimpleHTTPServer(_In_ SOCKET sockClient)
+    SimpleHTTPConnection(_In_ SOCKET sockClient)
         : m_vPendingSends(),
           m_con(this), // not a copy ctor; taking this as an ITLSServerListener
           m_sPendingRequest(""),
           m_iCipherSelected(0),
-          m_cMessages(0),
           m_cRequestsReceived(0),
           m_vbPendingAppData(),
+#ifdef WITH_NETMON
+          m_netmonLogger(),
+#endif
           m_sockClient(sockClient)
     { }
 
-    ~SimpleHTTPServer() { }
+    ~SimpleHTTPConnection() { }
 
     HRESULT ProcessConnection();
     HRESULT EnqueueSendApplicationData(_In_ const ByteVector* pvb);
@@ -78,6 +84,12 @@ class SimpleHTTPServer : public ITLSServerListener
     ACCESSORS(ByteVector, PendingResponse, m_vbPendingAppData);
 
     private:
+    MTERR
+    LogTraffic(
+        _In_ bool fClientToServer,
+        _In_ bool fActuallyEncrypted,
+        _In_ const MT_TLSPlaintext* pPlaintext);
+
     ACCESSORS(TLSConnection, Connection, m_con);
     ACCESSORS(std::string, PendingRequest, m_sPendingRequest);
     ACCESSORS(PCCERT_CHAIN_CONTEXT, CertChain, m_pCertChain);
@@ -93,7 +105,6 @@ class SimpleHTTPServer : public ITLSServerListener
     std::string m_sPendingRequest;
     PCCERT_CHAIN_CONTEXT m_pCertChain;
     ULONG m_iCipherSelected;
-    ULONG m_cMessages;
     ULONG m_cRequestsReceived;
     ByteVector m_vbPendingAppData;
     SOCKET m_sockClient;
@@ -102,5 +113,10 @@ class SimpleHTTPServer : public ITLSServerListener
     std::shared_ptr<WindowsSymmetricCipherer> m_spClientSymCipherer;
     std::shared_ptr<WindowsSymmetricCipherer> m_spServerSymCipherer;
     std::shared_ptr<WindowsHasher> m_spHasher;
+
+#ifdef WITH_NETMON
+    ACCESSORS(NetmonLogger, NMLogger, m_netmonLogger);
+    NetmonLogger m_netmonLogger;
+#endif
 };
 #endif
