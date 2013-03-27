@@ -505,6 +505,8 @@ TLSConnection::HandleHandshakeMessage(
                 // pick the library's preference out of the client list
                 if (mr == MT_S_LISTENER_IGNORED)
                 {
+                    mr = MT_S_OK;
+
                     MT_CipherSuiteValue ePreferred;
                     vector<MT_CipherSuiteValue> vValues(GetNextConn()->GetClientHello()->GetCipherSuites()->Count());
 
@@ -946,6 +948,8 @@ TLSConnection::AddHandshakeMessage(
     {
         goto error;
     }
+
+    mr = MT_S_OK;
 
     if (fCreateFlags & MT_CREATINGHANDSHAKE_COMBINE_HANDSHAKE)
     {
