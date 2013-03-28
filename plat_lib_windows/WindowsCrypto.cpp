@@ -317,12 +317,18 @@ DecryptBuffer(
         break;
 
         //
-        // what really makes me rage is that fFinal is TRUE for *decrypting*
-        // block ciphers, but FALSE for *encrypting* them. what is going on!?
+        // By setting fFinal to false here, we disable CryptoAPI's internal
+        // checking of padding. This gets around a problem where, if the
+        // payload is exactly blocksize-1 bytes, which would normally result
+        // in 0 bytes of padding, CryptDecrypt will fail if the value of the
+        // padding length is 0 (as it seemingly ought to be).
+        //
+        // so instead we don't rely on CryptoAPI to check the padding, and
+        // instead do it ourselves
         //
         case CipherType_Block:
         {
-            fFinal = TRUE;
+            fFinal = FALSE;
             *pvbDecrypted = *pvbEncrypted;
 
             if (pvbIV != nullptr)
@@ -383,23 +389,26 @@ DecryptBuffer(
     PrintByteVector(pvbDecrypted);
 
     //
-    // CryptDecrypt recognizes when the trailing end of a block is comprised of
-    // padding bytes, and sets cb (out-parameter from CryptDecrypt) to the
-    // length of the plaintext + 1, where that extra 1 contains the padding
-    // length value. Actually, it has filled through the end of the whole
-    // buffer with the correct padding string, and we'll want to return this
-    // whole buffer to present a consistent view with respect to block cipher
-    // padding.
+    // Because we are disabling CryptoAPI's internal padding check, in this
+    // next section, we verify that we have the correct padding format. As a
+    // reminder, the padding format is for the *value* of each padding byte to
+    // be the *number* of padding bytes needed, e.g. if 7 bytes of padding are
+    // needed, each of those padding bytes will contain the value 7. and there
+    // is a final byte on the end that also has 7, the number of padding bytes
+    // needed.
     //
-    // so in this next section, we verify that we have the correct padding
-    // format. As a reminder, the padding format is for the *value* of each
-    // padding byte to be the *number* of padding bytes needed, e.g. if 7 bytes
-    // of padding are needed, each of those padding bytes will contain the
-    // value 7. and there is a final byte on the end that also has 7, the
-    // number of padding bytes needed.
+    // this function's contract is to return the entire decrypted buffer,
+    // including padding bytes.
     //
     if (pCipherInfo->type == CipherType_Block)
     {
+        //
+        // since we are using fFinal==FALSE, CryptoAPI does no padding check
+        // internally, so it will always return a whole block size, i.e. the
+        // same size as the buffer that was passed in
+        //
+        assert(cb == pvbDecrypted->size());
+
         // get the padding length, which will also be the value
         BYTE paddingByteValue = pvbDecrypted->back();
         size_t cbPaddingBytes = paddingByteValue;
@@ -410,7 +419,6 @@ DecryptBuffer(
         // byte, verifying each byte has the correct value.
         //
         auto rit = pvbDecrypted->end() - 2;
-        cb--;
         for (; rit >= pvbDecrypted->begin() && cbPaddingBytes > 0; rit--, cbPaddingBytes--)
         {
             // each byte should have the value equal to the number of bytes
@@ -422,22 +430,10 @@ DecryptBuffer(
         }
 
         //
-        // our iterator should stop when cbPaddingBytes hits 0 normally, since
-        // typically there is at least one byte of padding.
+        // we have walked over all the padding bytes and verified they contain
+        // the correct padding value
         //
         if (cbPaddingBytes != 0)
-        {
-            hr = MR2HR(MT_E_BAD_PADDING);
-            goto error;
-        }
-
-        //
-        // begin() + cb should point to the first byte of padding.
-        // begin() + cb - 1 should therefore be the last byte of plaintext. the
-        // iterator should land exactly on this spot, if we found the right
-        // number of padding bytes.
-        //
-        if (rit != pvbDecrypted->begin() + cb - 1)
         {
             hr = MR2HR(MT_E_BAD_PADDING);
             goto error;
