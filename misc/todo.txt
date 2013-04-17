@@ -1,6 +1,4 @@
 BUGS:
-- sometimes we get a random decryption failure. type 9 characters
-- tls 1.2 openssl doesn't renegotiate properly, but only when using MTCS_TLS_RSA_WITH_AES_128_CBC_SHA
 
 WORK:
 
