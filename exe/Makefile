@@ -30,7 +30,7 @@ LINK_FLAGS=
 # you still need to have nmapi.h in your INCLUDES path and nmapi.lib in your
 # lib or libpath
 #
-!if [where NMAPI.dll] == 0
+!if [where NMAPI.dll > NUL] == 0
 # the NDIS define is needed for ntddndis.h in NetmonLogger.cpp
 C_DEFINES=$(C_DEFINES) -DWITH_NETMON -DUM_NDIS630=1
 
