@@ -425,7 +425,7 @@ SimpleHTTPConnection::OnInitializeCrypto(
     spPubKeyCipherer = shared_ptr<WindowsPublicKeyCipherer>(new WindowsPublicKeyCipherer());
 
     //
-    // the root cert context in the chain is element 0 in the 0th chain.
+    // the leaf cert context in the chain is element 0 in the 0th chain.
     // WindowsPublicKeyCipherer knows how to lookup the private key from this.
     //
     CHKOK(spPubKeyCipherer->Initialize(pCertChainCtx->rgpChain[0]->rgpElement[0]->pCertContext));
