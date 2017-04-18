@@ -11,7 +11,7 @@ Run `misc\add_certs.cmd`
 This adds some test certificates for the server. Accept whatever warnings it pops up.
 You should delete the certificates later by running `misc\del_certs.cmd`.
 
-Add the following line to your hosts file (on Windows, `%windir%\system32\drivers\etc\hosts`):
+Add the following line to your hosts file (on Windows, `%windir%\system32\drivers\etc\hosts`):  
 `127.0.0.1 mtls-test`
 
 Run `exe\MungeTLS.exe`
@@ -45,7 +45,7 @@ The application can work with [Netmon 3.4](http://www.microsoft.com/en-us/downlo
 To process and display the capture properly, you will need to configure Netmon to pick up the parser file at `misc\mungetls.npl`.
 
 1. In Netmon, go to your parser options and edit your current profile (might need to create a clone of it, if it's one of the built-in ones) and add the `misc` dir as part of your search path.
-1. Also in your parser profile properties, make note of a directory that looks something like `C:\Users\knutaf\AppData\Roaming\Microsoft\Network Monitor 3\5E0BBCD3-BB76-444D-815C-40299B3FF858`. In that folder, edit `my_sparsers.npl` and add the following line to it:
+1. Also in your parser profile properties, make note of a directory that looks something like `C:\Users\knutaf\AppData\Roaming\Microsoft\Network Monitor 3\5E0BBCD3-BB76-444D-815C-40299B3FF858`. In that folder, edit `my_sparsers.npl` and add the following line to it:  
 `include "mungetls.npl"`
 
 
